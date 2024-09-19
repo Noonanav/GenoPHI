@@ -1,0 +1,471 @@
+import os
+import pandas as pd
+import subprocess
+import logging
+from Bio import SeqIO
+
+# Set thread limits for libraries to prevent oversubscription
+os.environ['OMP_NUM_THREADS'] = '8'
+os.environ['OPENBLAS_NUM_THREADS'] = '8'
+os.environ['MKL_NUM_THREADS'] = '8'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '8'
+os.environ['NUMEXPR_NUM_THREADS'] = '8'
+os.environ['NUMBA_NUM_THREADS'] = '8'
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Utility Functions
+def load_strains(strain_list, strain_column):
+    """
+    Loads a list of strains from a CSV file and returns the unique strains.
+
+    Args:
+        strain_list (str): Path to the strain list CSV file.
+        strain_column (str): Name of the column that contains strain names.
+
+    Returns:
+        list: List of unique strain names.
+
+    Raises:
+        ValueError: If the specified column is not found in the file.
+        Exception: If an error occurs while reading the file.
+    """
+    try:
+        strains_df = pd.read_csv(strain_list)
+        if strain_column not in strains_df.columns:
+            raise ValueError(f"Column '{strain_column}' not found in strain list file.")
+        return list(strains_df[strain_column].unique())
+    except Exception as e:
+        logging.error(f"Error loading strain list: {e}")
+        raise
+
+def create_mmseqs_database(input_path, db_name, suffix, input_type, strains, threads):
+    """
+    Creates an MMseqs2 database from FASTA files.
+
+    Args:
+        input_path (str): Path to the input directory or file.
+        db_name (str): Name of the output MMseqs2 database.
+        suffix (str): Suffix for FASTA files to be included.
+        input_type (str): Type of input, either 'directory' or 'file'.
+        strains (list or None): List of strains to filter, or None for no filtering.
+        threads (int): Number of threads to use for MMseqs2.
+
+    Returns:
+        list: List of processed FASTA file paths.
+
+    Raises:
+        FileNotFoundError: If no matching FASTA files are found.
+    """
+    logging.info("Creating MMseqs2 database...")
+    fasta_files = []
+    if input_type == 'directory':
+        logging.info(f"Searching for FASTA files with suffix '{suffix}' in directory.")
+        for fasta in os.listdir(input_path):
+            if fasta.endswith(suffix):
+                strain_name = os.path.splitext(fasta)[0]
+                if strains is None or strain_name in strains:
+                    fasta_files.append(os.path.join(input_path, fasta))
+    else:
+        logging.info(f"Using input file: {input_path}")
+        fasta_files.append(input_path)
+    
+    if not fasta_files:
+        logging.error("No matching FASTA files found. Exiting.")
+        raise FileNotFoundError("No FASTA files to process.")
+    
+    fasta_files_str = " ".join(fasta_files)
+    createdb_command = f"mmseqs createdb {fasta_files_str} {db_name} -v 3"
+    logging.info(f"Running command: {createdb_command}")
+    subprocess.run(createdb_command, shell=True, check=True)
+    logging.info("MMseqs2 database created successfully.")
+    
+    return fasta_files
+
+def create_contig_to_genome_dict(fasta_files, input_type):
+    """
+    Creates a mapping from contigs to genomes based on input FASTA files.
+
+    Args:
+        fasta_files (list): List of FASTA file paths.
+        input_type (str): Type of input, either 'directory' or 'file'.
+
+    Returns:
+        tuple: Dictionary mapping contig IDs to genome names, and a list of genome names.
+    """
+    contig_to_genome = {}
+    genome_list = []
+    logging.info("Creating contig to genome dictionary...")
+    
+    if input_type == 'directory':
+        for fasta in fasta_files:
+            genome_name = os.path.basename(fasta).split(".")[0]
+            genome_list.append(genome_name)
+            for record in SeqIO.parse(fasta, "fasta"):
+                contig_to_genome[record.id] = genome_name
+    else:
+        for record in SeqIO.parse(fasta_files[0], "fasta"):
+            protein_id = record.id
+            genome_name = '_'.join(protein_id.split(' # ')[0].split('_')[:-1])
+            genome_list.append(genome_name)
+            contig_to_genome[protein_id] = genome_name
+        genome_list = list(set(genome_list))
+    
+    logging.info(f"Created contig to genome dictionary with {len(contig_to_genome)} entries.")
+    return contig_to_genome, genome_list
+
+def run_mmseqs_cluster(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads):
+    """
+    Runs MMseqs2 clustering and creates a clusters TSV file.
+
+    Args:
+        db_name (str): Path to the MMseqs2 database.
+        output_dir (str): Directory to save clustering results.
+        tmp_dir (str): Temporary directory for intermediate files.
+        coverage (float): Minimum coverage for clustering.
+        min_seq_id (float): Minimum sequence identity for clustering.
+        sensitivity (float): Sensitivity for clustering.
+        threads (int): Number of threads to use for clustering.
+
+    Returns:
+        str: Path to the clusters TSV file.
+    """
+    logging.info("Running MMseqs2 clustering...")
+    cluster_output = os.path.join(output_dir, "clusters")
+    cluster_command = (
+        f"mmseqs cluster {db_name} {cluster_output} {tmp_dir} "
+        f"-c {coverage} --min-seq-id {min_seq_id} -s {sensitivity} "
+        f"--threads {threads} -v 3"
+    )
+    subprocess.run(cluster_command, shell=True, check=True)
+    logging.info("Clustering completed successfully.")
+    
+    clusters_tsv = os.path.join(output_dir, "clusters.tsv")
+    createtsv_command = f"mmseqs createtsv {db_name} {db_name} {cluster_output} {clusters_tsv} --threads {threads} -v 3"
+    subprocess.run(createtsv_command, shell=True, check=True)
+    logging.info(f"Clusters TSV saved to {clusters_tsv}")
+    
+    return clusters_tsv
+
+def assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv):
+    """
+    Assigns sequences to existing clusters using MMseqs2 search and creates a best hits TSV file.
+
+    Args:
+        db_name (str): Path to the MMseqs2 database.
+        output_dir (str): Directory to save results.
+        tmp_dir (str): Temporary directory for intermediate files.
+        coverage (float): Minimum coverage for assignment.
+        min_seq_id (float): Minimum sequence identity for assignment.
+        sensitivity (float): Sensitivity for assignment.
+        threads (int): Number of threads to use.
+        clusters_tsv (str): Path to the clusters TSV file.
+
+    Returns:
+        str: Path to the best hits TSV file.
+    """
+    logging.info("Assigning sequences to clusters...")
+    
+    result_db = os.path.join(tmp_dir, "result_db")
+    search_command = (
+        f"mmseqs search {db_name} {db_name} {result_db} {tmp_dir} "
+        f"-c {coverage} --min-seq-id {min_seq_id} -s {sensitivity} "
+        f"--threads {threads} -v 3"
+    )
+    subprocess.run(search_command, shell=True, check=True)
+    logging.info("Sequence assignment completed successfully.")
+    
+    assigned_tsv = os.path.join(output_dir, "assigned_clusters.tsv")
+    createtsv_command = f"mmseqs createtsv {db_name} {db_name} {result_db} {assigned_tsv} --threads {threads} -v 3"
+    subprocess.run(createtsv_command, shell=True, check=True)
+    logging.info(f"Assigned clusters TSV saved to {assigned_tsv}")
+    
+    best_hits_tsv = os.path.join(output_dir, "best_hits.tsv")
+    select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
+    
+    return best_hits_tsv
+
+def select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv):
+    """
+    Selects the best hit for each query and saves the results.
+
+    Args:
+        assigned_tsv (str): Path to the assigned clusters TSV file.
+        best_hits_tsv (str): Path to save the best hits TSV file.
+        clusters_tsv (str): Path to the clusters TSV file.
+    """
+    logging.info("Selecting best hits...")
+    
+    assigned_df = pd.read_csv(assigned_tsv, sep='\t', header=None, names=[
+        'Query', 'Target', 'Score', 'SeqIdentity', 'E-value', 'qStartPos', 'qEndPos', 'qLen', 'tStartPos', 'tEndPos', 'tLen'
+    ])
+    assigned_df = assigned_df.sort_values(by=['Query', 'SeqIdentity', 'E-value'], ascending=[True, False, True])
+    best_hits_df = assigned_df.drop_duplicates(subset=['Query'], keep='first')
+
+    clusters_df = pd.read_csv(clusters_tsv, sep='\t', header=None, names=['Cluster', 'Contig'])
+    best_hits_df = pd.merge(best_hits_df, clusters_df, left_on='Target', right_on='Contig', how='left')
+    best_hits_df[['Query', 'Cluster']].to_csv(best_hits_tsv, sep='\t', index=False, header=False)
+    logging.info(f"Best hits saved to {best_hits_tsv}")
+
+def generate_presence_absence_matrix(best_hits_tsv, output_csv_path, contig_to_genome, genome_list):
+    """
+    Generates a presence-absence matrix based on best hits and cluster assignments.
+
+    Args:
+        best_hits_tsv (str): Path to the best hits TSV file.
+        output_csv_path (str): Path to save the presence-absence matrix.
+        contig_to_genome (dict): Dictionary mapping contigs to genomes.
+        genome_list (list): List of genome names.
+    """
+    logging.info("Generating presence-absence matrix...")
+    
+    cluster_dict = {}
+    with open(best_hits_tsv, 'r') as file:
+        for line in file:
+            parts = line.strip().split('\t')
+            contig_id, cluster_id = parts[0], parts[1]
+            genome = contig_to_genome.get(contig_id)
+            if not genome:
+                logging.warning(f"Contig ID '{contig_id}' not found in mapping.")
+                continue
+            if cluster_id not in cluster_dict:
+                cluster_dict[cluster_id] = set()
+            cluster_dict[cluster_id].add(genome)
+
+    presence_absence_data = {'Genome': genome_list}
+    for cluster_id, genomes in cluster_dict.items():
+        presence_absence_data[cluster_id] = [1 if genome in genomes else 0 for genome in genome_list]
+
+    presence_absence_df = pd.DataFrame(presence_absence_data)
+    presence_absence_df.to_csv(output_csv_path, index=False)
+    logging.info(f"Presence-absence matrix saved to {output_csv_path}")
+
+def compare_cluster_and_search_results(clusters_tsv, best_hits_tsv, output_dir):
+    """
+    Compares the original clustering results to the best hit assignments and saves the comparison.
+
+    Args:
+        clusters_tsv (str): Path to the original clusters TSV file.
+        best_hits_tsv (str): Path to the best hits TSV file.
+        output_dir (str): Directory to save the comparison results.
+    """
+    logging.info("Comparing clusters...")
+    
+    clusters_df = pd.read_csv(clusters_tsv, sep='\t', header=None, names=['Cluster_original', 'Contig'])
+    best_hits_df = pd.read_csv(best_hits_tsv, sep='\t', header=None, names=['Query', 'Cluster_assigned'])
+    
+    comparison_df = pd.merge(clusters_df, best_hits_df, left_on='Contig', right_on='Query', how='outer', suffixes=('_original', '_assigned'))
+    comparison_output_path = os.path.join(output_dir, "cluster_assignment_comparison.csv")
+    comparison_df.to_csv(comparison_output_path, index=False)
+    logging.info(f"Cluster assignment comparison saved to {comparison_output_path}")
+
+# Additional script functions
+def filter_presence_absence(presence_absence, select, select_column):
+    """
+    Filters the presence-absence matrix based on a selected strain list.
+
+    Args:
+        presence_absence (DataFrame): The presence-absence matrix.
+        select (str): Path to the file containing selected strains.
+        select_column (str): Column in the selection file that contains strain names.
+
+    Returns:
+        DataFrame: Filtered presence-absence matrix.
+    """
+    logging.info("Filtering presence-absence table...")
+    select_df = pd.read_csv(select)
+    select_list = list(set(select_df[select_column].tolist()))
+    presence_absence = presence_absence[presence_absence['Genome'].isin(select_list)]
+    
+    all_cols = len(presence_absence.columns)
+    presence_absence = presence_absence.loc[:, (presence_absence != 0).any(axis=0)]
+    logging.info(f"Removed {all_cols - len(presence_absence.columns) - 1} columns with all zeros")
+    return presence_absence
+
+def get_genome_assignments_tables(presence_absence):
+    """
+    Generates genome assignments from the presence-absence matrix.
+
+    Args:
+        presence_absence (DataFrame): The presence-absence matrix.
+
+    Returns:
+        DataFrame: Genome assignments in long format.
+    """
+    logging.info("Getting genome assignments...")
+    genome_assignments = presence_absence.melt(id_vars="Genome", var_name="Cluster_Label", value_name="Presence")
+    genome_assignments = genome_assignments[genome_assignments['Presence'] == 1]
+    return genome_assignments.drop(columns=["Presence"])
+
+def feature_selection_optimized(presence_absence, source):
+    """
+    Optimizes feature selection by identifying perfect co-occurrence of features.
+
+    Args:
+        presence_absence (DataFrame): The presence-absence matrix.
+        source (str): A prefix for naming the selected features.
+
+    Returns:
+        DataFrame: Optimized feature selection results.
+    """
+    logging.info("Optimizing feature selection...")
+    presence_absence.set_index('Genome', inplace=True)
+    
+    boolean_matrix = presence_absence.astype(bool)
+    perfect_cooccurrence = {col: set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()]) for col in boolean_matrix.columns}
+    
+    unique_clusters = []
+    seen = set()
+    for cluster in perfect_cooccurrence.values():
+        if not cluster.intersection(seen):
+            unique_clusters.append(list(cluster))
+        seen.update(cluster)
+    
+    data = [(f"{source[0]}c_{idx}", cluster) for idx, cluster_group in enumerate(unique_clusters) for cluster in cluster_group]
+    return pd.DataFrame(data, columns=["Feature", "Cluster_Label"])
+
+def feature_assignment(genome_assignments, selected_features):
+    """
+    Assigns features to genomes based on the selected features.
+
+    Args:
+        genome_assignments (DataFrame): Genome assignments.
+        selected_features (DataFrame): Selected features.
+
+    Returns:
+        tuple: DataFrame of feature assignments and feature table in wide format.
+    """
+    logging.info("Assigning features to genomes...")
+    assignment_df = genome_assignments.merge(selected_features, on="Cluster_Label", how="inner")
+    assignment_df = assignment_df.drop(columns=["Cluster_Label"]).drop_duplicates()
+    feature_table = assignment_df.pivot_table(index="Genome", columns="Feature", aggfunc="size", fill_value=0)
+    return assignment_df, feature_table
+
+# Running workflows via Python (example)
+def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list=None, strain_column='strain', compare=False):
+    """
+    Runs a full MMseqs2 clustering workflow including presence-absence matrix generation.
+
+    Args:
+        input_path (str): Path to the input directory or file.
+        output_dir (str): Directory to save results.
+        tmp_dir (str): Temporary directory for intermediate files.
+        min_seq_id (float): Minimum sequence identity for clustering.
+        coverage (float): Minimum coverage for clustering.
+        sensitivity (float): Sensitivity for clustering.
+        suffix (str): Suffix for input FASTA files.
+        threads (int): Number of threads to use.
+        strain_list (str or None): Path to a strain list file, or None for no filtering.
+        strain_column (str): Column in the strain list file containing strain names.
+        compare (bool): Whether to compare original clusters with assigned clusters.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    input_type = 'directory' if os.path.isdir(input_path) else 'file'
+    strains = load_strains(strain_list, strain_column) if strain_list else None
+
+    db_name = os.path.join(tmp_dir, "mmseqs_db")
+    fasta_files = create_mmseqs_database(input_path, db_name, suffix, input_type, strains, threads)
+
+    contig_to_genome, genome_list = create_contig_to_genome_dict(fasta_files, input_type)
+
+    clusters_tsv = run_mmseqs_cluster(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads)
+
+    best_hits_tsv = assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv)
+
+    presence_absence_csv = os.path.join(output_dir, "presence_absence_matrix.csv")
+    generate_presence_absence_matrix(best_hits_tsv, presence_absence_csv, contig_to_genome, genome_list)
+
+    if compare:
+        compare_cluster_and_search_results(clusters_tsv, best_hits_tsv, output_dir)
+
+def run_feature_assignment(input_file, output_dir, source='bacteria', select='none', select_column='strain'):
+    """
+    Runs the feature assignment workflow from the presence-absence matrix.
+
+    Args:
+        input_file (str): Path to the presence-absence matrix.
+        output_dir (str): Directory to save results.
+        source (str): Prefix for naming selected features.
+        select (str): Path to a strain list file, or 'none' for no filtering.
+        select_column (str): Column in the strain list file containing strain names.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    presence_absence = pd.read_csv(input_file)
+    if select != 'none':
+        presence_absence = filter_presence_absence(presence_absence, select, select_column)
+
+    genome_assignments = get_genome_assignments_tables(presence_absence)
+    selected_features = feature_selection_optimized(presence_absence, source)
+
+    selected_features_path = os.path.join(output_dir, 'selected_features.csv')
+    selected_features.to_csv(selected_features_path, index=False)
+
+    feature_assignments, feature_table = feature_assignment(genome_assignments, selected_features)
+    feature_assignments.to_csv(os.path.join(output_dir, 'feature_assignments.csv'), index=False)
+    feature_table.to_csv(os.path.join(output_dir, 'feature_table.csv'), index=False)
+
+def merge_feature_tables(host_features, phage_features, interaction_matrix, output_dir, remove_suffix, output_file=None):
+    """
+    Merges host and phage feature tables with an interaction matrix.
+
+    Args:
+        host_features (str): Path to the host feature table.
+        phage_features (str): Path to the phage feature table.
+        interaction_matrix (str): Path to the interaction matrix.
+        output_dir (str): Directory to save the merged feature table.
+        remove_suffix (bool): Whether to remove suffix from the genome names.
+        output_file (str or None): Optional output file name prefix.
+
+    Returns:
+        str: Path to the merged feature table.
+    """
+    logging.info('Starting to merge feature tables')
+
+    def read_csv_with_check(filepath, rename_col=None, new_col=None):
+        try:
+            logging.info(f'Reading file: {filepath}')
+            df = pd.read_csv(filepath)
+            if rename_col and rename_col in df.columns:
+                df.rename(columns={rename_col: new_col}, inplace=True)
+                logging.info(f'Renamed column {rename_col} to {new_col} in {filepath}')
+            return df
+        except Exception as e:
+            logging.error(f'Error reading {filepath}: {e}')
+            raise
+
+    host_features_df = read_csv_with_check(host_features, rename_col='Genome', new_col='strain')
+    if remove_suffix:
+        host_features_df['strain'] = host_features_df['strain'].str.split('.').str[0]
+    phage_features_df = read_csv_with_check(phage_features, rename_col='Genome', new_col='phage')
+    interaction_matrix_df = read_csv_with_check(interaction_matrix)
+
+    if 'strain' not in interaction_matrix_df.columns:
+        logging.error('The interaction matrix does not contain the "strain" column.')
+        raise KeyError('Missing "strain" column in interaction matrix.')
+    
+    if 'phage' not in interaction_matrix_df.columns:
+        logging.error('The interaction matrix does not contain the "phage" column.')
+        raise KeyError('Missing "phage" column in interaction matrix.')
+
+    try:
+        feature_table = interaction_matrix_df.merge(host_features_df, on='strain', how='inner')
+        feature_table = feature_table.merge(phage_features_df, on='phage', how='inner')
+    except Exception as e:
+        logging.error(f'Error merging tables: {e}')
+        raise
+
+    output_filename = f"{output_file}_full_feature_table.csv" if output_file else "full_feature_table.csv"
+    feature_table_path = os.path.join(output_dir, output_filename)
+
+    try:
+        feature_table.to_csv(feature_table_path, index=False)
+        logging.info(f'Successfully saved merged feature table to {feature_table_path}')
+    except Exception as e:
+        logging.error(f'Error saving merged feature table: {e}')
+        raise
+
+    return feature_table_path
