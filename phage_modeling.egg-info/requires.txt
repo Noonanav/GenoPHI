@@ -1,9 +1,0 @@
-pandas
-biopython
-scikit-learn
-catboost
-matplotlib
-seaborn
-numpy
-tqdm
-joblib
