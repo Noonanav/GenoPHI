@@ -1,0 +1,21 @@
+Metadata-Version: 2.1
+Name: phage_modeling
+Version: 0.1.0
+Summary: A package for phage modeling, clustering, and feature assignment using MMseqs2
+Author: Avery Noonan
+Classifier: Development Status :: 3 - Alpha
+Classifier: Programming Language :: Python :: 3.8
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Requires-Python: >=3.7
+License-File: LICENSE
+Requires-Dist: pandas
+Requires-Dist: biopython
+Requires-Dist: scikit-learn
+Requires-Dist: catboost
+Requires-Dist: matplotlib
+Requires-Dist: seaborn
+Requires-Dist: numpy
+Requires-Dist: tqdm
+Requires-Dist: joblib

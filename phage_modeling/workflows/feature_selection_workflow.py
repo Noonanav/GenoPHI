@@ -2,7 +2,7 @@ import os
 import argparse
 from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
 
-def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_features=100, filter_type='none', num_runs=10):
+def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_features=500, filter_type='none', num_runs=50):
     """
     Workflow for running feature selection iterations and generating feature tables.
     
@@ -11,7 +11,7 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
         base_output_dir (str): Directory to save results.
         threads (int): Number of threads to use.
         num_features (int): Number of features to select.
-        filter_type (str): Filter type for the input data ('host', 'phage', 'none').
+        filter_type (str): Filter type for the input data ('strain', 'phage', 'none').
         num_runs (int): Number of runs to perform.
     """
     # Run multiple iterations of feature selection
@@ -41,9 +41,9 @@ def main():
     parser.add_argument('-i', '--input', type=str, required=True, help='Input path for the full feature table.')
     parser.add_argument('-o', '--output', type=str, required=True, help='Base output directory for the results.')
     parser.add_argument('--threads', type=int, default=4, help='Number of threads to use.')
-    parser.add_argument('--num_features', type=int, default=100, help='Number of features to select during RFE.')
-    parser.add_argument('--filter_type', type=str, default='none', help="Type of filtering to use ('none', 'host', 'phage').")
-    parser.add_argument('--num_runs', type=int, default=10, help='Number of feature selection iterations to run.')
+    parser.add_argument('--num_features', type=int, default=500, help='Number of features to select during RFE.')
+    parser.add_argument('--filter_type', type=str, default='none', help="Type of filtering to use ('none', 'strain', 'phage').")
+    parser.add_argument('--num_runs', type=int, default=50, help='Number of feature selection iterations to run.')
     
     args = parser.parse_args()
 

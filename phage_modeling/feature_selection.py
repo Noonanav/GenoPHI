@@ -1,4 +1,5 @@
 import os
+import logging
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -12,12 +13,14 @@ from tqdm import tqdm
 import time
 
 # Function to load and prepare data
-def load_and_prepare_data(input_path):
+def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None):
     """
     Loads the input feature table, drops unnecessary columns, and splits into features and target.
 
     Args:
         input_path (str): Path to the input CSV file containing the full feature table.
+        sample_column (str): Optional name of the column to retain for sample identifiers.
+        phenotype_column (str): Optional name of the column to retain for phenotype information.
 
     Returns:
         X (DataFrame): Features for modeling.
@@ -32,9 +35,25 @@ def load_and_prepare_data(input_path):
         raise ValueError("Input data is empty.")
     
     full_feature_table = full_feature_table.dropna()
-    X = full_feature_table.drop(['strain', 'phage', 'interaction', 'header', 'contig_id', 'orf_ko'], axis=1, errors='ignore')
-    y = full_feature_table['interaction']
+
+    # Prepare the feature set and drop unnecessary columns
+    drop_columns = ['strain', 'phage', 'interaction', 'header', 'contig_id', 'orf_ko']
     
+    # Ensure the sample and phenotype columns are retained if specified
+    if sample_column:
+        drop_columns.remove('strain')  # Keep 'strain' or replace with sample_column
+        drop_columns.append(sample_column)  # Add custom sample column if provided
+    
+    if phenotype_column:
+        drop_columns.remove('interaction')  # Keep 'interaction' or replace with phenotype_column
+        drop_columns.append(phenotype_column)  # Add custom phenotype column if provided
+
+    X = full_feature_table.drop(drop_columns, axis=1, errors='ignore')
+    
+    # Determine the target variable (default 'interaction' or custom phenotype_column)
+    target_column = phenotype_column if phenotype_column else 'interaction'
+    y = full_feature_table[target_column]
+
     print(f"Number of positive samples: {y.sum()}")
     print(f"Number of negative samples: {len(y) - y.sum()}")
     print("Data loaded and prepared, split into features and target.")
@@ -42,7 +61,7 @@ def load_and_prepare_data(input_path):
     return X, y, full_feature_table
 
 # Function to filter the data based on strain or phage
-def filter_data(X, y, full_feature_table, filter_type, random_state=42):
+def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_column='strain'):
     """
     Filters the data by strain or phage and splits into training and testing sets.
 
@@ -50,8 +69,9 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42):
         X (DataFrame): Features.
         y (Series): Target variable.
         full_feature_table (DataFrame): The full feature table with metadata.
-        filter_type (str): 'none', 'host', or 'phage' to determine how the data should be filtered.
+        filter_type (str): 'none', 'strain', 'phage' to determine how the data should be filtered.
         random_state (int): Seed for reproducibility.
+        sample_column (str): Column to use as the sample identifier (default: 'strain').
 
     Returns:
         X_train (DataFrame): Training features.
@@ -63,10 +83,10 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42):
     if filter_type == 'none':
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=random_state)
         test_idx = X_test.index
-        X_test_sample_ids = full_feature_table.loc[test_idx, ['strain', 'phage']]
+        X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column]]
     else:
-        if filter_type == 'host':
-            group = 'strain'
+        if filter_type == 'strain':
+            group = sample_column
         elif filter_type == 'phage':
             group = 'phage'
         else:
@@ -84,7 +104,7 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42):
         X_test = X[test_idx]
         y_train = y[train_idx]
         y_test = y[test_idx]
-        X_test_sample_ids = full_feature_table.loc[test_idx, ['strain', 'phage']]
+        X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage']]
 
     return X_train, X_test, y_train, y_test, X_test_sample_ids
 
@@ -125,6 +145,46 @@ def perform_rfe(X_train, y_train, num_features, threads, output_dir):
     print(f"RFE selected {len(selected_features)} features.")
     
     return rfe, selected_features
+
+def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir):
+    """
+    Train a CatBoost model and evaluate it on the test set.
+
+    Args:
+        X_train (DataFrame): Training features.
+        y_train (Series): Training target.
+        X_test (DataFrame): Test features.
+        y_test (Series): Test target.
+        params (dict): Model hyperparameters.
+        output_dir (str): Directory to save evaluation results.
+
+    Returns:
+        model: Trained CatBoost model.
+        accuracy (float): Accuracy on the test set.
+        f1 (float): F1 score on the test set.
+        mcc (float): Matthews Correlation Coefficient on the test set.
+        y_pred (array): Predictions on the test set.
+    """
+    # Setting up CatBoost's training directory
+    train_dir = os.path.join(output_dir, '..', 'catboost_info')
+    model = CatBoostClassifier(**params, train_dir=train_dir)
+
+    print(f"Training with parameters: {params}")
+    
+    # Training the model with early stopping
+    model.fit(X_train, y_train, eval_set=(X_test, y_test), plot=False, verbose=10, early_stopping_rounds=100)
+
+    # Make predictions
+    y_pred = model.predict(X_test)
+
+    # Calculate evaluation metrics
+    accuracy = accuracy_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred)
+    mcc = matthews_corrcoef(y_test, y_pred)
+
+    print(f"Training completed. Params: {params}, Accuracy: {accuracy}, F1 Score: {f1}, MCC: {mcc}")
+
+    return model, accuracy, f1, mcc, y_pred
 
 # Function to perform grid search
 def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir):
@@ -238,24 +298,33 @@ def plot_precision_recall_curve(y_test, y_scores, output_path):
     plt.savefig(output_path)
     plt.close()
 
-def save_feature_importances(model, X_train_selected, output_path):
+def save_feature_importances(best_model, selected_features, feature_importances_path):
     """
-    Saves the feature importances from the model.
-
-    Args:
-        model (CatBoostClassifier): The trained model.
-        X_train_selected (DataFrame): The training data with selected features.
-        output_path (str): Path to save the feature importances.
-    """
-    feature_importances = model.get_feature_importance()
-    selected_features = X_train_selected.columns
-    importance_df = pd.DataFrame({
-        'Feature': selected_features,
-        'Importance': feature_importances
-    }).sort_values(by='Importance', ascending=False)
+    Saves feature importances from the model into a CSV file.
     
-    importance_df.to_csv(output_path, index=False)
-    print(f"Feature importances saved to {output_path}")
+    Args:
+        best_model: Trained model with feature importances.
+        selected_features (DataFrame): DataFrame containing selected features used for training.
+        feature_importances_path (str): Path to save the feature importances CSV.
+    """
+    feature_importances = best_model.feature_importances_
+
+    # Ensure the lengths match
+    if len(selected_features.columns) != len(feature_importances):
+        logging.error("Mismatch between the number of selected features and the number of feature importances.")
+        logging.info(f"Number of selected features: {len(selected_features.columns)}")
+        logging.info(f"Number of feature importances: {len(feature_importances)}")
+        return
+    
+    importance_df = pd.DataFrame({
+        'Feature': selected_features.columns,
+        'Importance': feature_importances
+    })
+
+    importance_df = importance_df.sort_values(by='Importance', ascending=False)
+
+    importance_df.to_csv(feature_importances_path, index=False)
+    logging.info(f"Feature importances saved to {feature_importances_path}")
 
 def run_feature_selection_iterations(
     input_path, base_output_dir, threads, num_features, filter_type, num_runs, select_cols=False, sample_column=None, phenotype_column=None
@@ -268,7 +337,7 @@ def run_feature_selection_iterations(
         base_output_dir (str): Base output directory where results for each run will be stored.
         threads (int): Number of threads to use for feature selection.
         num_features (int): Number of features to select.
-        filter_type (str): Filter type for the input data ('host', 'phage', 'none').
+        filter_type (str): Filter type for the input data ('strain', 'phage', 'none').
         num_runs (int): Number of runs to perform.
         select_cols (bool): Whether to run with selected columns.
         sample_column (str): Column name for the sample/strain (if using selected columns).
@@ -289,14 +358,19 @@ def run_feature_selection_iterations(
         output_dir = os.path.join(base_output_dir, f'run_{i}')
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        random_state = i
+        random_state = i  # Use the iteration number as the random state
 
         # Load and prepare data
         X, y, full_feature_table = load_and_prepare_data(input_path)
-        X_train, X_test, y_train, y_test, X_test_sample_ids = filter_data(X, y, full_feature_table, filter_type)
+        # Pass the random_state to filter_data
+        X_train, X_test, y_train, y_test, X_test_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state)
 
         # Perform Recursive Feature Elimination (RFE)
         rfe_model, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir)
+
+        # Filter the training set by the selected features
+        X_train_selected = X_train[selected_features]
+        X_test_selected = X_test[selected_features]
 
         # Define parameter grid for grid search
         param_grid = {
@@ -308,11 +382,11 @@ def run_feature_selection_iterations(
         }
 
         # Perform grid search for hyperparameter tuning
-        best_model, best_params, best_mcc = grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir)
+        best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir)
 
         # Save feature importances and track feature occurrences
         feature_importances_path = os.path.join(output_dir, 'feature_importances.csv')
-        save_feature_importances(best_model, pd.DataFrame(X_train, columns=selected_features), feature_importances_path)
+        save_feature_importances(best_model, pd.DataFrame(X_train_selected, columns=selected_features), feature_importances_path)
 
         # Load feature importances and update occurrences
         features_df = pd.read_csv(feature_importances_path)

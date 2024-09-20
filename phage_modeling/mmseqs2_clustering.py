@@ -283,34 +283,39 @@ def filter_presence_absence(presence_absence, select, select_column):
     logging.info(f"Removed {all_cols - len(presence_absence.columns) - 1} columns with all zeros")
     return presence_absence
 
-def get_genome_assignments_tables(presence_absence):
+def get_genome_assignments_tables(presence_absence, genome_column_name):
     """
     Generates genome assignments from the presence-absence matrix.
 
     Args:
         presence_absence (DataFrame): The presence-absence matrix.
+        genome_column_name (str): The column name that contains genome information (e.g., 'strain' or 'phage').
 
     Returns:
         DataFrame: Genome assignments in long format.
     """
     logging.info("Getting genome assignments...")
-    genome_assignments = presence_absence.melt(id_vars="Genome", var_name="Cluster_Label", value_name="Presence")
+    presence_absence.rename(columns={'Genome': genome_column_name}, inplace=True)
+    genome_assignments = presence_absence.melt(id_vars=genome_column_name, var_name="Cluster_Label", value_name="Presence")
     genome_assignments = genome_assignments[genome_assignments['Presence'] == 1]
     return genome_assignments.drop(columns=["Presence"])
 
-def feature_selection_optimized(presence_absence, source):
+def feature_selection_optimized(presence_absence, source, genome_column_name):
     """
     Optimizes feature selection by identifying perfect co-occurrence of features.
 
     Args:
         presence_absence (DataFrame): The presence-absence matrix.
         source (str): A prefix for naming the selected features.
+        genome_column_name (str): The column name that contains genome information (e.g., 'strain' or 'phage').
 
     Returns:
         DataFrame: Optimized feature selection results.
     """
     logging.info("Optimizing feature selection...")
-    presence_absence.set_index('Genome', inplace=True)
+
+    # Set index using the genome_column_name instead of 'Genome'
+    presence_absence.set_index(genome_column_name, inplace=True)
     
     boolean_matrix = presence_absence.astype(bool)
     perfect_cooccurrence = {col: set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()]) for col in boolean_matrix.columns}
@@ -325,46 +330,65 @@ def feature_selection_optimized(presence_absence, source):
     data = [(f"{source[0]}c_{idx}", cluster) for idx, cluster_group in enumerate(unique_clusters) for cluster in cluster_group]
     return pd.DataFrame(data, columns=["Feature", "Cluster_Label"])
 
-def feature_assignment(genome_assignments, selected_features):
+def feature_assignment(genome_assignments, selected_features, genome_column_name):
     """
     Assigns features to genomes based on the selected features.
 
     Args:
         genome_assignments (DataFrame): Genome assignments.
         selected_features (DataFrame): Selected features.
+        genome_column_name (str): The column name that contains genome information (e.g., 'strain' or 'phage').
 
     Returns:
         tuple: DataFrame of feature assignments and feature table in wide format.
     """
     logging.info("Assigning features to genomes...")
+    
+    # Merge genome assignments with selected features
     assignment_df = genome_assignments.merge(selected_features, on="Cluster_Label", how="inner")
     assignment_df = assignment_df.drop(columns=["Cluster_Label"]).drop_duplicates()
-    feature_table = assignment_df.pivot_table(index="Genome", columns="Feature", aggfunc="size", fill_value=0)
+
+    # Create the feature table in wide format using pivot_table
+    feature_table = assignment_df.pivot_table(index=genome_column_name, columns="Feature", aggfunc="size", fill_value=0)
+    
+    # Reset the index to turn the genome_column_name (strain/phage) back into a regular column
+    feature_table = feature_table.reset_index()
+
     return assignment_df, feature_table
 
-# Running workflows via Python (example)
-def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list=None, strain_column='strain', compare=False):
+
+def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', strain_column='strain', compare=False):
     """
     Runs a full MMseqs2 clustering workflow including presence-absence matrix generation.
-
+    
+    This function processes input FASTA files to create a database using MMseqs2, runs clustering, 
+    and assigns sequences to clusters. It then generates a presence-absence matrix for the identified clusters.
+    
     Args:
-        input_path (str): Path to the input directory or file.
-        output_dir (str): Directory to save results.
+        input_path (str): Path to the input directory or file containing FASTA sequences.
+        output_dir (str): Directory to save clustering and presence-absence results.
         tmp_dir (str): Temporary directory for intermediate files.
         min_seq_id (float): Minimum sequence identity for clustering.
-        coverage (float): Minimum coverage for clustering.
-        sensitivity (float): Sensitivity for clustering.
-        suffix (str): Suffix for input FASTA files.
-        threads (int): Number of threads to use.
-        strain_list (str or None): Path to a strain list file, or None for no filtering.
-        strain_column (str): Column in the strain list file containing strain names.
-        compare (bool): Whether to compare original clusters with assigned clusters.
+        coverage (float): Minimum coverage required for clustering.
+        sensitivity (float): Sensitivity level for clustering.
+        suffix (str): Suffix for input FASTA files to include in the database.
+        threads (int): Number of threads to use for MMseqs2.
+        strain_list (str): Path to a strain list file, or 'none' to process all strains.
+        strain_column (str): Column name in the strain list file that contains strain names.
+        compare (bool): Whether to compare the original clusters with assigned clusters.
+    
+    Raises:
+        FileNotFoundError: If no FASTA files are found in the input path.
+        ValueError: If there is an issue with loading the strain list.
     """
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(tmp_dir, exist_ok=True)
 
+    # Convert 'none' to None internally for processing
+    strain_list_value = None if strain_list == 'none' else strain_list
+
     input_type = 'directory' if os.path.isdir(input_path) else 'file'
-    strains = load_strains(strain_list, strain_column) if strain_list else None
+    strains = load_strains(strain_list_value, strain_column) if strain_list_value else None
 
     db_name = os.path.join(tmp_dir, "mmseqs_db")
     fasta_files = create_mmseqs_database(input_path, db_name, suffix, input_type, strains, threads)
@@ -384,36 +408,56 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
 def run_feature_assignment(input_file, output_dir, source='bacteria', select='none', select_column='strain'):
     """
     Runs the feature assignment workflow from the presence-absence matrix.
-
+    
+    This function processes a presence-absence matrix, assigns features to genomes based on selected features, 
+    and outputs both feature assignments and a feature table. It allows for optional filtering based on a strain list.
+    
     Args:
-        input_file (str): Path to the presence-absence matrix.
-        output_dir (str): Directory to save results.
-        source (str): Prefix for naming selected features.
-        select (str): Path to a strain list file, or 'none' for no filtering.
-        select_column (str): Column in the strain list file containing strain names.
+        input_file (str): Path to the presence-absence matrix CSV file.
+        output_dir (str): Directory to save the results (selected features, assignments, and feature table).
+        source (str): Prefix for naming the selected features (e.g., 'bacteria' or 'phage').
+        select (str): Path to a strain list file for filtering, or 'none' to skip filtering.
+        select_column (str): Column name in the strain list file that contains strain names.
+    
+    Raises:
+        FileNotFoundError: If the input presence-absence matrix file is not found.
+        ValueError: If there is an issue with the strain list during filtering.
     """
     os.makedirs(output_dir, exist_ok=True)
 
+    # Load the presence-absence matrix
     presence_absence = pd.read_csv(input_file)
-    if select != 'none':
-        presence_absence = filter_presence_absence(presence_absence, select, select_column)
 
-    genome_assignments = get_genome_assignments_tables(presence_absence)
-    selected_features = feature_selection_optimized(presence_absence, source)
+    # Convert 'none' to None for filtering purposes
+    select_value = None if select == 'none' else select
 
+    # If a strain list is provided, filter the presence-absence matrix
+    if select_value:
+        presence_absence = filter_presence_absence(presence_absence, select_value, select_column)
+
+    genome_column_name = source
+
+    # Assign features to genomes
+    genome_assignments = get_genome_assignments_tables(presence_absence, genome_column_name)
+
+    # Pass the correct genome column name to feature_selection_optimized
+    selected_features = feature_selection_optimized(presence_absence, source, genome_column_name)
+
+    # Save the selected features and feature assignments
     selected_features_path = os.path.join(output_dir, 'selected_features.csv')
     selected_features.to_csv(selected_features_path, index=False)
 
-    feature_assignments, feature_table = feature_assignment(genome_assignments, selected_features)
+    feature_assignments, feature_table = feature_assignment(genome_assignments, selected_features, genome_column_name)
     feature_assignments.to_csv(os.path.join(output_dir, 'feature_assignments.csv'), index=False)
     feature_table.to_csv(os.path.join(output_dir, 'feature_table.csv'), index=False)
 
-def merge_feature_tables(host_features, phage_features, interaction_matrix, output_dir, remove_suffix, output_file=None):
+
+def merge_feature_tables(strain_features, phage_features, interaction_matrix, output_dir, remove_suffix, output_file=None):
     """
-    Merges host and phage feature tables with an interaction matrix.
+    Merges strain and phage feature tables with an interaction matrix.
 
     Args:
-        host_features (str): Path to the host feature table.
+        strain_features (str): Path to the strain feature table.
         phage_features (str): Path to the phage feature table.
         interaction_matrix (str): Path to the interaction matrix.
         output_dir (str): Directory to save the merged feature table.
@@ -437,9 +481,9 @@ def merge_feature_tables(host_features, phage_features, interaction_matrix, outp
             logging.error(f'Error reading {filepath}: {e}')
             raise
 
-    host_features_df = read_csv_with_check(host_features, rename_col='Genome', new_col='strain')
+    strain_features_df = read_csv_with_check(strain_features, rename_col='Genome', new_col='strain')
     if remove_suffix:
-        host_features_df['strain'] = host_features_df['strain'].str.split('.').str[0]
+        strain_features_df['strain'] = strain_features_df['strain'].str.split('.').str[0]
     phage_features_df = read_csv_with_check(phage_features, rename_col='Genome', new_col='phage')
     interaction_matrix_df = read_csv_with_check(interaction_matrix)
 
@@ -452,7 +496,7 @@ def merge_feature_tables(host_features, phage_features, interaction_matrix, outp
         raise KeyError('Missing "phage" column in interaction matrix.')
 
     try:
-        feature_table = interaction_matrix_df.merge(host_features_df, on='strain', how='inner')
+        feature_table = interaction_matrix_df.merge(strain_features_df, on='strain', how='inner')
         feature_table = feature_table.merge(phage_features_df, on='phage', how='inner')
     except Exception as e:
         logging.error(f'Error merging tables: {e}')

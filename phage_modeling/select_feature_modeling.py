@@ -3,10 +3,13 @@ import pandas as pd
 import numpy as np
 import itertools
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef, roc_curve, precision_recall_curve
+from plotnine import ggplot, aes, geom_line, geom_abline, labs, theme
 from tqdm import tqdm
 import time
 import joblib
-from feature_selection import load_and_prepare_data, filter_data, train_and_evaluate, grid_search, save_feature_importances
+import re
+from phage_modeling.feature_selection import load_and_prepare_data, filter_data, train_and_evaluate, grid_search, save_feature_importances
 
 # Set environment variables to control threading
 os.environ['OMP_NUM_THREADS'] = '6'
@@ -24,7 +27,7 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, set_filte
         output_dir (str): Directory to store results.
         threads (int): Number of threads for training.
         random_state (int): Seed for reproducibility.
-        set_filter (str): Filter type for the dataset ('none', 'host', 'phage', 'dataset').
+        set_filter (str): Filter type for the dataset ('none', 'strain', 'phage', 'dataset').
         sample_column (str): Name of the sample column (optional).
         phenotype_column (str): Name of the phenotype column (optional).
     """
@@ -64,32 +67,232 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, set_filte
     end_time = time.time()
     print(f"Total execution time: {end_time - start_time:.2f} seconds")
 
+def extract_cutoff_from_filename(filename):
+    """
+    Extracts the numeric cutoff value from the filename (e.g., 7 from select_feature_table_cutoff_7.csv).
+
+    Args:
+        filename (str): The filename of the feature table.
+
+    Returns:
+        str: The extracted cutoff value.
+    """
+    match = re.search(r'cutoff_(\d+)', filename)
+    if match:
+        return match.group(1)  # Return the cutoff value as a string
+    else:
+        raise ValueError(f"Could not extract cutoff from filename: {filename}")
+
+def parse_model_predictions_and_performance(model_dir):
+    """
+    Parses the prediction and performance data from the run directories within the specified model directory.
+
+    Args:
+        model_dir (str): Base directory for the select feature modeling containing cutoff subdirectories.
+
+    Returns:
+        model_predictions_df (DataFrame): Combined DataFrame of all model predictions.
+        model_performance_df (DataFrame): Combined DataFrame of model performance (top models summary).
+    """
+    model_predictions_df = pd.DataFrame()
+    model_performance_df = pd.DataFrame()
+
+    # Get all cutoff subdirectories (excluding CSV files)
+    cut_offs = [x for x in os.listdir(model_dir) if '.csv' not in x]
+
+    # Loop through each cutoff directory and parse run directories
+    for cut_off in cut_offs:
+        print(f"Parsing cut-off: {cut_off}")
+        cut_off_dir = os.path.join(model_dir, cut_off)
+        run_dirs = [x for x in os.listdir(cut_off_dir) if 'run' in x]
+
+        # Parse predictions from each run
+        for run in run_dirs:
+            predictions_file = os.path.join(cut_off_dir, run, 'best_model_predictions.csv')
+            if os.path.exists(predictions_file):
+                predictions_temp = pd.read_csv(predictions_file)
+                predictions_temp['run'] = run
+                predictions_temp['cut_off'] = cut_off
+                model_predictions_df = pd.concat([model_predictions_df, predictions_temp])
+
+        # Parse top models summary for this cutoff
+        top_models_file = os.path.join(cut_off_dir, 'top_models_summary.csv')
+        if os.path.exists(top_models_file):
+            top_models_temp = pd.read_csv(top_models_file)
+            top_models_temp = top_models_temp[['mcc']].reset_index()
+            top_models_temp['index'] = ['_'.join(['run', str(x)]) for x in top_models_temp['index']]
+            top_models_temp = top_models_temp.rename(columns={'index': 'run'})
+            top_models_temp['cut_off'] = cut_off
+            model_performance_df = pd.concat([model_performance_df, top_models_temp])
+
+    return model_predictions_df, model_performance_df
+
+def evaluate_model_performance(predictions_file, output_dir):
+    """
+    Evaluates model performances from the prediction data and generates performance plots grouped by cutoff.
+
+    Args:
+        predictions_file (str): Path to the CSV file containing model predictions.
+        output_dir (str): Directory to save performance plots and evaluation metrics.
+    """
+    # Create the output directory if it doesn't exist
+    model_performance_dir = os.path.join(output_dir, 'model_performance')
+    os.makedirs(model_performance_dir, exist_ok=True)
+
+    # Load model predictions
+    model_predictions_df_full = pd.read_csv(predictions_file)
+    model_predictions_df_full['cut_off'] = model_predictions_df_full['cut_off'].astype(str)
+
+    # Calculate average prediction and confidence per strain, phage, and interaction
+    model_predictions_df_calcs = model_predictions_df_full.groupby(['cut_off', 'strain', 'phage', 'interaction']).agg({
+        'Prediction': 'mean',
+        'Confidence': 'mean'
+    }).reset_index()
+
+    # Convert confidence to binary predictions
+    model_predictions_df_calcs['Prediction'] = [1 if x > 0.5 else 0 for x in model_predictions_df_calcs['Confidence']]
+
+    # Function to calculate metrics
+    def calculate_metrics(df):
+        y_true = df['interaction']
+        y_pred_prob = df['Confidence']
+        y_pred = df['Prediction']
+        
+        metrics = {
+            'AUC': roc_auc_score(y_true, y_pred_prob),
+            'Accuracy': accuracy_score(y_true, y_pred),
+            'Precision': precision_score(y_true, y_pred),
+            'Recall': recall_score(y_true, y_pred),
+            'F1': f1_score(y_true, y_pred),
+            'MCC': matthews_corrcoef(y_true, y_pred)
+        }
+        
+        fpr, tpr, roc_thresholds = roc_curve(y_true, y_pred_prob)
+        roc_df = pd.DataFrame({'fpr': fpr, 'tpr': tpr, 'thresholds': roc_thresholds, 'cut_off': df['cut_off'].iloc[0]})
+        
+        precision, recall, pr_thresholds = precision_recall_curve(y_true, y_pred_prob)
+        pr_df = pd.DataFrame({'precision': precision, 'recall': recall, 'thresholds': list(pr_thresholds) + [1.0], 'cut_off': df['cut_off'].iloc[0]})
+        
+        return metrics, roc_df, pr_df
+
+    # Group by model and cut_off and calculate metrics
+    metrics_list = []
+    roc_list = []
+    pr_list = []
+
+    for (cut_off), group in model_predictions_df_calcs.groupby('cut_off'):
+        metrics, roc_df, pr_df = calculate_metrics(group)
+        metrics['cut_off'] = cut_off
+        metrics_list.append(metrics)
+        roc_list.append(roc_df)
+        pr_list.append(pr_df)
+
+    # Convert results to dataframes
+    metrics_df = pd.DataFrame(metrics_list)
+    roc_df = pd.concat(roc_list).reset_index(drop=True)
+    pr_df = pd.concat(pr_list).reset_index(drop=True)
+
+    # Plot and save ROC curve
+    roc_curve_plot = (
+        ggplot(roc_df, aes(x='fpr', y='tpr', color='cut_off')) +
+        geom_line() +
+        geom_abline(linetype='dashed') +
+        labs(x='False Positive Rate', y='True Positive Rate', color='Cut Off') +
+        theme(figure_size=(5, 4))
+    )
+    roc_curve_plot.save(os.path.join(model_performance_dir, 'roc_curve.png'))
+
+    # Plot and save Precision-Recall curve
+    pr_curve_plot = (
+        ggplot(pr_df, aes(x='recall', y='precision', color='cut_off')) +
+        geom_line() +
+        labs(x='Recall', y='Precision', color='Cut Off') +
+        theme(figure_size=(5, 4))
+    )
+    pr_curve_plot.save(os.path.join(model_performance_dir, 'pr_curve.png'))
+
+    # Calculate and plot hit rate and hit ratio
+    def calculate_hit_rate(df):
+        df = df.sort_values(by='Confidence', ascending=False).reset_index(drop=True)
+        df['cumulative_hits'] = df['interaction'].cumsum()
+        df['cumulative_total'] = np.arange(1, len(df) + 1)
+        df['hit_rate'] = df['cumulative_hits'] / df['cumulative_total']
+        df['fraction_of_samples'] = df['cumulative_total'] / len(df)
+        return df
+
+    def calculate_hit_ratio(df):
+        df = df.sort_values(by='Confidence', ascending=False).reset_index(drop=True)
+        df['cumulative_true_positives'] = df['interaction'].cumsum()
+        df['total_true_positives'] = df['interaction'].sum()
+        df['hit_ratio'] = df['cumulative_true_positives'] / df['total_true_positives']
+        df['fraction_of_samples'] = np.arange(1, len(df) + 1) / len(df)
+        return df
+
+    hit_rate_list = []
+    hit_ratio_list = []
+    for (cut_off), group in model_predictions_df_calcs.groupby('cut_off'):
+        hit_rate_df = calculate_hit_rate(group)
+        hit_rate_df['cut_off'] = cut_off
+        hit_rate_list.append(hit_rate_df)
+
+        hit_ratio_df = calculate_hit_ratio(group)
+        hit_ratio_df['cut_off'] = cut_off
+        hit_ratio_list.append(hit_ratio_df)
+
+    hit_rate_df = pd.concat(hit_rate_list).reset_index(drop=True)
+    hit_ratio_df = pd.concat(hit_ratio_list).reset_index(drop=True)
+
+    # Plot and save Hit Rate curve
+    hit_rate_curve_plot = (
+        ggplot(hit_rate_df, aes(x='fraction_of_samples', y='hit_rate', color='cut_off')) +
+        geom_line() +
+        labs(x='Fraction of Samples', y='Hit Rate', color='Cut Off') +
+        theme(figure_size=(5, 4))
+    )
+    hit_rate_curve_plot.save(os.path.join(model_performance_dir, 'hit_rate_curve.png'))
+
+    # Plot and save Hit Ratio curve
+    hit_ratio_curve_plot = (
+        ggplot(hit_ratio_df, aes(x='fraction_of_samples', y='hit_ratio', color='cut_off')) +
+        geom_line() +
+        labs(x='Fraction of Samples', y='Hit Ratio', color='Cut Off') +
+        theme(figure_size=(5, 4))
+    )
+    hit_ratio_curve_plot.save(os.path.join(model_performance_dir, 'hit_ratio_curve.png'))
+
+    # Save the metrics DataFrame
+    metrics_df.to_csv(os.path.join(model_performance_dir, 'model_performance_metrics.csv'), index=False)
+    print(f"Metrics saved to {os.path.join(model_performance_dir, 'model_performance_metrics.csv')}")
+
 def run_experiments(input_dir, base_output_dir, threads, num_runs, set_filter='none', sample_column=None, phenotype_column=None):
     """
     Iterates through feature tables in a directory, running the model testing process for each.
-
+    
     Args:
         input_dir (str): Directory containing feature tables.
         base_output_dir (str): Base directory to store results.
         threads (int): Number of threads for training.
         num_runs (int): Number of runs to perform per table.
-        set_filter (str): Filter type for the dataset ('none', 'host', 'phage', 'dataset').
+        set_filter (str): Filter type for the dataset ('none', 'strain', 'phage', 'dataset').
         sample_column (str): Name of the sample column (optional).
         phenotype_column (str): Name of the phenotype column (optional).
     """
     start_total_time = time.time()
-    
     feature_tables = os.listdir(input_dir)
+
     for feature_table in feature_tables:
         feature_table_path = os.path.join(input_dir, feature_table)
-        model_output_dir = os.path.join(base_output_dir, os.path.splitext(feature_table)[0])
+        
+        # Use the extract_cutoff_from_filename to generate the directory name
+        cutoff_value = extract_cutoff_from_filename(feature_table)
+        model_output_dir = os.path.join(base_output_dir, f'cutoff_{cutoff_value}')  # Naming with cutoff
 
         if not os.path.exists(model_output_dir):
             os.makedirs(model_output_dir)
 
         top_models_df = pd.DataFrame()
 
-        for i in tqdm(range(num_runs), desc=f"Running Experiments for {feature_table}"):
+        for i in tqdm(range(num_runs), desc=f"Running Experiments for cutoff {cutoff_value}"):
             output_dir = os.path.join(model_output_dir, f'run_{i}')
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
@@ -107,7 +310,27 @@ def run_experiments(input_dir, base_output_dir, threads, num_runs, set_filter='n
         top_models_summary_path = os.path.join(model_output_dir, 'top_models_summary.csv')
         top_models_df.to_csv(top_models_summary_path, index=False)
         print(f"Top models saved to {top_models_summary_path}")
+
+    # After running all experiments, parse the predictions and performance
+    model_predictions_output = os.path.join(base_output_dir, 'select_features_model_predictions.csv')
     
+    # Parse all predictions from the run directories
+    model_predictions_df, model_performance_df = parse_model_predictions_and_performance(base_output_dir)
+
+    # Save parsed predictions and performance data
+    model_predictions_df.to_csv(model_predictions_output, index=False)
+    model_performance_output = os.path.join(base_output_dir, 'select_features_model_performance.csv')
+    model_performance_df.to_csv(model_performance_output, index=False)
+
+    print(f"Model predictions saved to {model_predictions_output}")
+    print(f"Model performance saved to {model_performance_output}")
+
+    # Now evaluate model performance and generate performance plots
+    evaluate_model_performance(
+        predictions_file=model_predictions_output,
+        output_dir=base_output_dir
+    )
+
     end_total_time = time.time()
     print(f"All experiments completed in {end_total_time - start_total_time:.2f} seconds.")
 

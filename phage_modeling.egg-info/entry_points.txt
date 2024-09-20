@@ -1,0 +1,5 @@
+[console_scripts]
+run-clustering-workflow = phage_modeling.workflows.feature_table_workflow:main
+run-feature-selection-workflow = phage_modeling.workflows.feature_selection_workflow:main
+run-full-workflow = phage_modeling.workflows.full_workflow:main
+run-modeling-workflow = phage_modeling.workflows.modeling_workflow:main
