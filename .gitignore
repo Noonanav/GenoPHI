@@ -1,5 +1,5 @@
 # Byte-compiled / optimized / DLL files
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 
@@ -13,5 +13,5 @@ ENV/
 env/
 venv/
 
-# Ignore __pycache__ in any subdirectory
-phage_modeling/**/__pycache__/
+# Ignore __pycache__ in any subdirectory (this covers all cases, including phage_modeling/**/__pycache__/)
+**/__pycache__/
