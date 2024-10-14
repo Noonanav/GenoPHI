@@ -5,12 +5,12 @@ import logging
 from Bio import SeqIO
 
 # Set thread limits for libraries to prevent oversubscription
-os.environ['OMP_NUM_THREADS'] = '8'
-os.environ['OPENBLAS_NUM_THREADS'] = '8'
-os.environ['MKL_NUM_THREADS'] = '8'
-os.environ['VECLIB_MAXIMUM_THREADS'] = '8'
-os.environ['NUMEXPR_NUM_THREADS'] = '8'
-os.environ['NUMBA_NUM_THREADS'] = '8'
+os.environ['OMP_NUM_THREADS'] = '12'
+os.environ['OPENBLAS_NUM_THREADS'] = '12'
+os.environ['MKL_NUM_THREADS'] = '12'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '12'
+os.environ['NUMEXPR_NUM_THREADS'] = '12'
+os.environ['NUMBA_NUM_THREADS'] = '12'
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -202,6 +202,11 @@ def select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv):
         'Query', 'Target', 'Score', 'SeqIdentity', 'E-value', 'qStartPos', 'qEndPos', 'qLen', 'tStartPos', 'tEndPos', 'tLen'
     ])
 
+    # Confirm assigned_df is not empty
+    if assigned_df.empty:
+        logging.error(f"No data found in assigned clusters file: {assigned_tsv}")
+        return
+
     # Sort by Query, then by SeqIdentity and E-value to find the best hits
     assigned_df = assigned_df.sort_values(by=['Query', 'SeqIdentity', 'E-value'], ascending=[True, False, True])
 
@@ -211,6 +216,11 @@ def select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv):
     # Read the clusters TSV and ensure the columns are correctly named
     clusters_df = pd.read_csv(clusters_tsv, sep='\t', header=None, names=['Cluster', 'Contig'])
 
+    # Confirm clusters_df is not empty
+    if clusters_df.empty:
+        logging.error(f"No data found in clusters file: {clusters_tsv}")
+        return
+
     # Ensure both columns being merged on are strings to avoid type mismatch
     best_hits_df['Target'] = best_hits_df['Target'].astype(str)
     clusters_df['Contig'] = clusters_df['Contig'].astype(str)
@@ -218,9 +228,13 @@ def select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv):
     # Merge best hits with clusters to map the target sequences to clusters
     best_hits_df = pd.merge(best_hits_df, clusters_df, left_on='Target', right_on='Contig', how='left')
 
+    # Check for any missing clusters
+    missing_clusters = best_hits_df['Cluster'].isna().sum()
+    if missing_clusters > 0:
+        logging.warning(f"{missing_clusters} entries in 'Target' did not match any 'Contig' in clusters file.")
+    
     # Save the final result with only the Query and Cluster columns
     best_hits_df[['Query', 'Cluster']].to_csv(best_hits_tsv, sep='\t', index=False, header=False)
-
     logging.info(f"Best hits saved to {best_hits_tsv}")
 
 def generate_presence_absence_matrix(best_hits_tsv, output_csv_path, contig_to_genome, genome_list):

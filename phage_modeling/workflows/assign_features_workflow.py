@@ -22,8 +22,14 @@ def map_features(best_hits_tsv, feature_map, output_dir, genome_contig_mapping, 
         return
 
     try:
+        # Load the best hits and feature mapping
         best_hits_df = pd.read_csv(best_hits_tsv, sep='\t', header=None, names=['Query', 'Cluster'])
         feature_mapping = pd.read_csv(feature_map)
+
+        # Ensure the 'Cluster' columns in both DataFrames are of the same type
+        best_hits_df['Cluster'] = best_hits_df['Cluster'].astype(str)
+        feature_mapping['Cluster_Label'] = feature_mapping['Cluster_Label'].astype(str)
+        
     except Exception as e:
         logging.error("Error reading input files: %s", e)
         return
@@ -33,13 +39,13 @@ def map_features(best_hits_tsv, feature_map, output_dir, genome_contig_mapping, 
     # Convert the genome_contig_mapping dictionary to a DataFrame for merging
     genome_contig_mapping_df = pd.DataFrame(list(genome_contig_mapping.items()), columns=['contig_id', 'genome'])
 
-    # Merge best_hits_df with feature_mapping
+    # Merge best_hits_df with feature_mapping on the 'Cluster' column
     merged_df = best_hits_df.merge(feature_mapping, left_on='Cluster', right_on='Cluster_Label')
 
     # Merge with genome_contig_mapping_df to get genome information
     merged_df = merged_df.merge(genome_contig_mapping_df, left_on='Query', right_on='contig_id')
 
-    # Create the binary feature presence table
+    # Create the binary feature presence table using the genome as the index
     feature_presence = merged_df.pivot_table(index='genome', columns='Feature', aggfunc='size', fill_value=0)
     feature_presence = (feature_presence > 0).astype(int)
 

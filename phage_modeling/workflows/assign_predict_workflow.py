@@ -1,21 +1,35 @@
 import os
 import pandas as pd
 import logging
+import subprocess
 from argparse import ArgumentParser
-from phage_modeling.mmseqs2_clustering import create_mmseqs_database, assign_sequences_to_clusters, load_strains, create_contig_to_genome_dict, select_best_hits
+from phage_modeling.mmseqs2_clustering import create_mmseqs_database, load_strains, create_contig_to_genome_dict, select_best_hits
 from phage_modeling.workflows.prediction_workflow import generate_full_feature_table, predict_interactions, calculate_mean_predictions, load_model
 
 def map_features(best_hits_tsv, feature_map, output_dir, genome_contig_mapping, genome, genome_type):
     """
     Maps the features for each new genome based on cluster assignments.
+
+    Args:
+        best_hits_tsv (str): Path to the best hits TSV file (output of select_best_hits).
+        feature_map (str): Path to the feature mapping CSV file (selected_features.csv).
+        output_dir (str): Directory to save the final feature table.
+        genome_contig_mapping (dict): Dictionary mapping contigs to genomes.
+        genome (str): Genome name of the current genome.
     """
     if not os.path.exists(best_hits_tsv):
         logging.error("Best hits TSV file does not exist: %s", best_hits_tsv)
         return
 
     try:
+        # Load the best hits and feature mapping
         best_hits_df = pd.read_csv(best_hits_tsv, sep='\t', header=None, names=['Query', 'Cluster'])
         feature_mapping = pd.read_csv(feature_map)
+
+        # Ensure the 'Cluster' columns in both DataFrames are of the same type
+        best_hits_df['Cluster'] = best_hits_df['Cluster'].astype(str)
+        feature_mapping['Cluster_Label'] = feature_mapping['Cluster_Label'].astype(str)
+        
     except Exception as e:
         logging.error("Error reading input files: %s", e)
         return
@@ -25,10 +39,10 @@ def map_features(best_hits_tsv, feature_map, output_dir, genome_contig_mapping, 
     # Convert the genome_contig_mapping dictionary to a DataFrame for merging
     genome_contig_mapping_df = pd.DataFrame(list(genome_contig_mapping.items()), columns=['contig_id', genome_type])
 
-    # Merge best_hits_df with feature_mapping
+    # Merge best_hits_df with feature_mapping on the 'Cluster' column
     merged_df = best_hits_df.merge(feature_mapping, left_on='Cluster', right_on='Cluster_Label')
 
-    # Merge with genome_contig_mapping_df to get genome_type information
+    # Merge with genome_contig_mapping_df to get genome information
     merged_df = merged_df.merge(genome_contig_mapping_df, left_on='Query', right_on='contig_id')
 
     # Create the binary feature presence table using the genome_type as the index
@@ -45,6 +59,55 @@ def map_features(best_hits_tsv, feature_map, output_dir, genome_contig_mapping, 
     feature_presence = feature_presence.reindex(columns=all_features, fill_value=0).reset_index()
 
     return feature_presence
+
+def assign_sequences_to_existing_clusters(query_db, target_db, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv):
+    """
+    Assigns sequences from the query database to clusters in the existing target database.
+
+    Args:
+        query_db (str): Path to the query MMseqs2 database (e.g., validation strains).
+        target_db (str): Path to the target MMseqs2 database (e.g., strain feature database).
+        output_dir (str): Directory to save results.
+        tmp_dir (str): Temporary directory for intermediate files.
+        coverage (float): Minimum coverage for assignment.
+        min_seq_id (float): Minimum sequence identity for assignment.
+        sensitivity (float): Sensitivity for assignment.
+        threads (int): Number of threads to use.
+        clusters_tsv (str): Path to the clusters TSV file.
+    """
+    logging.info("Assigning query sequences to existing target clusters...")
+
+    result_db = os.path.join(tmp_dir, "result_db")
+    # Run mmseqs2 search from query_db to target_db
+    search_command = (
+        f"mmseqs search {query_db} {target_db} {result_db} {tmp_dir} "
+        f"-c {coverage} --min-seq-id {min_seq_id} -s {sensitivity} "
+        f"--threads {threads} -v 3"
+    )
+    try:
+        subprocess.run(search_command, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error during MMseqs search: {e}")
+        return None  # Early exit on error
+
+    logging.info("Sequence assignment to existing clusters completed successfully.")
+
+    assigned_tsv = os.path.join(output_dir, "assigned_clusters.tsv")
+    # Create a TSV from query_db to target_db results
+    createtsv_command = f"mmseqs createtsv {query_db} {target_db} {result_db} {assigned_tsv} --threads {threads} -v 3"
+    
+    try:
+        subprocess.run(createtsv_command, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error during MMseqs createtsv: {e}")
+        return None  # Early exit on error
+        
+    logging.info(f"Assigned clusters TSV saved to {assigned_tsv}")
+
+    best_hits_tsv = os.path.join(output_dir, "best_hits.tsv")
+    select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
+
+    return best_hits_tsv
 
 def process_new_genomes(input_dir, mmseqs_db, suffix, tmp_dir, output_dir, feature_map, clusters_tsv, genome_type, genomes=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4):
     """
@@ -74,13 +137,8 @@ def process_new_genomes(input_dir, mmseqs_db, suffix, tmp_dir, output_dir, featu
                 logging.warning(f"No FASTA files found for {genome_type} '{genome}' with suffix '{suffix}'. Skipping...")
                 continue  # Skip to the next genome if no FASTA files are found
 
-            result_db = os.path.join(genome_tmp_dir, 'result_db')
-            assign_sequences_to_clusters(query_db, genome_tmp_dir, genome_tmp_dir, coverage, min_seq_id, sensitivity, threads, mmseqs_db)
-
-            assigned_tsv = os.path.join(genome_tmp_dir, 'assigned_clusters.tsv')
-            best_hits_tsv = os.path.join(genome_tmp_dir, 'best_hits.tsv')
-
-            select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
+            # Run the assignment and best-hit selection
+            best_hits_tsv = assign_sequences_to_existing_clusters(query_db, mmseqs_db, genome_tmp_dir, genome_tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv)
 
             genome_contig_mapping, _ = create_contig_to_genome_dict(fasta_files, 'directory')
 

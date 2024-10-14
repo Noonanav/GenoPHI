@@ -12,11 +12,11 @@ import re
 from phage_modeling.feature_selection import load_and_prepare_data, filter_data, train_and_evaluate, grid_search, save_feature_importances
 
 # Set environment variables to control threading
-os.environ['OMP_NUM_THREADS'] = '6'
-os.environ['OPENBLAS_NUM_THREADS'] = '6'
-os.environ['MKL_NUM_THREADS'] = '6'
-os.environ['VECLIB_MAXIMUM_THREADS'] = '6'
-os.environ['NUMEXPR_NUM_THREADS'] = '6'
+os.environ['OMP_NUM_THREADS'] = '12'
+os.environ['OPENBLAS_NUM_THREADS'] = '12'
+os.environ['MKL_NUM_THREADS'] = '12'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '12'
+os.environ['NUMEXPR_NUM_THREADS'] = '12'
 
 def model_testing_select_MCC(input, output_dir, threads, random_state, set_filter='none', sample_column=None, phenotype_column=None):
     """
