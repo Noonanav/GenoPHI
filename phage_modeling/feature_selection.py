@@ -239,6 +239,10 @@ def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid,
             best_predictions_df.to_csv(f"{output_dir}/best_model_predictions.csv", index=False)
 
     pd.DataFrame(results).to_csv(f"{output_dir}/model_performance.csv", index=False)
+
+    # Return None if no model is found
+    if best_model is None:
+        logging.warning("No valid model was found in grid search.")
     
     return best_model, best_params, best_mcc
 
@@ -307,6 +311,10 @@ def save_feature_importances(best_model, selected_features, feature_importances_
         selected_features (DataFrame): DataFrame containing selected features used for training.
         feature_importances_path (str): Path to save the feature importances CSV.
     """
+    if not hasattr(best_model, "feature_importances_"):
+        logging.warning("No feature importances found on the model. Skipping save.")
+        return
+        
     feature_importances = best_model.feature_importances_
 
     # Ensure the lengths match
@@ -384,6 +392,11 @@ def run_feature_selection_iterations(
         # Perform grid search for hyperparameter tuning
         best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir)
 
+        # Skip saving feature importances if no best model was found
+        if best_model is None:
+            logging.warning(f"No best model found for iteration {i}. Skipping feature importance saving.")
+            continue
+
         # Save feature importances and track feature occurrences
         feature_importances_path = os.path.join(output_dir, 'feature_importances.csv')
         save_feature_importances(best_model, pd.DataFrame(X_train_selected, columns=selected_features), feature_importances_path)
@@ -441,14 +454,23 @@ def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_t
     occurrence_counts = features_occurrence_df['Occurrence'].value_counts().reset_index()
     occurrence_counts = occurrence_counts.rename(columns={'index': 'Occurrence', 'Occurrence': 'Count'})
 
+    # Determine min and max feature thresholds based on interaction count
+    if interaction_count < 500:
+        min_features = 10
+        max_features = interaction_count / 10
+    else:
+        min_features = 20
+        max_features = interaction_count / 20
+
     # Process each cut-off value
     for cut_off in cut_offs:
         features_occurrence_filter = features_occurrence_df[features_occurrence_df['Occurrence'] >= cut_off]
-        print(f'Cut-off: {cut_off} - Features: {len(features_occurrence_filter)}')
+        num_features = len(features_occurrence_filter)
+        print(f'Cut-off: {cut_off} - Features: {num_features}')
 
         # Ensure the filtered feature set is within reasonable bounds
-        if 20 < len(features_occurrence_filter) < interaction_count / 20:
-            print(f'Cut-off: {cut_off} - Features: {len(features_occurrence_filter)}')
+        if min_features < num_features < max_features:
+            print(f'Cut-off: {cut_off} - Features: {num_features}')
             select_features = features_occurrence_filter['Feature'].tolist()
 
             # Select the relevant features from the full feature table
