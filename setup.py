@@ -23,6 +23,7 @@ setup(
         'tqdm',  # For progress bars
         'joblib',  # For saving and loading models
         'plotnine',  # For ggplot-style plotting
+        'shap',  # For SHAP-based feature selection
     ],
     entry_points={
         'console_scripts': [

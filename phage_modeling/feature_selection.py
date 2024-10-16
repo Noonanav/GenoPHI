@@ -2,6 +2,9 @@ import os
 import logging
 import pandas as pd
 import numpy as np
+from sklearn.feature_selection import SelectKBest, f_classif, chi2, SelectFromModel
+from sklearn.linear_model import LogisticRegression
+import shap
 from sklearn.model_selection import train_test_split
 from catboost import CatBoostClassifier
 from sklearn.feature_selection import RFE
@@ -145,6 +148,122 @@ def perform_rfe(X_train, y_train, num_features, threads, output_dir):
     print(f"RFE selected {len(selected_features)} features.")
     
     return rfe, selected_features
+
+def select_k_best_feature_selection(X_train, y_train, num_features):
+    """
+    Selects the top features using the SelectKBest method with ANOVA F-test.
+
+    Args:
+        X_train (DataFrame): Training features.
+        y_train (Series): Training target.
+        num_features (int): Number of top features to select.
+
+    Returns:
+        X_train_selected (DataFrame): Training features with the selected top features.
+        selected_features (Index): List of selected feature names.
+    
+    Example:
+        X_train_selected, selected_features = select_k_best_feature_selection(X_train, y_train, X_test, num_features=100)
+    
+    Notes:
+        This function uses the ANOVA F-test (f_classif) to score features and select the top 'num_features'.
+        It returns the transformed X_train as a DataFrame, preserving feature names and indices.
+    """
+    print("Selecting features using SelectKBest...")
+    skb = SelectKBest(score_func=f_classif, k=num_features)
+    skb.fit(X_train, y_train)
+    
+    # Get the boolean mask of selected features
+    support = skb.get_support()
+    selected_features = X_train.columns[support]
+    
+    # Transform X_train to a DataFrame with selected features' column names
+    X_train_selected = pd.DataFrame(skb.transform(X_train), columns=selected_features, index=X_train.index)
+    
+    print(f"SelectKBest selected {len(selected_features)} features.")
+    return X_train_selected, selected_features
+
+
+def chi_squared_feature_selection(X_train, y_train, num_features):
+    """
+    Selects top features using the Chi-Squared Test.
+
+    Args:
+        X_train (DataFrame): Training features (must be non-negative).
+        y_train (Series): Training target.
+        num_features (int): Number of top features to select.
+
+    Returns:
+        X_train_selected (DataFrame): Transformed training features with selected features.
+        selected_features (Index): List of selected feature names.
+    """
+    print("Selecting features using Chi-Squared Test...")
+    chi2_selector = SelectKBest(score_func=chi2, k=num_features)
+    chi2_selector.fit(X_train, y_train)
+    
+    # Get the boolean mask of selected features
+    support = chi2_selector.get_support()
+    selected_features = X_train.columns[support]
+    
+    # Transform X_train to a DataFrame with selected features' column names
+    X_train_selected = pd.DataFrame(chi2_selector.transform(X_train), columns=selected_features, index=X_train.index)
+    
+    print(f"Chi-Squared Test selected {len(selected_features)} features.")
+    return X_train_selected, selected_features
+
+def lasso_feature_selection(X_train, y_train, num_features):
+    """
+    Selects top features using Lasso regularization.
+
+    Args:
+        X_train (DataFrame): Training features.
+        y_train (Series): Training target.
+        num_features (int): Number of top features to select.
+
+    Returns:
+        X_train_selected (DataFrame): Transformed training features with selected features.
+        selected_features (Index): List of selected feature names.
+    """
+    print("Selecting features using Lasso regularization...")
+    lasso = LogisticRegression(penalty='l1', solver='liblinear', max_iter=1000)
+    lasso.fit(X_train, y_train)
+    
+    # Use SelectFromModel to select features based on the Lasso model
+    selector = SelectFromModel(lasso, max_features=num_features, prefit=True)
+    support = selector.get_support()
+    selected_features = X_train.columns[support]
+    
+    # Transform X_train to a DataFrame with selected features' column names
+    X_train_selected = pd.DataFrame(selector.transform(X_train), columns=selected_features, index=X_train.index)
+    
+    print(f"Lasso selected {len(selected_features)} features.")
+    return X_train_selected, selected_features
+
+def shap_feature_selection(X_train, y_train, num_features, threads):
+    """
+    Selects top features based on SHAP values.
+
+    Args:
+        X_train (DataFrame): Training features.
+        y_train (Series): Training target.
+        num_features (int): Number of top features to select.
+        threads (int): Number of threads to use for CatBoost training.
+
+    Returns:
+        X_train_selected (DataFrame): Transformed training features with selected features.
+        selected_features (Index): List of selected feature names.
+    """
+    model = CatBoostClassifier(iterations=500, learning_rate=0.1, depth=4, verbose=0, thread_count=threads)
+    model.fit(X_train, y_train)
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_train)
+    
+    shap_importances = np.abs(shap_values).mean(axis=0)
+    top_indices = np.argsort(shap_importances)[-num_features:]
+    selected_features = X_train.columns[top_indices]
+    
+    print(f"SHAP selected {len(selected_features)} features.")
+    return X_train[selected_features], selected_features
 
 def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir):
     """
@@ -335,7 +454,7 @@ def save_feature_importances(best_model, selected_features, feature_importances_
     logging.info(f"Feature importances saved to {feature_importances_path}")
 
 def run_feature_selection_iterations(
-    input_path, base_output_dir, threads, num_features, filter_type, num_runs, select_cols=False, sample_column=None, phenotype_column=None
+    input_path, base_output_dir, threads, num_features, filter_type, num_runs, select_cols=False, sample_column=None, phenotype_column=None, method='rfe'
 ):
     """
     Runs multiple iterations of feature selection, saves the results in `run_*` directories, and tracks feature occurrences.
@@ -350,37 +469,41 @@ def run_feature_selection_iterations(
         select_cols (bool): Whether to run with selected columns.
         sample_column (str): Column name for the sample/strain (if using selected columns).
         phenotype_column (str): Column name for the phenotype (if using selected columns).
+        method (str): Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
     """
     
-    # Ensure base output directory exists
     if not os.path.exists(base_output_dir):
         os.makedirs(base_output_dir)
 
-    # Dictionary to keep track of feature occurrences across runs
     features_occurrence = {}
-
     start_total_time = time.time()
 
-    # Run feature selection for each iteration
     for i in tqdm(range(num_runs), desc="Running Feature Selection Iterations"):
         output_dir = os.path.join(base_output_dir, f'run_{i}')
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        random_state = i  # Use the iteration number as the random state
+        random_state = i
 
-        # Load and prepare data
         X, y, full_feature_table = load_and_prepare_data(input_path)
-        # Pass the random_state to filter_data
         X_train, X_test, y_train, y_test, X_test_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state)
 
-        # Perform Recursive Feature Elimination (RFE)
-        rfe_model, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir)
+        # Apply selected feature selection method
+        if method == 'rfe':
+            _, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir)
+        elif method == 'select_k_best':
+            X_train, selected_features = select_k_best_feature_selection(X_train, y_train, num_features)
+        elif method == 'chi_squared':
+            X_train, selected_features = chi_squared_feature_selection(X_train, y_train, num_features)
+        elif method == 'lasso':
+            X_train, selected_features = lasso_feature_selection(X_train, y_train, num_features)
+        elif method == 'shap':
+            X_train, selected_features = shap_feature_selection(X_train, y_train, num_features, threads)
+        else:
+            raise ValueError(f"Unsupported feature selection method: {method}")
 
-        # Filter the training set by the selected features
         X_train_selected = X_train[selected_features]
         X_test_selected = X_test[selected_features]
 
-        # Define parameter grid for grid search
         param_grid = {
             'iterations': [500, 1000],
             'learning_rate': [0.05, 0.1],
@@ -389,24 +512,19 @@ def run_feature_selection_iterations(
             'thread_count': [threads]
         }
 
-        # Perform grid search for hyperparameter tuning
         best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir)
 
-        # Skip saving feature importances if no best model was found
         if best_model is None:
             logging.warning(f"No best model found for iteration {i}. Skipping feature importance saving.")
             continue
 
-        # Save feature importances and track feature occurrences
         feature_importances_path = os.path.join(output_dir, 'feature_importances.csv')
         save_feature_importances(best_model, pd.DataFrame(X_train_selected, columns=selected_features), feature_importances_path)
 
-        # Load feature importances and update occurrences
         features_df = pd.read_csv(feature_importances_path)
         for feature in features_df['Feature'].values:
             features_occurrence[feature] = features_occurrence.get(feature, 0) + 1
 
-    # Save feature occurrences summary
     features_occurrence_df = pd.DataFrame(list(features_occurrence.items()), columns=['Feature', 'Occurrence'])
     features_occurrence_df.sort_values(by='Occurrence', ascending=False, inplace=True)
     features_occurrence_path = os.path.join(base_output_dir, 'features_occurrence.csv')

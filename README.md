@@ -5,7 +5,7 @@ Phage Modeling is a Python package designed to facilitate the machine-learning (
 1. __Clustering with MMSeqs2__: Cluster AA sequences of phages and hosts into gene families.
 2. __Gene Family Presence-Absence Matrices__: Generate presence-absence matrices of gene families in phage and host genomes
 3. __Feature Table Construction__: Build feature tables based on co-occurrence patterns of gene families. Gene families with identical occurrence patterns across all genomes are collapsed into a single feature.
-4. __Feature Selection__: ML-assisted identification of protein family features that are predictive of phage-host interactions in a given dataset using recursive feature elimination (RFE).
+4. __Feature Selection__: Identification of protein family features that are predictive of phage-host interactions in a given dataset. Available methods include: recursive feature elimination (RFE), ANOVA using `SelectKBest`, chi-squared test, lasso linear regression, and SHAP feature importances.
 5. __CatBoost ML Pipelines__: Execute CatBoost-based pipelines for interaction prediction, including hyperparameter tuning, performance evaluation, and performance vizualization.
 6. __Prediction of New Interactions__: Assign gene family features to new genomes and predict their interactions with existing datasets.
 
@@ -60,7 +60,7 @@ For other installation methods, see the [MMSeqs2 Wiki](https://github.com/soedin
    The strain and phage feature tables are merged using the provided interaction matrix, which contains validated interactions between strains and phages.
 
 4. **Feature Selection**: 
-   Recursive Feature Elimination (RFE) and other feature selection methods are applied to the merged feature table to identify the most predictive gene families (features) for host-phage interactions. Multiple iterations of feature selection are performed, and the results are saved.
+   Feature selection methods, including Recursive Feature Elimination (RFE), ANOVA with `SelectKBest`, chi-squared test, lasso regression, and SHAP values, are applied to the merged feature table to identify the most predictive gene families (features) for host-phage interactions. These methods are run across multiple iterations, ensuring robust identification of relevant features. Results from each feature selection method are saved for easy comparison and further analysis.
 
 5. **Modeling**: 
    Using the selected features, machine learning models (CatBoost) are trained to predict host-phage interactions. The model is evaluated using performance metrics like ROC curves and Precision-Recall curves, and the trained models are saved for future predictions.
@@ -75,30 +75,26 @@ __CLI__:
 Help message:
 
 ```bash
-usage: run-full-workflow [-h] -ih INPUT_STRAIN -ip INPUT_PHAGE -im INTERACTION_MATRIX -o OUTPUT [--tmp TMP] [--min_seq_id MIN_SEQ_ID] [--coverage COVERAGE] [--sensitivity SENSITIVITY] [--suffix SUFFIX] [--threads THREADS]
-                         [--strain_list STRAIN_LIST] [--phage_list PHAGE_LIST] [--strain_column STRAIN_COLUMN] [--phage_column PHAGE_COLUMN] [--compare] [--source_strain SOURCE_STRAIN] [--source_phage SOURCE_PHAGE]
-                         [--num_features NUM_FEATURES] [--filter_type FILTER_TYPE] [--num_runs_fs NUM_RUNS_FS] [--num_runs_modeling NUM_RUNS_MODELING] [--sample_column SAMPLE_COLUMN] [--phenotype_column PHENOTYPE_COLUMN]
+usage: run-full-workflow [-h] -ih INPUT_STRAIN -ip INPUT_PHAGE -im INTERACTION_MATRIX [--suffix SUFFIX] [--strain_list STRAIN_LIST] [--phage_list PHAGE_LIST] [--strain_column STRAIN_COLUMN] [--phage_column PHAGE_COLUMN]
+                         [--source_strain SOURCE_STRAIN] [--source_phage SOURCE_PHAGE] [--sample_column SAMPLE_COLUMN] [--phenotype_column PHENOTYPE_COLUMN] -o OUTPUT [--tmp TMP] [--min_seq_id MIN_SEQ_ID] [--coverage COVERAGE]
+                         [--sensitivity SENSITIVITY] [--compare] [--filter_type FILTER_TYPE] [--method {rfe,select_k_best,chi_squared,lasso,shap}] [--num_features NUM_FEATURES] [--num_runs_fs NUM_RUNS_FS]
+                         [--num_runs_modeling NUM_RUNS_MODELING] [--threads THREADS]
 
-Run the full workflow: feature table generation, feature selection, and modeling.
+Complete workflow: Feature table generation, feature selection, and modeling.
 
 options:
   -h, --help            show this help message and exit
+
+Input data:
   -ih INPUT_STRAIN, --input_strain INPUT_STRAIN
-                        Input path for strain clustering (directory or file).
+                        Path to the input directory or file for strain clustering.
   -ip INPUT_PHAGE, --input_phage INPUT_PHAGE
-                        Input path for phage clustering (directory or file).
+                        Path to the input directory or file for phage clustering.
   -im INTERACTION_MATRIX, --interaction_matrix INTERACTION_MATRIX
                         Path to the interaction matrix.
-  -o OUTPUT, --output OUTPUT
-                        Output directory to save results.
-  --tmp TMP             Temporary directory for intermediate files (default: tmp).
-  --min_seq_id MIN_SEQ_ID
-                        Minimum sequence identity for clustering (default: 0.6).
-  --coverage COVERAGE   Minimum coverage for clustering (default: 0.8).
-  --sensitivity SENSITIVITY
-                        Sensitivity for clustering (default: 7.5).
+
+Optional input arguments:
   --suffix SUFFIX       Suffix for input FASTA files (default: faa).
-  --threads THREADS     Number of threads to use (default: 4).
   --strain_list STRAIN_LIST
                         Path to a strain list file for filtering (default: none).
   --phage_list PHAGE_LIST
@@ -107,23 +103,42 @@ options:
                         Column in the strain list containing strain names (default: strain).
   --phage_column PHAGE_COLUMN
                         Column in the phage list containing phage names (default: phage).
-  --compare             Compare original clusters with assigned clusters.
   --source_strain SOURCE_STRAIN
                         Prefix for naming selected features for strain in the assignment step (default: strain).
   --source_phage SOURCE_PHAGE
                         Prefix for naming selected features for phage in the assignment step (default: phage).
-  --num_features NUM_FEATURES
-                        Number of features to select during feature selection (default: 100).
-  --filter_type FILTER_TYPE
-                        Type of filtering to use during feature selection and modeling ('none', 'strain', 'phage', 'dataset'; default: none).
-  --num_runs_fs NUM_RUNS_FS
-                        Number of feature selection iterations to run (default: 10).
-  --num_runs_modeling NUM_RUNS_MODELING
-                        Number of runs per feature table for modeling (default: 10).
   --sample_column SAMPLE_COLUMN
                         Column name for the sample identifier (optional).
   --phenotype_column PHENOTYPE_COLUMN
                         Column name for the phenotype (optional).
+
+Output arguments:
+  -o OUTPUT, --output OUTPUT
+                        Output directory to save results.
+  --tmp TMP             Temporary directory for intermediate files (default: tmp).
+
+Clustering:
+  --min_seq_id MIN_SEQ_ID
+                        Minimum sequence identity for clustering (default: 0.6).
+  --coverage COVERAGE   Minimum coverage for clustering (default: 0.8).
+  --sensitivity SENSITIVITY
+                        Sensitivity for clustering (default: 7.5).
+  --compare             Compare original clusters with assigned clusters.
+
+Feature selection and modeling:
+  --filter_type FILTER_TYPE
+                        Filter type for the input data ('none', 'strain', 'phage', 'dataset'; default: none).
+  --method {rfe,select_k_best,chi_squared,lasso,shap}
+                        Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).
+  --num_features NUM_FEATURES
+                        Number of features to select (default: 100).
+  --num_runs_fs NUM_RUNS_FS
+                        Number of feature selection iterations to run (default: 10).
+  --num_runs_modeling NUM_RUNS_MODELING
+                        Number of runs per feature table for modeling (default: 10).
+
+General:
+  --threads THREADS     Number of threads to use (default: 4).
 ```
 
 Example usage:
@@ -161,6 +176,7 @@ run_full_workflow(
 - `num_features`: Number of features to select during feature selection.
 - `num_runs_fs`: Number of runs for feature selection to identify optimal features.
 - `num_runs_modeling`: Number of runs for the modeling step, each with different random training/testing splits.
+- `method`: Feature selection method (options: 'rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap')
 
 #### Outputs:
 - `presence_absence_matrix.csv`: Feature matrix indicating gene family presence/absence.
@@ -384,7 +400,7 @@ __CLI__:
 Help message:
 
 ```bash
-usage: run-feature-selection-workflow [-h] -i INPUT -o OUTPUT [--threads THREADS] [--num_features NUM_FEATURES] [--filter_type FILTER_TYPE] [--num_runs NUM_RUNS]
+usage: run-feature-selection-workflow [-h] -i INPUT -o OUTPUT [--threads THREADS] [--num_features NUM_FEATURES] [--filter_type FILTER_TYPE] [--num_runs NUM_RUNS] [--method {rfe,select_k_best,chi_squared,lasso,shap}]
 
 Run feature selection workflow.
 
@@ -396,10 +412,12 @@ options:
                         Base output directory for the results.
   --threads THREADS     Number of threads to use.
   --num_features NUM_FEATURES
-                        Number of features to select during RFE.
+                        Number of features to select during feature selection.
   --filter_type FILTER_TYPE
                         Type of filtering to use ('none', 'strain', 'phage').
   --num_runs NUM_RUNS   Number of feature selection iterations to run.
+  --method {rfe,select_k_best,chi_squared,lasso,shap}
+                        Feature selection method to use ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
 ```
 
 Usage example:
