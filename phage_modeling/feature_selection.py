@@ -107,7 +107,11 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         X_test = X[test_idx]
         y_train = y[train_idx]
         y_test = y[test_idx]
-        X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage']]
+
+        if 'phage' in full_feature_table.columns:
+            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage']]
+        else:
+            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column]]
 
     return X_train, X_test, y_train, y_test, X_test_sample_ids
 
@@ -306,7 +310,7 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir):
     return model, accuracy, f1, mcc, y_pred
 
 # Function to perform grid search
-def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir):
+def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column='interaction'):
     """
     Performs grid search to find the best hyperparameters for CatBoost.
 
@@ -354,7 +358,7 @@ def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid,
             best_predictions_df = X_test_sample_ids.copy()
             best_predictions_df['Prediction'] = y_pred
             best_predictions_df['Confidence'] = model.predict_proba(X_test)[:, 1]
-            best_predictions_df['interaction'] = y_test
+            best_predictions_df[phenotype_column] = y_test
             best_predictions_df.to_csv(f"{output_dir}/best_model_predictions.csv", index=False)
 
     pd.DataFrame(results).to_csv(f"{output_dir}/model_performance.csv", index=False)
@@ -484,8 +488,8 @@ def run_feature_selection_iterations(
             os.makedirs(output_dir)
         random_state = i
 
-        X, y, full_feature_table = load_and_prepare_data(input_path)
-        X_train, X_test, y_train, y_test, X_test_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state)
+        X, y, full_feature_table = load_and_prepare_data(input_path, sample_column=sample_column, phenotype_column=phenotype_column)
+        X_train, X_test, y_train, y_test, X_test_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state, sample_column=sample_column)
 
         # Apply selected feature selection method
         if method == 'rfe':
@@ -512,7 +516,7 @@ def run_feature_selection_iterations(
             'thread_count': [threads]
         }
 
-        best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir)
+        best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column)
 
         if best_model is None:
             logging.warning(f"No best model found for iteration {i}. Skipping feature importance saving.")
@@ -533,7 +537,10 @@ def run_feature_selection_iterations(
     end_total_time = time.time()
     print(f"Feature selection iterations completed in {end_total_time - start_total_time:.2f} seconds.")
 
-def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_table_dir, cut_offs=[3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50]):
+def generate_feature_tables(
+    model_testing_dir, full_feature_table_file, filter_table_dir, 
+    phenotype_column='interaction', sample_column='strain', cut_offs=[3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+):
     """
     Generate and save feature tables based on feature selection results from multiple runs in the main directory.
     
@@ -541,6 +548,8 @@ def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_t
         model_testing_dir (str): Directory containing feature selection runs.
         full_feature_table_file (str): Path to the full feature table CSV.
         filter_table_dir (str): Directory where filtered feature tables will be saved.
+        phenotype_column (str): Column name for the binary target variable (e.g., 'interaction' or 'phenotype').
+        sample_column (str): Column name for the sample or strain identifier.
         cut_offs (list): List of thresholds for feature occurrences to be used for filtering.
     """
     # Load the full feature table
@@ -568,10 +577,6 @@ def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_t
     features_occurrence_df = pd.DataFrame(list(features_occurrence.items()), columns=['Feature', 'Occurrence'])
     features_occurrence_df.sort_values(by='Occurrence', ascending=False, inplace=True)
 
-    # Create occurrence counts table for analysis (optional)
-    occurrence_counts = features_occurrence_df['Occurrence'].value_counts().reset_index()
-    occurrence_counts = occurrence_counts.rename(columns={'index': 'Occurrence', 'Occurrence': 'Count'})
-
     # Determine min and max feature thresholds based on interaction count
     if interaction_count < 500:
         min_features = 10
@@ -588,14 +593,25 @@ def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_t
 
         # Ensure the filtered feature set is within reasonable bounds
         if min_features < num_features < max_features:
-            print(f'Cut-off: {cut_off} - Features: {num_features}')
             select_features = features_occurrence_filter['Feature'].tolist()
 
             # Select the relevant features from the full feature table
-            select_feature_table = full_feature_table[['strain', 'phage', 'interaction'] + select_features]
-            select_feature_table = select_feature_table.melt(id_vars=['strain', 'phage', 'interaction'], var_name='Feature', value_name='Value')
+            # Check if it's a phage-host interaction or just sample/phenotype
+            if sample_column in full_feature_table.columns and 'phage' in full_feature_table.columns:
+                id_vars = [sample_column, 'phage', phenotype_column]
+            elif sample_column in full_feature_table.columns:
+                id_vars = [sample_column, phenotype_column]
+            else:
+                raise ValueError("Required columns (sample or phage) not found in full feature table.")
+            
+            select_feature_table = full_feature_table[id_vars + select_features]
+            select_feature_table = select_feature_table.melt(
+                id_vars=id_vars, var_name='Feature', value_name='Value'
+            )
             select_feature_table['Value'] = select_feature_table['Value'].apply(lambda x: 1 if x > 0 else 0)
-            select_feature_table = select_feature_table.pivot_table(index=['strain', 'phage', 'interaction'], columns='Feature', values='Value').reset_index()
+            select_feature_table = select_feature_table.pivot_table(
+                index=id_vars, columns='Feature', values='Value'
+            ).reset_index()
 
             # Create directory for the filtered feature tables if it doesn't exist
             if not os.path.exists(filter_table_dir):

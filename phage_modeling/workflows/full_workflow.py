@@ -4,7 +4,7 @@ from phage_modeling.mmseqs2_clustering import run_clustering_workflow, run_featu
 from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
 from phage_modeling.select_feature_modeling import run_experiments
 
-def run_full_workflow(input_path_strain, input_path_phage, interaction_matrix, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', phage_list='none', strain_column='strain', phage_column='phage', compare=False, source_strain='strain', source_phage='phage', num_features=100, filter_type='none', num_runs_fs=10, num_runs_modeling=10, sample_column=None, phenotype_column=None, method='rfe'):
+def run_full_workflow(input_path_strain, input_path_phage, interaction_matrix, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', phage_list='none', strain_column='strain', phage_column='phage', compare=False, source_strain='strain', source_phage='phage', num_features=100, filter_type='none', num_runs_fs=10, num_runs_modeling=10, sample_column='strain', phenotype_column=None, method='rfe'):
     """
     Complete workflow: Feature table generation, feature selection, and modeling.
 
@@ -88,7 +88,9 @@ def run_full_workflow(input_path_strain, input_path_phage, interaction_matrix, o
         num_features=num_features,
         filter_type=filter_type,
         num_runs=num_runs_fs,
-        method=method  # Add method parameter here
+        method=method,
+        sample_column=sample_column,
+        phenotype_column=phenotype_column
     )
     
     # Generate feature tables from feature selection
@@ -98,6 +100,8 @@ def run_full_workflow(input_path_strain, input_path_phage, interaction_matrix, o
         model_testing_dir=base_fs_output_dir,
         full_feature_table_file=merged_feature_table,
         filter_table_dir=filter_table_dir,
+        phenotype_column=phenotype_column,
+        sample_column=sample_column,
         cut_offs=[3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45, 47, 50]
     )
 
@@ -132,7 +136,7 @@ def main():
     optional_input_group.add_argument('--phage_column', type=str, default='phage', help='Column in the phage list containing phage names (default: phage).')
     optional_input_group.add_argument('--source_strain', type=str, default='strain', help='Prefix for naming selected features for strain in the assignment step (default: strain).')
     optional_input_group.add_argument('--source_phage', type=str, default='phage', help='Prefix for naming selected features for phage in the assignment step (default: phage).')
-    optional_input_group.add_argument('--sample_column', type=str, help='Column name for the sample identifier (optional).')
+    optional_input_group.add_argument('--sample_column', type=str, default='strain', help='Column name for the sample identifier (default: strain).')
     optional_input_group.add_argument('--phenotype_column', type=str, help='Column name for the phenotype (optional).')
 
     # Output arguments
@@ -149,7 +153,7 @@ def main():
 
     # Feature selection and modeling parameters
     fs_modeling_group = parser.add_argument_group('Feature selection and modeling')
-    fs_modeling_group.add_argument('--filter_type', type=str, default='none', help="Filter type for the input data ('none', 'strain', 'phage', 'dataset'; default: none).")
+    fs_modeling_group.add_argument('--filter_type', type=str, default='none', help="Filter type for the input data ('none', 'strain', 'phage').")
     fs_modeling_group.add_argument('--method', type=str, default='rfe', choices=['rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
                                    help="Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).")
     fs_modeling_group.add_argument('--num_features', type=int, default=100, help='Number of features to select (default: 100).')

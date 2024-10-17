@@ -35,8 +35,8 @@ def main():
     parser.add_argument('--threads', type=int, default=4, help='Number of threads to use.')
     parser.add_argument('--num_runs', type=int, default=100, help='Number of runs per feature table.')
     parser.add_argument('--set_filter', type=str, default='none', help="Filter for dataset ('none', 'strain', 'phage', 'dataset').")
-    parser.add_argument('--sample_column', type=str, help='Column name for the sample identifier (optional).')
-    parser.add_argument('--phenotype_column', type=str, help='Column name for the phenotype (optional).')
+    parser.add_argument('--sample_column', type=str, default='strain', help='Column name for the sample identifier (optional).')
+    parser.add_argument('--phenotype_column', type=str, default='interaction', help='Column name for the phenotype (optional).')
 
     args = parser.parse_args()
 

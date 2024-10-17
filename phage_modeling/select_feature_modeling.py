@@ -46,7 +46,7 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, set_filte
         'thread_count': [threads]
     }
 
-    best_model, best_params, best_mcc = grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir)
+    best_model, best_params, best_mcc = grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column)
 
     if best_model is None:
         print(f"Skipping iteration: Best MCC is {best_mcc}, no model found.")
@@ -127,13 +127,15 @@ def parse_model_predictions_and_performance(model_dir):
 
     return model_predictions_df, model_performance_df
 
-def evaluate_model_performance(predictions_file, output_dir):
+def evaluate_model_performance(predictions_file, output_dir, sample_column='strain', phenotype_column='interaction'):
     """
     Evaluates model performances from the prediction data and generates performance plots grouped by cutoff.
 
     Args:
         predictions_file (str): Path to the CSV file containing model predictions.
         output_dir (str): Directory to save performance plots and evaluation metrics.
+        sample_column (str): Column name for the sample identifier.
+        phenotype_column (str): Column name for the phenotype.
     """
     # Create the output directory if it doesn't exist
     model_performance_dir = os.path.join(output_dir, 'model_performance')
@@ -143,18 +145,23 @@ def evaluate_model_performance(predictions_file, output_dir):
     model_predictions_df_full = pd.read_csv(predictions_file)
     model_predictions_df_full['cut_off'] = model_predictions_df_full['cut_off'].astype(str)
 
-    # Calculate average prediction and confidence per strain, phage, and interaction
-    model_predictions_df_calcs = model_predictions_df_full.groupby(['cut_off', 'strain', 'phage', 'interaction']).agg({
+    # Determine grouping columns
+    grouping_columns = ['cut_off', sample_column, phenotype_column]
+    if 'phage' in model_predictions_df_full.columns:
+        grouping_columns.insert(2, 'phage')  # Include phage in grouping if present
+
+    # Calculate average prediction and confidence per group
+    model_predictions_df_calcs = model_predictions_df_full.groupby(grouping_columns).agg({
         'Prediction': 'mean',
         'Confidence': 'mean'
     }).reset_index()
 
     # Convert confidence to binary predictions
-    model_predictions_df_calcs['Prediction'] = [1 if x > 0.5 else 0 for x in model_predictions_df_calcs['Confidence']]
+    model_predictions_df_calcs['Prediction'] = (model_predictions_df_calcs['Confidence'] > 0.5).astype(int)
 
     # Function to calculate metrics
     def calculate_metrics(df):
-        y_true = df['interaction']
+        y_true = df[phenotype_column]
         y_pred_prob = df['Confidence']
         y_pred = df['Prediction']
         
@@ -180,7 +187,7 @@ def evaluate_model_performance(predictions_file, output_dir):
     roc_list = []
     pr_list = []
 
-    for (cut_off), group in model_predictions_df_calcs.groupby('cut_off'):
+    for cut_off, group in model_predictions_df_calcs.groupby('cut_off'):
         metrics, roc_df, pr_df = calculate_metrics(group)
         metrics['cut_off'] = cut_off
         metrics_list.append(metrics)
@@ -214,7 +221,7 @@ def evaluate_model_performance(predictions_file, output_dir):
     # Calculate and plot hit rate and hit ratio
     def calculate_hit_rate(df):
         df = df.sort_values(by='Confidence', ascending=False).reset_index(drop=True)
-        df['cumulative_hits'] = df['interaction'].cumsum()
+        df['cumulative_hits'] = df[phenotype_column].cumsum()
         df['cumulative_total'] = np.arange(1, len(df) + 1)
         df['hit_rate'] = df['cumulative_hits'] / df['cumulative_total']
         df['fraction_of_samples'] = df['cumulative_total'] / len(df)
@@ -222,15 +229,15 @@ def evaluate_model_performance(predictions_file, output_dir):
 
     def calculate_hit_ratio(df):
         df = df.sort_values(by='Confidence', ascending=False).reset_index(drop=True)
-        df['cumulative_true_positives'] = df['interaction'].cumsum()
-        df['total_true_positives'] = df['interaction'].sum()
+        df['cumulative_true_positives'] = df[phenotype_column].cumsum()
+        df['total_true_positives'] = df[phenotype_column].sum()
         df['hit_ratio'] = df['cumulative_true_positives'] / df['total_true_positives']
         df['fraction_of_samples'] = np.arange(1, len(df) + 1) / len(df)
         return df
 
     hit_rate_list = []
     hit_ratio_list = []
-    for (cut_off), group in model_predictions_df_calcs.groupby('cut_off'):
+    for cut_off, group in model_predictions_df_calcs.groupby('cut_off'):
         hit_rate_df = calculate_hit_rate(group)
         hit_rate_df['cut_off'] = cut_off
         hit_rate_list.append(hit_rate_df)
@@ -328,7 +335,9 @@ def run_experiments(input_dir, base_output_dir, threads, num_runs, set_filter='n
     # Now evaluate model performance and generate performance plots
     evaluate_model_performance(
         predictions_file=model_predictions_output,
-        output_dir=base_output_dir
+        output_dir=base_output_dir,
+        sample_column=sample_column,
+        phenotype_column=phenotype_column
     )
 
     end_total_time = time.time()
