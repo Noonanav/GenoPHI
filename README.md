@@ -44,6 +44,88 @@ mamba install -c bioconda mmseqs2
 
 For other installation methods, see the [MMSeqs2 Wiki](https://github.com/soedinglab/MMseqs2/wiki#installation)
 
+## Workflow Overview
+
+### Protein Family Feature Construction
+
+The MMseqs2-based feature table generation process involves clustering protein sequences and creating a presence-absence matrix that represents the presence or absence of clusters (features) across genomes. First, sequences are processed into an MMseqs2 database and clustered based on sequence identity and coverage thresholds. For new sequences, they are assigned to the nearest existing clusters using MMseqs2 search. A presence-absence matrix is then generated to indicate the occurrence of clusters in each genome. This matrix is further used for feature selection and assignment, where unique clusters are identified for downstream analysis. The resulting feature tables can be merged with phenotype data for machine learning applications.
+
+### Feature Selection
+
+The feature selection workflow involves identifying the most predictive features from the dataset using various selection methods. The process allows users to select from Recursive Feature Elimination (RFE), SelectKBest (ANOVA F-test), Chi-Squared, Lasso, or SHAP-based methods. Data is split into training and testing sets, and feature selection is performed iteratively to identify top predictors of the target variable. Selected features are then used to train models, and their importance is ranked. After multiple runs, occurrence counts of selected features are compiled, and feature tables are generated for downstream analysis, providing a refined set of features for model training and evaluation.
+
+### Modeling Workflow
+
+The select feature modeling process involves training CatBoost models on filtered feature tables and assessing their performance. Multiple iterations are run for each feature table, where the data is split into training and testing sets. CatBoost models are trained using grid search to identify optimal hyperparameters. SHAP values are calculated for each model to determine feature importances. Performance metrics such as MCC, AUC, accuracy, precision, recall, and F1 are computed. Results are aggregated across runs and cutoffs, and SHAP summary plots visualize feature importances. Finally, performance metrics and SHAP values are saved for further analysis.
+
+#### Model Performance Metrics
+
+- **AUC (_Area Under the ROC Curve_)**: The AUC represents the probability that a classifier will rank a randomly chosen positive instance higher than a randomly chosen negative one. It is calculated from the ROC curve as the area under the curve.
+
+  $$
+  \text{AUC} = \int_{0}^{1} TPR(FPR) \, dFPR
+  $$
+
+  where TPR is the True Positive Rate and FPR is the False Positive Rate.
+
+- **Accuracy**: The proportion of true results (both true positives and true negatives) among the total number of cases.
+
+  $$
+  \text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}
+  $$
+
+  where TP, TN, FP, and FN represent True Positives, True Negatives, False Positives, and False Negatives, respectively.
+
+- **Precision**: The proportion of true positives among all instances that were predicted as positive.
+
+  $$
+  \text{Precision} = \frac{TP}{TP + FP}
+  $$
+
+- **Recall (_Sensitivity or True Positive Rate_)**: The proportion of true positives among all actual positive instances.
+
+  $$
+  \text{Recall} = \frac{TP}{TP + FN}
+  $$
+
+- **F1 Score**: The harmonic mean of precision and recall. It balances the two metrics, especially useful when the class distribution is imbalanced.
+
+  $$
+  F1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}}
+  $$
+
+- **MCC (_Matthews Correlation Coefficient_)**: A measure of the quality of binary classifications. It takes into account true and false positives and negatives, and is generally regarded as a balanced metric.
+
+  $$
+  \text{MCC} = \frac{TP \times TN - FP \times FN}{\sqrt{(TP + FP)(TP + FN)(TN + FP)(TN + FN)}}
+  $$
+
+#### Performance Plots
+
+The following performance plots can be found in each `run_*` directory in the `<output_directory>/modeling_results/cutoff_*` directories for each modeling run:
+
+ - Confusion matrices
+ - Precision-Recall Curves
+ - ROC AUC Curves
+ - SHAP feature importance bar plots
+ - SHAP value jitter plots
+
+The following performance summary plots can also be found in `<output_directory>/modeling_results/model_performance/` directory, with an overview of model performance across feature selection cutoffs:
+
+- SHAP value jitter plots showing SHAP values for all modeling runs:
+
+![SHAP Summary](images/cutoff_5_shap_beeswarm.png)
+
+- ROC AUC, precision-eecall, hit-rate, hit-ratio curves comparing feature selection cutoffs:
+
+![ROC AUC](images/roc_curve.png)
+
+![PR](images/pr_curve.png)
+
+![Hit Rate](images/hit_rate_curve.png)
+
+![Hit Ratio](images/hit_ratio_curve.png)
+
 ## Usage
 
 ### Full Workflow

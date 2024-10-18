@@ -586,7 +586,10 @@ def generate_feature_tables(
     features_occurrence_df.sort_values(by='Occurrence', ascending=False, inplace=True)
 
     # Determine min and max feature thresholds based on interaction count
-    if interaction_count < 500:
+    if interaction_count < 100:
+        min_features = 5
+        max_features = 30
+    elif interaction_count >= 100 and interaction_count < 500:
         min_features = 10
         max_features = interaction_count / 10
     else:
