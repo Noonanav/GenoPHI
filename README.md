@@ -62,43 +62,31 @@ The select feature modeling process involves training CatBoost models on filtere
 
 - **AUC (Area Under the ROC Curve)**: The AUC represents the probability that a classifier will rank a randomly chosen positive instance higher than a randomly chosen negative one. It is calculated from the ROC curve as the area under the curve.
 
-    $$ 
-    \text{AUC} = \int_{0}^{1} TPR(FPR) \, dFPR 
-    $$
+    $\text{AUC} = \int_{0}^{1} TPR(FPR) \, dFPR$
 
     where TPR is the True Positive Rate and FPR is the False Positive Rate.
 
 - **Accuracy**: The proportion of true results (both true positives and true negatives) among the total number of cases.
 
-    $$
-    \text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}
-    $$
+    $\text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}$
 
     where TP, TN, FP, and FN represent True Positives, True Negatives, False Positives, and False Negatives, respectively.
 
 - **Precision**: The proportion of true positives among all instances that were predicted as positive.
 
-    $$
-    \text{Precision} = \frac{TP}{TP + FP}
-    $$
+    $\text{Precision} = \frac{TP}{TP + FP}$
 
 - **Recall (Sensitivity or True Positive Rate)**: The proportion of true positives among all actual positive instances.
 
-    $$
-    \text{Recall} = \frac{TP}{TP + FN}
-    $$
+    $\text{Recall} = \frac{TP}{TP + FN}$
 
 - **F1 Score**: The harmonic mean of precision and recall. It balances the two metrics, especially useful when the class distribution is imbalanced.
 
-    $$
-    F1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}}
-    $$
+    $F1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}}$
 
-- **MCC (Matthews Correlation Coefficient)**: A measure of the quality of binary classifications. It takes into account true and false positives and negatives and is generally regarded as a balanced metric.
+- **MCC (Matthews Correlation Coefficient)**: A measure of the quality of binary classifications. It takes into account true and false positives and negatives, and is generally regarded as a balanced metric.
 
-    $$
-    \text{MCC} = \frac{TP \times TN - FP \times FN}{\sqrt{(TP + FP)(TP + FN)(TN + FP)(TN + FN)}}
-    $$
+    $\text{MCC} = \frac{TP \times TN - FP \times FN}{\sqrt{(TP + FP)(TP + FN)(TN + FP)(TN + FN)}}$
 
 #### Performance Plots
 
