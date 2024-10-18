@@ -3,7 +3,7 @@ import argparse
 from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
 from phage_modeling.select_feature_modeling import run_experiments
 
-def run_modeling_workflow_from_feature_table(full_feature_table, output_dir, threads=4, num_features=100, filter_type='none', num_runs_fs=10, num_runs_modeling=10, sample_column='strain', phenotype_column=None, method='rfe'):
+def run_modeling_workflow_from_feature_table(full_feature_table, output_dir, threads=4, num_features=100, filter_type='none', num_runs_fs=10, num_runs_modeling=10, sample_column='strain', phenotype_column='interaction', method='rfe'):
     """
     Workflow for feature selection and modeling starting from a previously generated full feature table.
 
@@ -83,7 +83,7 @@ def main():
     # Optional column parameters
     optional_columns_group = parser.add_argument_group('Optional columns')
     optional_columns_group.add_argument('--sample_column', type=str, default='strain', help='Column name for the sample identifier (default: strain).')
-    optional_columns_group.add_argument('--phenotype_column', type=str, help='Column name for the phenotype (optional).')
+    optional_columns_group.add_argument('--phenotype_column', type=str, default='interaction', help='Column name for the phenotype (optional).')
 
     # General parameters
     general_group = parser.add_argument_group('General')

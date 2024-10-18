@@ -87,6 +87,8 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=random_state)
         test_idx = X_test.index
         X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column]]
+        train_idx = X_train.index
+        X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column]]
     else:
         if filter_type == 'strain':
             group = sample_column
@@ -110,10 +112,12 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
 
         if 'phage' in full_feature_table.columns:
             X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage']]
+            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, 'phage']]
         else:
             X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column]]
+            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column]]
 
-    return X_train, X_test, y_train, y_test, X_test_sample_ids
+    return X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
 
 # Function to perform Recursive Feature Elimination (RFE)
 def perform_rfe(X_train, y_train, num_features, threads, output_dir):
@@ -489,7 +493,7 @@ def run_feature_selection_iterations(
         random_state = i
 
         X, y, full_feature_table = load_and_prepare_data(input_path, sample_column=sample_column, phenotype_column=phenotype_column)
-        X_train, X_test, y_train, y_test, X_test_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state, sample_column=sample_column)
+        X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state, sample_column=sample_column)
 
         # Apply selected feature selection method
         if method == 'rfe':
@@ -539,7 +543,7 @@ def run_feature_selection_iterations(
 
 def generate_feature_tables(
     model_testing_dir, full_feature_table_file, filter_table_dir, 
-    phenotype_column='interaction', sample_column='strain', cut_offs=[3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    phenotype_column=None, sample_column='strain', cut_offs=[3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50]
 ):
     """
     Generate and save feature tables based on feature selection results from multiple runs in the main directory.
@@ -548,10 +552,14 @@ def generate_feature_tables(
         model_testing_dir (str): Directory containing feature selection runs.
         full_feature_table_file (str): Path to the full feature table CSV.
         filter_table_dir (str): Directory where filtered feature tables will be saved.
-        phenotype_column (str): Column name for the binary target variable (e.g., 'interaction' or 'phenotype').
+        phenotype_column (str): Column name for the binary target variable (e.g., 'interaction' or 'phenotype'). Defaults to 'interaction' if not provided.
         sample_column (str): Column name for the sample or strain identifier.
         cut_offs (list): List of thresholds for feature occurrences to be used for filtering.
     """
+    # Set default for phenotype_column if not provided
+    if phenotype_column is None:
+        phenotype_column = 'interaction'
+
     # Load the full feature table
     full_feature_table = pd.read_csv(full_feature_table_file)
     interaction_count = full_feature_table.shape[0]
@@ -595,15 +603,19 @@ def generate_feature_tables(
         if min_features < num_features < max_features:
             select_features = features_occurrence_filter['Feature'].tolist()
 
-            # Select the relevant features from the full feature table
             # Check if it's a phage-host interaction or just sample/phenotype
-            if sample_column in full_feature_table.columns and 'phage' in full_feature_table.columns:
-                id_vars = [sample_column, 'phage', phenotype_column]
-            elif sample_column in full_feature_table.columns:
-                id_vars = [sample_column, phenotype_column]
+            id_vars = [sample_column]
+            if 'phage' in full_feature_table.columns:
+                id_vars.append('phage')
+            if phenotype_column in full_feature_table.columns:
+                id_vars.append(phenotype_column)
             else:
-                raise ValueError("Required columns (sample or phage) not found in full feature table.")
-            
+                print(f"Warning: phenotype_column '{phenotype_column}' not found in full feature table; proceeding without it.")
+
+            # Remove any potential None values from id_vars
+            id_vars = [col for col in id_vars if col is not None]
+
+            # Select the relevant features from the full feature table
             select_feature_table = full_feature_table[id_vars + select_features]
             select_feature_table = select_feature_table.melt(
                 id_vars=id_vars, var_name='Feature', value_name='Value'

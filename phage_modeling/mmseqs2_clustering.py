@@ -481,15 +481,16 @@ def run_feature_assignment(input_file, output_dir, source='bacteria', select='no
     feature_table.to_csv(os.path.join(output_dir, 'feature_table.csv'), index=False)
 
 
-def merge_feature_tables(strain_features, phage_features, interaction_matrix, output_dir, remove_suffix, output_file=None):
+def merge_feature_tables(strain_features, phenotype_matrix, output_dir, sample_column='strain', phage_features=None, remove_suffix=False, output_file=None):
     """
-    Merges strain and phage feature tables with an interaction matrix.
+    Merges strain (and optionally phage) feature tables with a phenotype matrix.
 
     Args:
         strain_features (str): Path to the strain feature table.
-        phage_features (str): Path to the phage feature table.
-        interaction_matrix (str): Path to the interaction matrix.
+        phenotype_matrix (str): Path to the phenotype matrix.
         output_dir (str): Directory to save the merged feature table.
+        sample_column (str): The column name used as a sample identifier (default is 'strain').
+        phage_features (str or None): Path to the phage feature table. If None, only strain features will be merged.
         remove_suffix (bool): Whether to remove suffix from the genome names.
         output_file (str or None): Optional output file name prefix.
 
@@ -498,6 +499,7 @@ def merge_feature_tables(strain_features, phage_features, interaction_matrix, ou
     """
     logging.info('Starting to merge feature tables')
 
+    # Helper function to read CSV with optional renaming
     def read_csv_with_check(filepath, rename_col=None, new_col=None):
         try:
             logging.info(f'Reading file: {filepath}')
@@ -510,27 +512,45 @@ def merge_feature_tables(strain_features, phage_features, interaction_matrix, ou
             logging.error(f'Error reading {filepath}: {e}')
             raise
 
-    strain_features_df = read_csv_with_check(strain_features, rename_col='Genome', new_col='strain')
+    # Load strain features
+    strain_features_df = read_csv_with_check(strain_features, rename_col='Genome', new_col=sample_column)
     if remove_suffix:
-        strain_features_df['strain'] = strain_features_df['strain'].str.split('.').str[0]
-    phage_features_df = read_csv_with_check(phage_features, rename_col='Genome', new_col='phage')
-    interaction_matrix_df = read_csv_with_check(interaction_matrix)
-
-    if 'strain' not in interaction_matrix_df.columns:
-        logging.error('The interaction matrix does not contain the "strain" column.')
-        raise KeyError('Missing "strain" column in interaction matrix.')
+        strain_features_df[sample_column] = strain_features_df[sample_column].str.split('.').str[0]
     
-    if 'phage' not in interaction_matrix_df.columns:
-        logging.error('The interaction matrix does not contain the "phage" column.')
-        raise KeyError('Missing "phage" column in interaction matrix.')
+    # Load phenotype matrix
+    phenotype_matrix_df = read_csv_with_check(phenotype_matrix)
 
-    try:
-        feature_table = interaction_matrix_df.merge(strain_features_df, on='strain', how='inner')
-        feature_table = feature_table.merge(phage_features_df, on='phage', how='inner')
-    except Exception as e:
-        logging.error(f'Error merging tables: {e}')
-        raise
+    if phage_features:
+        # If phage features are provided, merge strain, phage, and phenotype matrices
+        phage_features_df = read_csv_with_check(phage_features, rename_col='Genome', new_col='phage')
 
+        if sample_column not in phenotype_matrix_df.columns:
+            logging.error(f'The phenotype matrix does not contain the "{sample_column}" column.')
+            raise KeyError(f'Missing "{sample_column}" column in phenotype matrix.')
+        
+        if 'phage' not in phenotype_matrix_df.columns:
+            logging.error('The phenotype matrix does not contain the "phage" column.')
+            raise KeyError('Missing "phage" column in phenotype matrix.')
+
+        try:
+            feature_table = phenotype_matrix_df.merge(strain_features_df, on=sample_column, how='inner')
+            feature_table = feature_table.merge(phage_features_df, on='phage', how='inner')
+        except Exception as e:
+            logging.error(f'Error merging strain and phage tables with phenotype matrix: {e}')
+            raise
+    else:
+        # If no phage features, merge only strain features with phenotype matrix
+        if sample_column not in phenotype_matrix_df.columns:
+            logging.error(f'The phenotype matrix does not contain the "{sample_column}" column.')
+            raise KeyError(f'Missing "{sample_column}" column in phenotype matrix.')
+
+        try:
+            feature_table = phenotype_matrix_df.merge(strain_features_df, on=sample_column, how='inner')
+        except Exception as e:
+            logging.error(f'Error merging strain features with phenotype matrix: {e}')
+            raise
+
+    # Determine output filename
     output_filename = f"{output_file}_full_feature_table.csv" if output_file else "full_feature_table.csv"
     feature_table_path = os.path.join(output_dir, output_filename)
 

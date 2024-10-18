@@ -2,52 +2,81 @@ import os
 import argparse
 from phage_modeling.mmseqs2_clustering import run_clustering_workflow, run_feature_assignment, merge_feature_tables
 
-def run_full_feature_workflow(input_path_strain, input_path_phage, interaction_matrix, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list=None, strain_column='strain', phage_list=None, phage_column='phage', compare=False, source_strain='strain', source_phage='phage'):
+def run_full_feature_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="tmp", 
+                              input_path_phage=None, min_seq_id=0.6, coverage=0.8, 
+                              sensitivity=7.5, suffix='faa', threads=4, strain_list=None, 
+                              strain_column='strain', phage_list=None, phage_column='phage', 
+                              compare=False, source_strain='strain', source_phage='phage'):
     """
-    Combines MMseqs2 clustering, feature assignment for both strain and phage genomes, and merges feature tables.
+    Combines MMseqs2 clustering, feature assignment for strain (and optionally phage) genomes, 
+    and merges feature tables with the phenotype matrix.
     """
+    
     # Define separate temporary directories for strain and phage to avoid conflicts
     strain_tmp_dir = os.path.join(tmp_dir, "strain")
-    phage_tmp_dir = os.path.join(tmp_dir, "phage")
-
-    # Handle strain_list and phage_list consistently (use 'none' if not provided)
-    strain_list_value = strain_list if strain_list else 'none'
-    phage_list_value = phage_list if phage_list else 'none'
-
+    
     # Run clustering and feature assignment for strain
     print("Running clustering workflow for strain genomes...")
     strain_output_dir = os.path.join(output_dir, "strain")
-    run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, strain_list_value, strain_column, compare)
+    run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, strain_list or 'none', strain_column, compare)
+    
     presence_absence_strain = os.path.join(strain_output_dir, "presence_absence_matrix.csv")
     feature_output_dir_strain = os.path.join(strain_output_dir, "features")
+    
     print("Running feature assignment workflow for strain genomes...")
-    run_feature_assignment(presence_absence_strain, feature_output_dir_strain, source=source_strain, select=strain_list_value, select_column=strain_column)
+    run_feature_assignment(presence_absence_strain, feature_output_dir_strain, source=source_strain, select=strain_list or 'none', select_column=strain_column)
 
-    # Run clustering and feature assignment for phage
-    print("Running clustering workflow for phage genomes...")
-    phage_output_dir = os.path.join(output_dir, "phage")
-    run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, phage_list_value, phage_column, compare)
-    presence_absence_phage = os.path.join(phage_output_dir, "presence_absence_matrix.csv")
-    feature_output_dir_phage = os.path.join(phage_output_dir, "features")
-    print("Running feature assignment workflow for phage genomes...")
-    run_feature_assignment(presence_absence_phage, feature_output_dir_phage, source=source_phage, select=phage_list_value, select_column=phage_column)
+    if input_path_phage:
+        # Run clustering and feature assignment for phage if provided
+        print("Running clustering workflow for phage genomes...")
+        phage_output_dir = os.path.join(output_dir, "phage")
+        phage_tmp_dir = os.path.join(tmp_dir, "phage")
+        
+        run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, phage_list or 'none', phage_column, compare)
+        
+        presence_absence_phage = os.path.join(phage_output_dir, "presence_absence_matrix.csv")
+        feature_output_dir_phage = os.path.join(phage_output_dir, "features")
+        
+        print("Running feature assignment workflow for phage genomes...")
+        run_feature_assignment(presence_absence_phage, feature_output_dir_phage, source=source_phage, select=phage_list or 'none', select_column=phage_column)
 
-    # Merge strain and phage feature tables
-    print("Merging feature tables for strain and phage genomes...")
-    strain_features = os.path.join(feature_output_dir_strain, "feature_table.csv")
-    phage_features = os.path.join(feature_output_dir_phage, "feature_table.csv")
-    merged_output_dir = os.path.join(output_dir, "merged")
-    os.makedirs(merged_output_dir, exist_ok=True)
-    merge_feature_tables(strain_features, phage_features, interaction_matrix, merged_output_dir, remove_suffix=False)
-
-    print(f"Merged feature table saved in: {merged_output_dir}")
+        # Merge strain and phage feature tables
+        print("Merging feature tables for strain and phage genomes...")
+        strain_features = os.path.join(feature_output_dir_strain, "feature_table.csv")
+        phage_features = os.path.join(feature_output_dir_phage, "feature_table.csv")
+        
+        merged_output_dir = os.path.join(output_dir, "merged")
+        os.makedirs(merged_output_dir, exist_ok=True)
+        
+        merge_feature_tables(
+            strain_features=strain_features, 
+            phenotype_matrix=phenotype_matrix,
+            output_dir=merged_output_dir,
+            sample_column=strain_column,
+            phage_features=phage_features,
+            remove_suffix=False
+        )
+        print(f"Merged feature table saved in: {merged_output_dir}")
+    else:
+        # Only strain data: merge with phenotype_matrix
+        print("Merging strain features with the phenotype matrix...")
+        strain_features = os.path.join(feature_output_dir_strain, "feature_table.csv")
+        
+        merge_feature_tables(
+            strain_features=strain_features,
+            phenotype_matrix=phenotype_matrix,
+            output_dir=output_dir,
+            sample_column=strain_column,
+            remove_suffix=False
+        )
+        print(f"Strain feature table merged with phenotype matrix and saved at: {output_dir}")
 
 # Main function for CLI
 def main():
     parser = argparse.ArgumentParser(description='Run full feature table generation and merging workflow.')
     parser.add_argument('-ih', '--input_strain', type=str, required=True, help='Input path for strain clustering (directory or file).')
-    parser.add_argument('-ip', '--input_phage', type=str, required=True, help='Input path for phage clustering (directory or file).')
-    parser.add_argument('-im', '--interaction_matrix', type=str, required=True, help='Path to the interaction matrix.')
+    parser.add_argument('-ip', '--input_phage', type=str, help='Input path for phage clustering (directory or file). Optional; if not provided, only strain data will be used.')
+    parser.add_argument('-pm', '--phenotype_matrix', type=str, required=True, help='Path to the phenotype matrix.')
     parser.add_argument('-o', '--output', type=str, required=True, help='Output directory to save results.')
     parser.add_argument('--tmp', type=str, default="tmp", help='Temporary directory for intermediate files.')
     parser.add_argument('--min_seq_id', type=float, default=0.6, help='Minimum sequence identity for clustering.')
@@ -68,8 +97,8 @@ def main():
     # Run the full feature workflow
     run_full_feature_workflow(
         input_path_strain=args.input_strain,
-        input_path_phage=args.input_phage,
-        interaction_matrix=args.interaction_matrix,
+        input_path_phage=args.input_phage,  # Optional; may be None if not provided
+        phenotype_matrix=args.phenotype_matrix,
         output_dir=args.output,
         tmp_dir=args.tmp,
         min_seq_id=args.min_seq_id,
