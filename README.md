@@ -58,47 +58,47 @@ The feature selection workflow involves identifying the most predictive features
 
 The select feature modeling process involves training CatBoost models on filtered feature tables and assessing their performance. Multiple iterations are run for each feature table, where the data is split into training and testing sets. CatBoost models are trained using grid search to identify optimal hyperparameters. SHAP values are calculated for each model to determine feature importances. Performance metrics such as MCC, AUC, accuracy, precision, recall, and F1 are computed. Results are aggregated across runs and cutoffs, and SHAP summary plots visualize feature importances. Finally, performance metrics and SHAP values are saved for further analysis.
 
-#### Model Performance Metrics
+## Performance Metrics
 
-- **AUC (_Area Under the ROC Curve_)**: The AUC represents the probability that a classifier will rank a randomly chosen positive instance higher than a randomly chosen negative one. It is calculated from the ROC curve as the area under the curve.
+- **AUC (Area Under the ROC Curve)**: The AUC represents the probability that a classifier will rank a randomly chosen positive instance higher than a randomly chosen negative one. It is calculated from the ROC curve as the area under the curve.
 
-  $$
-  \text{AUC} = \int_{0}^{1} TPR(FPR) \, dFPR
-  $$
+    $$ 
+    \text{AUC} = \int_{0}^{1} TPR(FPR) \, dFPR 
+    $$
 
-  where TPR is the True Positive Rate and FPR is the False Positive Rate.
+    where TPR is the True Positive Rate and FPR is the False Positive Rate.
 
 - **Accuracy**: The proportion of true results (both true positives and true negatives) among the total number of cases.
 
-  $$
-  \text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}
-  $$
+    $$ 
+    \text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN} 
+    $$
 
-  where TP, TN, FP, and FN represent True Positives, True Negatives, False Positives, and False Negatives, respectively.
+    where TP, TN, FP, and FN represent True Positives, True Negatives, False Positives, and False Negatives, respectively.
 
 - **Precision**: The proportion of true positives among all instances that were predicted as positive.
 
-  $$
-  \text{Precision} = \frac{TP}{TP + FP}
-  $$
+    $$ 
+    \text{Precision} = \frac{TP}{TP + FP} 
+    $$
 
-- **Recall (_Sensitivity or True Positive Rate_)**: The proportion of true positives among all actual positive instances.
+- **Recall (Sensitivity or True Positive Rate)**: The proportion of true positives among all actual positive instances.
 
-  $$
-  \text{Recall} = \frac{TP}{TP + FN}
-  $$
+    $$ 
+    \text{Recall} = \frac{TP}{TP + FN} 
+    $$
 
 - **F1 Score**: The harmonic mean of precision and recall. It balances the two metrics, especially useful when the class distribution is imbalanced.
 
-  $$
-  F1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}}
-  $$
+    $$ 
+    F1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}} 
+    $$
 
-- **MCC (_Matthews Correlation Coefficient_)**: A measure of the quality of binary classifications. It takes into account true and false positives and negatives, and is generally regarded as a balanced metric.
+- **MCC (Matthews Correlation Coefficient)**: A measure of the quality of binary classifications. It takes into account true and false positives and negatives and is generally regarded as a balanced metric.
 
-  $$
-  \text{MCC} = \frac{TP \times TN - FP \times FN}{\sqrt{(TP + FP)(TP + FN)(TN + FP)(TN + FN)}}
-  $$
+    $$ 
+    \text{MCC} = \frac{TP \times TN - FP \times FN}{\sqrt{(TP + FP)(TP + FN)(TN + FP)(TN + FN)}} 
+    $$
 
 #### Performance Plots
 
