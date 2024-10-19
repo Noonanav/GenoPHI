@@ -157,6 +157,62 @@ def perform_rfe(X_train, y_train, num_features, threads, output_dir):
     
     return rfe, selected_features
 
+def shap_rfe(X_train, y_train, num_features, threads):
+    """
+    Performs Recursive Feature Elimination (RFE) based on SHAP feature importances.
+
+    Args:
+        X_train (DataFrame): Training features.
+        y_train (Series): Training target.
+        num_features (int): Desired number of features to select.
+        threads (int): Number of threads to use for CatBoost training.
+
+    Returns:
+        X_train_selected (DataFrame): Training features with the selected top features.
+        selected_features (Index): List of selected feature names.
+    """
+    total_features = X_train.shape[1]
+    step_size = max(1, int((total_features - num_features) / 10))  # Ensure step_size is at least 1
+    current_features = X_train.columns.tolist()
+
+    while len(current_features) > num_features:
+        # Train the CatBoost model
+        model = CatBoostClassifier(
+            iterations=500, 
+            learning_rate=0.1, 
+            depth=4, 
+            verbose=0, 
+            thread_count=threads
+        )
+        model.fit(X_train[current_features], y_train)
+
+        # Calculate SHAP values
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_train[current_features])
+        
+        # Calculate mean absolute SHAP values for each feature
+        shap_importances = np.abs(shap_values).mean(axis=0)
+        feature_importances_df = pd.DataFrame({
+            'Feature': current_features,
+            'Importance': shap_importances
+        })
+        
+        # Sort features by SHAP importance
+        feature_importances_df = feature_importances_df.sort_values(by='Importance', ascending=False)
+        
+        # Remove the bottom features according to step size
+        to_remove = feature_importances_df.tail(step_size)['Feature'].tolist()
+        current_features = [f for f in current_features if f not in to_remove]
+        
+        print(f"Removed {len(to_remove)} features. Remaining features: {len(current_features)}")
+    
+    print(f"SHAP-RFE selected {len(current_features)} features.")
+    
+    # Return selected features and transformed X_train
+    X_train_selected = X_train[current_features]
+    
+    return X_train_selected, current_features
+
 def select_k_best_feature_selection(X_train, y_train, num_features):
     """
     Selects the top features using the SelectKBest method with ANOVA F-test.
@@ -462,7 +518,7 @@ def save_feature_importances(best_model, selected_features, feature_importances_
     logging.info(f"Feature importances saved to {feature_importances_path}")
 
 def run_feature_selection_iterations(
-    input_path, base_output_dir, threads, num_features, filter_type, num_runs, select_cols=False, sample_column=None, phenotype_column=None, method='rfe'
+    input_path, base_output_dir, threads, num_features, filter_type, num_runs, select_cols=False, sample_column='strain', phenotype_column=None, method='rfe'
 ):
     """
     Runs multiple iterations of feature selection, saves the results in `run_*` directories, and tracks feature occurrences.
@@ -477,7 +533,7 @@ def run_feature_selection_iterations(
         select_cols (bool): Whether to run with selected columns.
         sample_column (str): Column name for the sample/strain (if using selected columns).
         phenotype_column (str): Column name for the phenotype (if using selected columns).
-        method (str): Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
+        method (str): Feature selection method ('rfe', shap_rfe, 'select_k_best', 'chi_squared', 'lasso', 'shap').
     """
     
     if not os.path.exists(base_output_dir):
@@ -498,6 +554,8 @@ def run_feature_selection_iterations(
         # Apply selected feature selection method
         if method == 'rfe':
             _, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir)
+        elif method == 'shap_rfe':
+            X_train, selected_features = shap_rfe(X_train, y_train, num_features, threads)
         elif method == 'select_k_best':
             X_train, selected_features = select_k_best_feature_selection(X_train, y_train, num_features)
         elif method == 'chi_squared':

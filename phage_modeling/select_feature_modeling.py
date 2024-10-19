@@ -355,7 +355,7 @@ def evaluate_model_performance(predictions_file, output_dir, sample_column='stra
     metrics_df.to_csv(os.path.join(model_performance_dir, 'model_performance_metrics.csv'), index=False)
     print(f"Metrics saved to {os.path.join(model_performance_dir, 'model_performance_metrics.csv')}")
 
-def run_experiments(input_dir, base_output_dir, threads, num_runs, set_filter='none', sample_column=None, phenotype_column=None):
+def run_experiments(input_dir, base_output_dir, threads, num_runs, set_filter='none', sample_column='strain', phenotype_column='interaction'):
     """
     Iterates through feature tables in a directory, running the model testing process for each.
     

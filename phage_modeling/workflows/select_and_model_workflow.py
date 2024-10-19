@@ -17,7 +17,7 @@ def run_modeling_workflow_from_feature_table(full_feature_table, output_dir, thr
         num_runs_modeling (int): Number of runs per feature table for modeling.
         sample_column (str): Column name for the sample identifier.
         phenotype_column (str): Column name for the phenotype.
-        method (str): Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
+        method (str): Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
     """
     
     # Step 1: Feature Selection
