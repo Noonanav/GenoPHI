@@ -23,6 +23,11 @@ from .feature_selection import (
     generate_feature_tables
 )
 from .select_feature_modeling import run_experiments
+from .feature_annotations import (
+    get_predictive_proteins,
+    merge_annotation_table,
+    parse_and_filter_aa_sequences
+) 
 
 __all__ = [
     'run_clustering_workflow',
@@ -46,4 +51,7 @@ __all__ = [
     'run_feature_selection_iterations',
     'generate_feature_tables',
     'run_experiments',
+    'get_predictive_proteins',
+    'merge_annotation_table',
+    'parse_and_filter_aa_sequences'
 ]

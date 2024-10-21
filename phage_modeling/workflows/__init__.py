@@ -13,5 +13,6 @@ __all__ = [
     'run_full_workflow',
     'run_assign_features_workflow',
     'run_prediction_workflow',
-    'run_assign_and_predict_workflow',  # Add it to the list
+    'run_assign_and_predict_workflow',
+    'run_predictive_proteins_workflow',
 ]
