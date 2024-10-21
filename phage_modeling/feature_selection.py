@@ -87,6 +87,8 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=random_state)
         test_idx = X_test.index
         X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column]]
+        train_idx = X_train.index
+        X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column]]
     else:
         if filter_type == 'strain':
             group = sample_column
@@ -107,9 +109,15 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         X_test = X[test_idx]
         y_train = y[train_idx]
         y_test = y[test_idx]
-        X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage']]
 
-    return X_train, X_test, y_train, y_test, X_test_sample_ids
+        if 'phage' in full_feature_table.columns:
+            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage']]
+            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, 'phage']]
+        else:
+            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column]]
+            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column]]
+
+    return X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
 
 # Function to perform Recursive Feature Elimination (RFE)
 def perform_rfe(X_train, y_train, num_features, threads, output_dir):
@@ -148,6 +156,62 @@ def perform_rfe(X_train, y_train, num_features, threads, output_dir):
     print(f"RFE selected {len(selected_features)} features.")
     
     return rfe, selected_features
+
+def shap_rfe(X_train, y_train, num_features, threads):
+    """
+    Performs Recursive Feature Elimination (RFE) based on SHAP feature importances.
+
+    Args:
+        X_train (DataFrame): Training features.
+        y_train (Series): Training target.
+        num_features (int): Desired number of features to select.
+        threads (int): Number of threads to use for CatBoost training.
+
+    Returns:
+        X_train_selected (DataFrame): Training features with the selected top features.
+        selected_features (Index): List of selected feature names.
+    """
+    total_features = X_train.shape[1]
+    step_size = max(1, int((total_features - num_features) / 10))  # Ensure step_size is at least 1
+    current_features = X_train.columns.tolist()
+
+    while len(current_features) > num_features:
+        # Train the CatBoost model
+        model = CatBoostClassifier(
+            iterations=500, 
+            learning_rate=0.1, 
+            depth=4, 
+            verbose=0, 
+            thread_count=threads
+        )
+        model.fit(X_train[current_features], y_train)
+
+        # Calculate SHAP values
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_train[current_features])
+        
+        # Calculate mean absolute SHAP values for each feature
+        shap_importances = np.abs(shap_values).mean(axis=0)
+        feature_importances_df = pd.DataFrame({
+            'Feature': current_features,
+            'Importance': shap_importances
+        })
+        
+        # Sort features by SHAP importance
+        feature_importances_df = feature_importances_df.sort_values(by='Importance', ascending=False)
+        
+        # Remove the bottom features according to step size
+        to_remove = feature_importances_df.tail(step_size)['Feature'].tolist()
+        current_features = [f for f in current_features if f not in to_remove]
+        
+        print(f"Removed {len(to_remove)} features. Remaining features: {len(current_features)}")
+    
+    print(f"SHAP-RFE selected {len(current_features)} features.")
+    
+    # Return selected features and transformed X_train
+    X_train_selected = X_train[current_features]
+    
+    return X_train_selected, current_features
 
 def select_k_best_feature_selection(X_train, y_train, num_features):
     """
@@ -306,7 +370,7 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir):
     return model, accuracy, f1, mcc, y_pred
 
 # Function to perform grid search
-def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir):
+def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column='interaction'):
     """
     Performs grid search to find the best hyperparameters for CatBoost.
 
@@ -354,7 +418,7 @@ def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid,
             best_predictions_df = X_test_sample_ids.copy()
             best_predictions_df['Prediction'] = y_pred
             best_predictions_df['Confidence'] = model.predict_proba(X_test)[:, 1]
-            best_predictions_df['interaction'] = y_test
+            best_predictions_df[phenotype_column] = y_test
             best_predictions_df.to_csv(f"{output_dir}/best_model_predictions.csv", index=False)
 
     pd.DataFrame(results).to_csv(f"{output_dir}/model_performance.csv", index=False)
@@ -454,7 +518,7 @@ def save_feature_importances(best_model, selected_features, feature_importances_
     logging.info(f"Feature importances saved to {feature_importances_path}")
 
 def run_feature_selection_iterations(
-    input_path, base_output_dir, threads, num_features, filter_type, num_runs, select_cols=False, sample_column=None, phenotype_column=None, method='rfe'
+    input_path, base_output_dir, threads, num_features, filter_type, num_runs, select_cols=False, sample_column='strain', phenotype_column=None, method='rfe'
 ):
     """
     Runs multiple iterations of feature selection, saves the results in `run_*` directories, and tracks feature occurrences.
@@ -469,7 +533,7 @@ def run_feature_selection_iterations(
         select_cols (bool): Whether to run with selected columns.
         sample_column (str): Column name for the sample/strain (if using selected columns).
         phenotype_column (str): Column name for the phenotype (if using selected columns).
-        method (str): Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
+        method (str): Feature selection method ('rfe', shap_rfe, 'select_k_best', 'chi_squared', 'lasso', 'shap').
     """
     
     if not os.path.exists(base_output_dir):
@@ -484,12 +548,14 @@ def run_feature_selection_iterations(
             os.makedirs(output_dir)
         random_state = i
 
-        X, y, full_feature_table = load_and_prepare_data(input_path)
-        X_train, X_test, y_train, y_test, X_test_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state)
+        X, y, full_feature_table = load_and_prepare_data(input_path, sample_column=sample_column, phenotype_column=phenotype_column)
+        X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state, sample_column=sample_column)
 
         # Apply selected feature selection method
         if method == 'rfe':
             _, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir)
+        elif method == 'shap_rfe':
+            X_train, selected_features = shap_rfe(X_train, y_train, num_features, threads)
         elif method == 'select_k_best':
             X_train, selected_features = select_k_best_feature_selection(X_train, y_train, num_features)
         elif method == 'chi_squared':
@@ -512,7 +578,7 @@ def run_feature_selection_iterations(
             'thread_count': [threads]
         }
 
-        best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir)
+        best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column)
 
         if best_model is None:
             logging.warning(f"No best model found for iteration {i}. Skipping feature importance saving.")
@@ -533,7 +599,10 @@ def run_feature_selection_iterations(
     end_total_time = time.time()
     print(f"Feature selection iterations completed in {end_total_time - start_total_time:.2f} seconds.")
 
-def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_table_dir, cut_offs=[3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50]):
+def generate_feature_tables(
+    model_testing_dir, full_feature_table_file, filter_table_dir, 
+    phenotype_column=None, sample_column='strain', cut_offs=[3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+):
     """
     Generate and save feature tables based on feature selection results from multiple runs in the main directory.
     
@@ -541,8 +610,14 @@ def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_t
         model_testing_dir (str): Directory containing feature selection runs.
         full_feature_table_file (str): Path to the full feature table CSV.
         filter_table_dir (str): Directory where filtered feature tables will be saved.
+        phenotype_column (str): Column name for the binary target variable (e.g., 'interaction' or 'phenotype'). Defaults to 'interaction' if not provided.
+        sample_column (str): Column name for the sample or strain identifier.
         cut_offs (list): List of thresholds for feature occurrences to be used for filtering.
     """
+    # Set default for phenotype_column if not provided
+    if phenotype_column is None:
+        phenotype_column = 'interaction'
+
     # Load the full feature table
     full_feature_table = pd.read_csv(full_feature_table_file)
     interaction_count = full_feature_table.shape[0]
@@ -568,12 +643,11 @@ def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_t
     features_occurrence_df = pd.DataFrame(list(features_occurrence.items()), columns=['Feature', 'Occurrence'])
     features_occurrence_df.sort_values(by='Occurrence', ascending=False, inplace=True)
 
-    # Create occurrence counts table for analysis (optional)
-    occurrence_counts = features_occurrence_df['Occurrence'].value_counts().reset_index()
-    occurrence_counts = occurrence_counts.rename(columns={'index': 'Occurrence', 'Occurrence': 'Count'})
-
     # Determine min and max feature thresholds based on interaction count
-    if interaction_count < 500:
+    if interaction_count < 100:
+        min_features = 5
+        max_features = 30
+    elif interaction_count >= 100 and interaction_count < 500:
         min_features = 10
         max_features = interaction_count / 10
     else:
@@ -588,14 +662,29 @@ def generate_feature_tables(model_testing_dir, full_feature_table_file, filter_t
 
         # Ensure the filtered feature set is within reasonable bounds
         if min_features < num_features < max_features:
-            print(f'Cut-off: {cut_off} - Features: {num_features}')
             select_features = features_occurrence_filter['Feature'].tolist()
 
+            # Check if it's a phage-host interaction or just sample/phenotype
+            id_vars = [sample_column]
+            if 'phage' in full_feature_table.columns:
+                id_vars.append('phage')
+            if phenotype_column in full_feature_table.columns:
+                id_vars.append(phenotype_column)
+            else:
+                print(f"Warning: phenotype_column '{phenotype_column}' not found in full feature table; proceeding without it.")
+
+            # Remove any potential None values from id_vars
+            id_vars = [col for col in id_vars if col is not None]
+
             # Select the relevant features from the full feature table
-            select_feature_table = full_feature_table[['strain', 'phage', 'interaction'] + select_features]
-            select_feature_table = select_feature_table.melt(id_vars=['strain', 'phage', 'interaction'], var_name='Feature', value_name='Value')
+            select_feature_table = full_feature_table[id_vars + select_features]
+            select_feature_table = select_feature_table.melt(
+                id_vars=id_vars, var_name='Feature', value_name='Value'
+            )
             select_feature_table['Value'] = select_feature_table['Value'].apply(lambda x: 1 if x > 0 else 0)
-            select_feature_table = select_feature_table.pivot_table(index=['strain', 'phage', 'interaction'], columns='Feature', values='Value').reset_index()
+            select_feature_table = select_feature_table.pivot_table(
+                index=id_vars, columns='Feature', values='Value'
+            ).reset_index()
 
             # Create directory for the filtered feature tables if it doesn't exist
             if not os.path.exists(filter_table_dir):

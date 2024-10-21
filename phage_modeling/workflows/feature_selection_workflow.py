@@ -2,7 +2,7 @@ import os
 import argparse
 from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
 
-def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_features=500, filter_type='none', num_runs=50, method='rfe'):
+def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_features=500, filter_type='none', num_runs=50, method='rfe', phenotype_column=None, sample_column=None):
     """
     Workflow for running feature selection iterations and generating feature tables.
     
@@ -14,6 +14,8 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
         filter_type (str): Filter type for the input data ('strain', 'phage', 'none').
         num_runs (int): Number of runs to perform.
         method (str): Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
+        phenotype_column (str or None): Column name for the phenotype or target variable.
+        sample_column (str or None): Column name for sample identifiers.
     """
     # Run multiple iterations of feature selection
     print("Running feature selection iterations...")
@@ -24,7 +26,9 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
         num_features=num_features,
         filter_type=filter_type,
         num_runs=num_runs,
-        method=method
+        method=method,
+        phenotype_column=phenotype_column,
+        sample_column=sample_column
     )
     
     # Generate feature tables based on the results
@@ -34,7 +38,9 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
         model_testing_dir=base_output_dir,
         full_feature_table_file=input_path,
         filter_table_dir=filter_table_dir,
-        cut_offs=[3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+        phenotype_column=phenotype_column,
+        sample_column=sample_column,
+        cut_offs=[3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50]
     )
 
 # Main function for CLI
@@ -48,7 +54,9 @@ def main():
     parser.add_argument('--num_runs', type=int, default=50, help='Number of feature selection iterations to run.')
     parser.add_argument('--method', type=str, default='rfe', choices=['rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
                         help="Feature selection method to use ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').")
-    
+    parser.add_argument('--phenotype_column', type=str, help='Optional column name for phenotype/target variable.')
+    parser.add_argument('--sample_column', type=str, help='Optional column name for sample identifiers.')
+
     args = parser.parse_args()
 
     # Run the full feature selection workflow
@@ -59,7 +67,9 @@ def main():
         num_features=args.num_features,
         filter_type=args.filter_type,
         num_runs=args.num_runs,
-        method=args.method
+        method=args.method,
+        phenotype_column=args.phenotype_column,
+        sample_column=args.sample_column
     )
 
 if __name__ == "__main__":
