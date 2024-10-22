@@ -17,4 +17,5 @@ __all__ = [
     'run_prediction_workflow',
     'run_assign_and_predict_workflow',
     'run_modeling_workflow_from_feature_table',
+  'run_predictive_proteins_workflow',
 ]

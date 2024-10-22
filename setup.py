@@ -34,7 +34,8 @@ setup(
             'run-assign-features-workflow=phage_modeling.workflows.assign_features_workflow:main',  # Optional feature assignment workflow
             'run-prediction-workflow=phage_modeling.workflows.prediction_workflow:main',
             'run-assign-and-predict-workflow=phage_modeling.workflows.assign_predict_workflow:main',
-            'run-modeling-from-feature-table=phage_modeling.workflows.select_and_model_workflow:main',  # New workflow entry
+          'run-modeling-from-feature-table=phage_modeling.workflows.select_and_model_workflow:main',
+          'run-predictive-proteins-workflow=phage_modeling.workflows.feature_annotations_workflow:main',
         ],
     },
     classifiers=[
