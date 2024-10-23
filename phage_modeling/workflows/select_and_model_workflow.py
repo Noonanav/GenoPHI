@@ -75,8 +75,8 @@ def main():
     fs_modeling_group = parser.add_argument_group('Feature selection and modeling')
     fs_modeling_group.add_argument('--num_features', type=int, default=100, help='Number of features to select (default: 100).')
     fs_modeling_group.add_argument('--filter_type', type=str, default='none', help="Filter type for the input data ('none', 'strain', 'phage').")
-    fs_modeling_group.add_argument('--method', type=str, default='rfe', choices=['rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
-                                   help="Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).")
+    fs_modeling_group.add_argument('--method', type=str, default='rfe', choices=['rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
+                                   help="Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).")
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection iterations to run (default: 10).')
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=10, help='Number of runs per feature table for modeling (default: 10).')
 

@@ -233,7 +233,7 @@ def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_d
     for fasta_file in fasta_files:
         logging.info(f"Parsing {fasta_file}.")
         for record in SeqIO.parse(fasta_file, "fasta"):
-            # protein_id = record.id.split('|')[0]  # Extract protein ID before '|'
+            protein_id = record.id  # Assuming protein ID is directly in record.id
             if protein_id in predictive_protein_ids:
                 filtered_seqs.append(record)
 

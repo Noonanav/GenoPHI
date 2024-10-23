@@ -1,8 +1,10 @@
 import os
+import pandas as pd
 import argparse
 from phage_modeling.mmseqs2_clustering import run_clustering_workflow, run_feature_assignment, merge_feature_tables
 from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
 from phage_modeling.select_feature_modeling import run_experiments
+from phage_modeling.workflows.feature_annotations_workflow import run_predictive_proteins_workflow
 
 def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="tmp", 
                       input_path_phage=None, min_seq_id=0.6, coverage=0.8, sensitivity=7.5, 
@@ -10,14 +12,14 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
                       strain_column='strain', phage_column='phage', compare=False, 
                       source_strain='strain', source_phage='phage', num_features=100, 
                       filter_type='none', num_runs_fs=10, num_runs_modeling=10, 
-                      sample_column='strain', phenotype_column=None, method='rfe'):
+                      sample_column='strain', phenotype_column=None, method='rfe',
+                      annotation_table_path=None, protein_id_col="protein_ID"):
     """
-    Complete workflow: Feature table generation, feature selection, and modeling.
+    Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
 
     Args:
     Input data:
         input_path_strain (str): Path to the input directory or file for strain clustering.
-        output_dir (str): Directory to save results.
         phenotype_matrix (str): Path to the phenotype matrix.
         input_path_phage (str or None): Path to the input directory or file for phage clustering. If None, only strain data is used.
 
@@ -30,9 +32,12 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         source_strain (str): Prefix for naming selected features for strain in the assignment step.
         source_phage (str): Prefix for naming selected features for phage in the assignment step.
         sample_column (str): Column name for the sample identifier (default: 'strain').
-        phenotype_column (str): Column name for the phenotype. Required if `input_path_phage` is not provided.
+        phenotype_column (str): Column name for the phenotype (required if `input_path_phage` is not provided).
+        annotation_table_path (str, optional): Path to the annotation table. Optional for feature annotations.
+        protein_id_col (str): Column name for protein IDs (default: 'protein_ID').
 
     Output arguments:
+        output_dir (str): Directory to save results.
         tmp_dir (str): Temporary directory for intermediate files (default: 'tmp').
 
     Clustering:
@@ -43,7 +48,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
 
     Feature selection and modeling:
         filter_type (str): Filter type for the input data ('none', 'strain', 'phage').
-        method (str): Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
+        method (str): Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
         num_features (int): Number of features to select (default: 100).
         num_runs_fs (int): Number of feature selection iterations (default: 10).
         num_runs_modeling (int): Number of runs per feature table for modeling (default: 10).
@@ -51,7 +56,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
     General:
         threads (int): Number of threads to use (default: 4).
     """
-    
+
     # Step 1: Feature table generation for strain
     print("Step 1: Running feature table generation for strain...")
     strain_output_dir = os.path.join(output_dir, "strain")
@@ -137,9 +142,36 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         phenotype_column=phenotype_column
     )
 
+    # Step 5: Select top cutoff based on MCC and run predictive proteins workflow
+    print("Step 5: Selecting top-performing cutoff and running predictive proteins workflow...")
+    # Load model performance metrics and find the top cutoff
+    metrics_file = os.path.join(output_dir, 'modeling_results', 'model_performance', 'model_performance_metrics.csv')
+    performance_df = pd.read_csv(metrics_file)
+    top_cutoff = performance_df.loc[performance_df['MCC'].idxmax(), 'cut_off'].split('_')[-1]
+
+    feature_file_path = os.path.join(output_dir, 'feature_selection', 'filtered_feature_tables', f'select_feature_table_cutoff_{top_cutoff}.csv')
+    feature2cluster_path = os.path.join(output_dir, 'strain', 'features', 'selected_features.csv')
+    cluster2protein_path = os.path.join(output_dir, 'strain', 'clusters.tsv')
+    fasta_dir_or_file = input_path_strain
+    modeling_dir = os.path.join(output_dir, 'modeling_results', f'cutoff_{top_cutoff}')
+    predictive_proteins_output_dir = os.path.join(output_dir, 'modeling_results', 'model_performance', 'predictive_proteins')
+
+    # Run the predictive proteins workflow
+    run_predictive_proteins_workflow(
+        feature_file_path=feature_file_path,
+        feature2cluster_path=feature2cluster_path,
+        cluster2protein_path=cluster2protein_path,
+        fasta_dir_or_file=fasta_dir_or_file,
+        modeling_dir=modeling_dir,
+        output_dir=predictive_proteins_output_dir,
+        output_fasta='predictive_AA_seqs.faa',
+        protein_id_col=protein_id_col,
+        annotation_table_path=annotation_table_path  # Optional
+    )
+
 # Main function for CLI
 def main():
-    parser = argparse.ArgumentParser(description='Complete workflow: Feature table generation, feature selection, and modeling.')
+    parser = argparse.ArgumentParser(description='Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.')
     
     # Input data
     input_group = parser.add_argument_group('Input data')
@@ -158,6 +190,8 @@ def main():
     optional_input_group.add_argument('--source_phage', type=str, default='phage', help='Prefix for naming selected features for phage in the assignment step (default: phage).')
     optional_input_group.add_argument('--sample_column', type=str, default='strain', help='Column name for the sample identifier (default: strain).')
     optional_input_group.add_argument('--phenotype_column', type=str, default='interaction', help='Column name for the phenotype (optional).')
+    optional_input_group.add_argument('--annotation_table_path', type=str, help="Path to an optional annotation table (CSV/TSV).")
+    optional_input_group.add_argument('--protein_id_col', type=str, default="protein_ID", help="Column name for protein IDs in the predictive_proteins DataFrame.")
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -174,8 +208,8 @@ def main():
     # Feature selection and modeling parameters
     fs_modeling_group = parser.add_argument_group('Feature selection and modeling')
     fs_modeling_group.add_argument('--filter_type', type=str, default='none', help="Filter type for the input data ('none', 'strain', 'phage').")
-    fs_modeling_group.add_argument('--method', type=str, default='rfe', choices=['rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
-                                   help="Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).")
+    fs_modeling_group.add_argument('--method', type=str, default='rfe', choices=['rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
+                                   help="Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).")
     fs_modeling_group.add_argument('--num_features', type=int, default=100, help='Number of features to select (default: 100).')
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection iterations to run (default: 10).')
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=10, help='Number of runs per feature table for modeling (default: 10).')
@@ -211,7 +245,8 @@ def main():
         num_runs_modeling=args.num_runs_modeling,
         sample_column=args.sample_column,
         phenotype_column=args.phenotype_column,
-        method=args.method
+        annotation_table_path=args.annotation_table_path,  # Optional
+        protein_id_col=args.protein_id_col
     )
 
 if __name__ == "__main__":
