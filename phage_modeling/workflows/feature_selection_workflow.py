@@ -52,8 +52,8 @@ def main():
     parser.add_argument('--num_features', type=int, default=500, help='Number of features to select during feature selection.')
     parser.add_argument('--filter_type', type=str, default='none', help="Type of filtering to use ('none', 'strain', 'phage').")
     parser.add_argument('--num_runs', type=int, default=50, help='Number of feature selection iterations to run.')
-    parser.add_argument('--method', type=str, default='rfe', choices=['rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
-                        help="Feature selection method to use ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').")
+    parser.add_argument('--method', type=str, default='rfe', choices=['rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
+                        help="Feature selection method to use ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').")
     parser.add_argument('--phenotype_column', type=str, help='Optional column name for phenotype/target variable.')
     parser.add_argument('--sample_column', type=str, help='Optional column name for sample identifiers.')
 
