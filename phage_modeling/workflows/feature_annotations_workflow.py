@@ -1,12 +1,14 @@
 import os
 import argparse
 import logging
+import pandas as pd
 from phage_modeling.feature_annotations import (
     get_predictive_features,
     get_predictive_proteins, 
     parse_and_filter_aa_sequences,
     parse_feature_information, 
-    merge_annotation_table  # Optional function call
+    merge_annotation_table,  # Optional function call
+    output_predictive_feature_overview  # New function to output predictive feature overview
 )
 
 # Set up logging
@@ -21,10 +23,13 @@ def run_predictive_proteins_workflow(
     output_dir=".",
     output_fasta="predictive_AA_seqs.faa", 
     protein_id_col="protein_ID",
-    annotation_table_path=None  # Annotation table is now optional
+    annotation_table_path=None,  # Annotation table is optional
+    feature_assignments_path=None,  # New argument for feature assignments
+    strain_column='strain'  # Column to use for strain
 ):
     """
-    Runs the full workflow to retrieve predictive proteins, optionally merge with annotation table, and filter AA sequences.
+    Runs the full workflow to retrieve predictive proteins, optionally merge with annotation table, filter AA sequences, 
+    and output a predictive feature overview CSV.
 
     Args:
         feature_file_path (str): Path to the file containing predictive features.
@@ -36,6 +41,8 @@ def run_predictive_proteins_workflow(
         output_fasta (str): Name of the output FASTA file for filtered sequences.
         protein_id_col (str): Column name for protein IDs (default: 'protein_ID').
         annotation_table_path (str, optional): Path to an annotation table (CSV/TSV format). If provided, proteins will be merged with annotation data.
+        feature_assignments_path (str, optional): Path to feature assignments CSV file for merging strain information.
+        strain_column (str): Column to use for strain information (default: 'strain').
 
     Returns:
         None
@@ -67,21 +74,34 @@ def run_predictive_proteins_workflow(
             predictive_proteins=predictive_proteins,
             feature_importance_df=feature_importance_df,
             output_dir=output_dir,
-            protein_id_col=protein_id_col
+            protein_id_col=protein_id_col,
+            prefix=strain_column
         )
         filtered_proteins = merged_proteins
     else:
         logging.info("Skipping annotation merge as no annotation table was provided.")
         filtered_proteins = predictive_proteins
 
-    # Step 5: Parse AA sequences from the FASTA file(s)
-    logging.info("Step 5: Parsing and filtering AA sequences.")
+    # Step 5: Generate predictive feature overview (CSV)
+    if feature_assignments_path:
+        logging.info("Step 5: Generating predictive feature overview CSV.")
+        feature_assignments_df = pd.read_csv(feature_assignments_path)
+        output_predictive_feature_overview(
+            predictive_proteins=predictive_proteins,
+            feature_assignments_df=feature_assignments_df,
+            strain_column=strain_column,
+            output_dir=output_dir
+        )
+
+    # Step 6: Parse AA sequences from the FASTA file(s)
+    logging.info("Step 6: Parsing and filtering AA sequences.")
     parse_and_filter_aa_sequences(
         fasta_dir_or_file=fasta_dir_or_file,
         filtered_proteins=filtered_proteins,
         protein_id_col=protein_id_col,
         output_dir=output_dir,
-        output_fasta=output_fasta
+        output_fasta=output_fasta,
+        prefix=strain_column
     )
 
     logging.info("Predictive protein workflow completed.")
@@ -99,6 +119,8 @@ def main():
     parser.add_argument('--output_fasta', default="predictive_AA_seqs.faa", help="Name of the output FASTA file for filtered sequences.")
     parser.add_argument('--protein_id_col', default="protein_ID", help="Column name for protein IDs in the predictive_proteins DataFrame.")
     parser.add_argument('--annotation_table_path', help="Path to an optional annotation table (CSV/TSV).")
+    parser.add_argument('--feature_assignments_path', help="Path to feature assignments CSV file for merging strain information.")
+    parser.add_argument('--strain_column', default='strain', help="Column to use for strain information (default: 'strain').")
 
     args = parser.parse_args()
 
@@ -112,7 +134,9 @@ def main():
         output_dir=args.output_dir,
         output_fasta=args.output_fasta,
         protein_id_col=args.protein_id_col,
-        annotation_table_path=args.annotation_table_path  # Optional
+        annotation_table_path=args.annotation_table_path,
+        feature_assignments_path=args.feature_assignments_path,  # Optional
+        strain_column=args.strain_column
     )
 
 if __name__ == "__main__":

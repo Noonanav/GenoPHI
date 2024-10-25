@@ -36,6 +36,7 @@ setup(
             'run-assign-and-predict-workflow=phage_modeling.workflows.assign_predict_workflow:main',
             'run-modeling-from-feature-table=phage_modeling.workflows.select_and_model_workflow:main',
             'run-predictive-proteins-workflow=phage_modeling.workflows.feature_annotations_workflow:main',
+            'run-kmer-table-workflow=phage_modeling.workflows.kmer_table_workflow:main',
         ],
     },
     classifiers=[

@@ -53,7 +53,12 @@ def get_predictive_features(feature_file_path, sample_column='strain', phenotype
     # Extract predictive features by excluding sample and phenotype columns
     predictive_features = [x for x in feature_df.columns if x not in {sample_column, phenotype_column, 'phage'}]
 
-    logging.info(f"Loaded {len(predictive_features)} predictive features.")
+    strain_features = [x for x in predictive_features if 'sc_' in x]
+    phage_features = [x for x in predictive_features if 'pc_' in x]
+
+    logging.info(f"Loaded {len(predictive_features)} predictive total features.")
+    logging.info(f"Loaded {len(strain_features)} predictive strain features.")
+    logging.info(f"Loaded {len(phage_features)} predictive phage features.")
     return predictive_features
 
 def get_predictive_proteins(select_features, feature2cluster_path, cluster2protein_path):
@@ -90,6 +95,36 @@ def get_predictive_proteins(select_features, feature2cluster_path, cluster2prote
 
     logging.info(f"Retrieved {filtered_proteins.shape[0]} predictive proteins.")
     return filtered_proteins
+
+def output_predictive_feature_overview(predictive_proteins, feature_assignments_df, strain_column='strain', output_dir='.'):
+    """
+    Generates an overview of predictive features, including Feature, cluster, protein_ID, and strain.
+
+    Args:
+        predictive_proteins (DataFrame): DataFrame with predictive proteins and their associated clusters and protein IDs.
+        feature_assignments_df (DataFrame): DataFrame containing 'Feature' and the strain information.
+        strain_column (str): Column name in feature_assignments_df containing the strain information.
+        output_dir (str): Directory where the output CSV will be saved.
+
+    Returns:
+        overview_df (DataFrame): DataFrame with the merged overview of predictive features.
+    """
+    # Ensure necessary columns are present in the DataFrames
+    if 'Feature' not in feature_assignments_df.columns:
+        raise ValueError(f"'Feature' column not found in feature_assignments_df.")
+    if 'strain' not in feature_assignments_df.columns:
+        feature_assignments_df[strain_column] = strain_column
+
+    # Merge predictive_proteins with the feature assignments on 'Feature'
+    overview_df = feature_assignments_df.merge(predictive_proteins, on='Feature', how='inner')
+
+    # Output the merged overview to a CSV file
+    output_file_path = os.path.join(output_dir, f'{strain_column}_predictive_feature_overview.csv')
+    overview_df.to_csv(output_file_path, index=False)
+
+    logging.info(f"Saved predictive feature overview to {output_file_path}.")
+    
+    return overview_df
 
 def parse_feature_information(modeling_dir, output_dir="."):
     """
@@ -159,7 +194,7 @@ def parse_feature_information(modeling_dir, output_dir="."):
     logging.info("Parsed and combined feature importance data.")
     return full_feature_importance_df
 
-def merge_annotation_table(annotation_table_path, predictive_proteins, feature_importance_df, output_dir = '.', protein_id_col="protein_ID", file_type='check'):
+def merge_annotation_table(annotation_table_path, predictive_proteins, feature_importance_df, output_dir = '.', protein_id_col="protein_ID", file_type='check', prefix='strain'):
     """
     Merges the predictive proteins DataFrame with an annotation table based on protein IDs and combines it with feature importance data.
 
@@ -184,19 +219,19 @@ def merge_annotation_table(annotation_table_path, predictive_proteins, feature_i
     # Merge feature importance with predictive proteins
     merged_df = feature_importance_df.merge(predictive_proteins, on='Feature', how='left')
 
-    predictive_protein_info_path = os.path.join(output_dir, "predictive_proteins_overview.csv")
+    predictive_protein_info_path = os.path.join(output_dir, f'{prefix}_predictive_protein_info.csv')
     merged_df.to_csv(predictive_protein_info_path, index=False)
     logging.info(f"Saved predictive proteins overview to {predictive_protein_info_path}.")
 
     merged_df = merged_df.merge(annotation_df, left_on='protein_ID', right_on=protein_id_col, how='inner')
-    prediction_protein_annotations_path = os.path.join(output_dir, "predictive_protein_annotations.csv")
+    prediction_protein_annotations_path = os.path.join(output_dir, f'{prefix}_predictive_protein_annotations.csv')
     merged_df.to_csv(prediction_protein_annotations_path, index=False)
     logging.info(f"Saved predictive protein annotations to {prediction_protein_annotations_path}.")
 
     logging.info(f"Merged {merged_df.shape[0]} rows with annotation information.")
     return merged_df
 
-def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_dir, protein_id_col="protein_ID", output_fasta="predictive_AA_seqs.faa"):
+def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_dir, protein_id_col="protein_ID", output_fasta="predictive_AA_seqs.faa", prefix='strain'):
     """
     Parses and filters AA sequences from either a single FASTA file or multiple files in a directory.
     Outputs the filtered sequences into a new FASTA file.
@@ -238,6 +273,7 @@ def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_d
                 filtered_seqs.append(record)
 
     # Write filtered sequences to output FASTA file
+    output_fasta = prefix + '_' + output_fasta
     output_fasta_path = os.path.join(output_dir, output_fasta)
     with open(output_fasta_path, "w") as output_handle:
         SeqIO.write(filtered_seqs, output_handle, "fasta")
