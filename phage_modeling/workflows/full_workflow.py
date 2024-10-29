@@ -155,6 +155,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
     fasta_dir_or_file = input_path_strain
     modeling_dir = os.path.join(output_dir, 'modeling_results', f'cutoff_{top_cutoff}')
     predictive_proteins_output_dir = os.path.join(output_dir, 'modeling_results', 'model_performance', 'predictive_proteins')
+    feature_assignments_path = os.path.join(output_dir, 'strain', 'features', 'feature_assignments.csv')
 
     # Run the predictive proteins workflow
     run_predictive_proteins_workflow(
@@ -167,6 +168,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         output_fasta='predictive_AA_seqs.faa',
         protein_id_col=protein_id_col,
         annotation_table_path=annotation_table_path,  # Optional
+        feature_assignments_path=feature_assignments_path,  # Optional
         strain_column='strain'
     )
 
@@ -175,6 +177,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         feature2cluster_path = os.path.join(output_dir, 'phage', 'features', 'selected_features.csv')
         cluster2protein_path = os.path.join(output_dir, 'phage', 'clusters.tsv')
         fasta_dir_or_file = input_path_phage
+        feature_assignments_path = os.path.join(output_dir, 'phage', 'features', 'feature_assignments.csv')
 
         run_predictive_proteins_workflow(
             feature_file_path=feature_file_path,
@@ -186,6 +189,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
             output_fasta='predictive_AA_seqs_phage.faa',
             protein_id_col=protein_id_col,
             annotation_table_path=annotation_table_path,  # Optional
+            feature_assignments_path=feature_assignments_path,  # Optional
             strain_column='phage'
         )
 

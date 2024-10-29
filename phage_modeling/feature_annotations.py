@@ -102,8 +102,8 @@ def output_predictive_feature_overview(predictive_proteins, feature_assignments_
 
     Args:
         predictive_proteins (DataFrame): DataFrame with predictive proteins and their associated clusters and protein IDs.
-        feature_assignments_df (DataFrame): DataFrame containing 'Feature' and the strain information.
-        strain_column (str): Column name in feature_assignments_df containing the strain information.
+        feature_assignments_df (DataFrame): DataFrame containing 'Feature' and strain information.
+        strain_column (str): Column name in feature_assignments_df containing strain information.
         output_dir (str): Directory where the output CSV will be saved.
 
     Returns:
@@ -112,8 +112,8 @@ def output_predictive_feature_overview(predictive_proteins, feature_assignments_
     # Ensure necessary columns are present in the DataFrames
     if 'Feature' not in feature_assignments_df.columns:
         raise ValueError(f"'Feature' column not found in feature_assignments_df.")
-    if 'strain' not in feature_assignments_df.columns:
-        feature_assignments_df[strain_column] = strain_column
+    if strain_column not in feature_assignments_df.columns:
+        raise ValueError(f"'{strain_column}' column not found in feature_assignments_df.")
 
     # Merge predictive_proteins with the feature assignments on 'Feature'
     overview_df = feature_assignments_df.merge(predictive_proteins, on='Feature', how='inner')

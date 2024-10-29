@@ -77,12 +77,12 @@ def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output
     logging.info("Merging k-mer data with protein feature data.")
     full_kmer_df_merged = full_kmer_df.merge(gene_data, on="protein_ID", how='left')
 
-    # Updated k-mer filtering for unique counts
+    # Aggregate k-mer data by feature and cluster
     logging.info("Aggregating k-mer data by feature and cluster.")
     full_kmer_df_counts = full_kmer_df_merged.copy()
     full_kmer_df_counts['counts'] = full_kmer_df_counts.groupby(['kmer', 'Feature', 'cluster'])['protein_ID'].transform('nunique')
-    full_kmer_df_counts['k_length'] = [len(k) for k in full_kmer_df_counts['kmer']]
-    
+    full_kmer_df_counts['k_length'] = full_kmer_df_counts['kmer'].apply(len)
+
     # Filter unique k-mers based on 'one_gene' parameter
     if one_gene:
         logging.info("Including features with 1 gene.")
@@ -94,13 +94,16 @@ def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output
     # Create kmer_id by concatenating cluster and kmer, and filter by k length
     logging.info("Creating kmer IDs and filtering by k length.")
     full_kmer_df_counts['kmer_id'] = full_kmer_df_counts['cluster'] + '_' + full_kmer_df_counts['kmer']
-    full_kmer_df_counts = full_kmer_df_counts[full_kmer_df_counts['k_length'] == k].drop_duplicates()
+    full_kmer_df_counts = full_kmer_df_counts.drop_duplicates(subset=[id_col, 'kmer_id'])
 
     # Construct presence-absence matrix
     logging.info("Constructing final presence-absence matrix.")
     feature_table = full_kmer_df_counts[[id_col, 'kmer_id']].copy()
     feature_table['presence'] = 1
-    feature_table = feature_table.pivot_table(index=id_col, columns='kmer_id', values='presence', fill_value=0).reset_index()
+    feature_table = feature_table.pivot_table(index=id_col, columns='kmer_id', values='presence', fill_value=0)
+
+    # Convert matrix to binary (1 for presence, 0 for absence)
+    feature_table = feature_table.applymap(lambda x: 1 if x > 0 else 0).reset_index()
 
     # Save the presence-absence matrix as a CSV
     feature_table_output = os.path.join(output_dir, f"{output_name}_feature_table.csv")
@@ -125,13 +128,35 @@ def get_genome_assignments_tables(presence_absence, genome_column_name, output_d
 
     return genome_assignments.drop(columns=["Presence"])
 
-def feature_selection_optimized(presence_absence, source, genome_column_name, output_dir, prefix=None):
-    """Optimizes feature selection by identifying perfect co-occurrence of features."""
-    logging.info("Optimizing feature selection...")
-    presence_absence.set_index(genome_column_name, inplace=True)
-    boolean_matrix = presence_absence.astype(bool)
-    perfect_cooccurrence = {col: set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()]) for col in boolean_matrix.columns}
+def feature_selection_optimized(presence_absence, source, genome_column_name, output_dir=None, prefix=None):
+    """
+    Optimizes feature selection by identifying perfect co-occurrence of features.
 
+    Args:
+        presence_absence (DataFrame): The presence-absence matrix.
+        source (str): A prefix for naming the selected features.
+        genome_column_name (str): The column name that contains genome information.
+        output_dir (str, optional): Directory to save the selected features CSV.
+        prefix (str, optional): Prefix for the output filename.
+
+    Returns:
+        DataFrame: Optimized feature selection results.
+    """
+    logging.info("Optimizing feature selection...")
+
+    # Set index using the genome_column_name
+    presence_absence.set_index(genome_column_name, inplace=True)
+
+    # Ensure binary presence-absence format
+    presence_absence = presence_absence.applymap(lambda x: 1 if x > 0 else 0)
+    
+    boolean_matrix = presence_absence.astype(bool)
+    perfect_cooccurrence = {
+        col: set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()])
+        for col in boolean_matrix.columns
+    }
+
+    # Identify unique clusters
     unique_clusters = []
     seen = set()
     for cluster in perfect_cooccurrence.values():
@@ -139,17 +164,15 @@ def feature_selection_optimized(presence_absence, source, genome_column_name, ou
             unique_clusters.append(list(cluster))
         seen.update(cluster)
 
+    # Create the selected features DataFrame
     data = [(f"{source[0]}c_{idx}", cluster) for idx, cluster_group in enumerate(unique_clusters) for cluster in cluster_group]
-    
     selected_features = pd.DataFrame(data, columns=["Feature", "Cluster_Label"])
-    selected_features['protein_family'] = selected_features['Cluster_Label'].apply(lambda x: '_'.join(x.split('_')[0:-1]))
 
-    if prefix:
-        selected_features_output = os.path.join(output_dir, f"{prefix}_selected_features.csv")
-    else:
-        selected_features_output = os.path.join(output_dir, "selected_features.csv")
-    selected_features.to_csv(selected_features_output, index=False)
-    logging.info(f"Selected features saved to {selected_features_output}")
+    # Optionally save to CSV if output_dir is provided
+    if output_dir:
+        selected_features_output = os.path.join(output_dir, f"{prefix}_selected_features.csv" if prefix else "selected_features.csv")
+        selected_features.to_csv(selected_features_output, index=False)
+        logging.info(f"Selected features saved to {selected_features_output}")
 
     return selected_features
 
@@ -160,7 +183,7 @@ def feature_assignment(genome_assignments, selected_features, genome_column_name
     assignment_df = assignment_df.drop(columns=["Cluster_Label"]).drop_duplicates()
 
     # Create feature table in wide format
-    feature_table = assignment_df.pivot_table(index=genome_column_name, columns="Feature", aggfunc="size", fill_value=0).reset_index()
+    feature_table = assignment_df.pivot_table(index=genome_column_name, columns="Feature", aggfunc=lambda x: 1, fill_value=0).reset_index()
 
     # Save the feature assignment and final feature table
     feature_assignment_output = os.path.join(output_dir, "feature_assignment.csv")
@@ -178,11 +201,38 @@ def feature_assignment(genome_assignments, selected_features, genome_column_name
 
 def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, output_dir, k_range=False,
                       phenotype_matrix=None, phage_fasta=None, protein_csv_phage=None, remove_suffix=False, 
-                      sample_column='strain', phenotype_column='interaction', modeling=False, threads=4):
+                      sample_column='strain', phenotype_column='interaction', modeling=False, filter_type='strain', 
+                      num_features=100, num_runs_fs=10, num_runs_modeling=20, method='rfe', threads=4):
     """
-    Runs the full workflow for generating k-mer feature tables, filtering, optimizing, 
-    and optionally merging with phenotype and phage feature tables.
+    Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
+    feature selection, phenotype merging, and optional modeling.
+
+    Args:
+        strain_fasta (str): Path to the FASTA file containing strain amino acid sequences.
+        protein_csv (str): Path to the CSV file containing protein feature data for strains.
+        k (int): Length of k-mers to generate from amino acid sequences.
+        id_col (str): Column name in the data to use as the genome identifier.
+        one_gene (bool): If True, includes features with only one gene; if False, filters out single-gene features.
+        output_dir (str): Directory to save all output files, including intermediate and final feature tables.
+        k_range (bool, optional): If True, generates k-mers over a range of lengths from 3 to k. Default is False.
+        phenotype_matrix (str, optional): Path to the phenotype matrix CSV for merging with feature tables. Default is None.
+        phage_fasta (str, optional): Path to the FASTA file containing phage amino acid sequences. Default is None.
+        protein_csv_phage (str, optional): Path to the CSV file containing phage protein feature data. If None, uses `protein_csv`.
+        remove_suffix (bool, optional): If True, removes suffixes from genome names when merging with phenotype matrix. Default is False.
+        sample_column (str, optional): Column name for sample identifiers in the merged phenotype matrix. Default is 'strain'.
+        phenotype_column (str, optional): Column name for the phenotype in the phenotype matrix, used in modeling. Default is 'interaction'.
+        modeling (bool, optional): If True, runs the modeling workflow after feature table generation. Default is False.
+        filter_type (str, optional): Type of feature filtering to apply; options include 'strain', 'phage', or 'none'. Default is 'strain'.
+        num_features (int, optional): Number of features to select during feature selection. Default is 100.
+        num_runs_fs (int, optional): Number of iterations for feature selection. Default is 10.
+        num_runs_modeling (int, optional): Number of modeling iterations per feature table. Default is 20.
+        method (str, optional): Feature selection method, such as 'rfe' or 'lasso'. Default is 'rfe'.
+        threads (int, optional): Number of threads to use for parallel processing. Default is 4.
+
+    Returns:
+        None. Saves the final feature tables and optional modeling results to `output_dir`.
     """
+
     logging.info("Running the full k-mer feature table workflow...")
 
     feature_output_dir = os.path.join(output_dir, "feature_tables")
@@ -242,19 +292,30 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         modeling_output_dir = os.path.join(output_dir, "modeling")
         if not os.path.exists(modeling_output_dir):
             os.makedirs(modeling_output_dir)
-        # Run the modeling workflow using the merged feature tabl
+
+        full_feature_table = pd.read_csv(merged_table_path)
+        features = full_feature_table.columns
+        features = [f for f in features if 'c_' in f]
+        features_count = len(features)
+        print(f"Number of features: {features_count}")
+
+        if features_count*0.5 < num_features:
+            num_features = int(features_count*0.5)
+            logging.warning(f"Number of features reduced to {num_features} due to insufficient features")
+
+        # Run the modeling workflow using the merged feature table
         # Assuming `final_feature_table_output` is the path to the feature table from the k-mer workflow
         run_modeling_workflow_from_feature_table(
             full_feature_table=merged_table_path,
             output_dir=modeling_output_dir,
             threads=threads,
-            num_features=100,
-            filter_type='none',
-            num_runs_fs=10,
-            num_runs_modeling=20,
+            num_features=num_features,
+            filter_type=filter_type,
+            num_runs_fs=num_runs_fs,
+            num_runs_modeling=num_runs_modeling,
             sample_column=sample_column,
             phenotype_column=phenotype_column,
-            method='rfe'
+            method=method
         )
 
     else:
@@ -266,22 +327,42 @@ def main():
     """
     Command-line interface for generating k-mer feature tables and running the full workflow.
     """
-    parser = argparse.ArgumentParser(prog='AA_seq_to_kmer', description='Generates k-mer feature tables and final presence-absence matrix from AA sequences.')
-    parser.add_argument('-i', '--strain_fasta', required=True, help="The path to the FASTA file containing strain AA sequences.")
-    parser.add_argument('-ip', '--phage_fasta', default=None, help="The path to the FASTA file containing phage AA sequences.")
-    parser.add_argument('-p', '--protein_csv', required=True, help="The path to the CSV file containing protein feature data for strain.")
-    parser.add_argument('--protein_csv_phage', default=None, help="The path to the CSV file containing protein feature data for phage.")
-    parser.add_argument('--k', type=int, required=True, help="k-mer length.")
-    parser.add_argument('--id_col', default="strain", help="The column name for genome ID column.")
-    parser.add_argument('--one_gene', action='store_true', help="Include features with 1 gene.")
-    parser.add_argument('--k_range', action='store_true', help="Generate range of k-mer lengths from 3 to k.")
-    parser.add_argument('-o', '--output_dir', required=True, help="Directory to save all output files.")
-    parser.add_argument('--phenotype_matrix', default=None, help="Path to the phenotype matrix CSV for merging.")
-    parser.add_argument('--remove_suffix', action='store_true', help="Remove suffix from genome names when merging.")
-    parser.add_argument('--sample_column', default='strain', help="Sample identifier column name (default is 'strain').")
-    parser.add_argument('--modeling', action='store_true', help="Run modeling workflow after feature table generation.")
-    parser.add_argument('--phenotype_column', default='interaction', help="Phenotype column name in the phenotype matrix.")
-    parser.add_argument('--threads', type=int, default=4, help="Number of threads to use (default: 4).")
+    parser = argparse.ArgumentParser(description='Generates k-mer feature tables and final presence-absence matrix from AA sequences.')
+
+    # Input data
+    input_group = parser.add_argument_group('Input data')
+    input_group.add_argument('-i', '--strain_fasta', required=True, help="Path to the FASTA file containing strain AA sequences.")
+    input_group.add_argument('-ip', '--phage_fasta', default=None, help="Path to the FASTA file containing phage AA sequences.")
+    input_group.add_argument('-p', '--protein_csv', required=True, help="Path to the CSV file containing protein feature data for strain.")
+    input_group.add_argument('--protein_csv_phage', default=None, help="Path to the CSV file containing protein feature data for phage.")
+
+    # Optional input parameters
+    optional_input_group = parser.add_argument_group('Optional input parameters')
+    optional_input_group.add_argument('--k', type=int, required=True, help="k-mer length.")
+    optional_input_group.add_argument('--id_col', default="strain", help="Column name for genome ID.")
+    optional_input_group.add_argument('--one_gene', action='store_true', help="Include features with 1 gene.")
+    optional_input_group.add_argument('--k_range', action='store_true', help="Generate range of k-mer lengths from 3 to k.")
+    optional_input_group.add_argument('--phenotype_matrix', default=None, help="Path to the phenotype matrix CSV for merging.")
+    optional_input_group.add_argument('--remove_suffix', action='store_true', help="Remove suffix from genome names when merging.")
+    optional_input_group.add_argument('--sample_column', default='strain', help="Sample identifier column name (default: 'strain').")
+    optional_input_group.add_argument('--phenotype_column', default='interaction', help="Phenotype column name in the phenotype matrix.")
+
+    # Output arguments
+    output_group = parser.add_argument_group('Output arguments')
+    output_group.add_argument('-o', '--output_dir', required=True, help="Directory to save all output files.")
+
+    # Feature selection and modeling parameters
+    fs_modeling_group = parser.add_argument_group('Feature selection and modeling')
+    fs_modeling_group.add_argument('--modeling', action='store_true', help="Run modeling workflow after feature table generation.")
+    fs_modeling_group.add_argument('--filter_type', default='strain', help="Type of feature filtering to apply (default: 'strain').")
+    fs_modeling_group.add_argument('--num_features', type=int, default=100, help="Number of features to select for modeling (default: 100).")
+    fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help="Number of runs for feature selection (default: 10).")
+    fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=20, help="Number of runs for modeling (default: 20).")
+    fs_modeling_group.add_argument('--method', default='rfe', help="Feature selection method to use (default: 'rfe').")
+
+    # General parameters
+    general_group = parser.add_argument_group('General')
+    general_group.add_argument('--threads', type=int, default=4, help="Number of threads to use (default: 4).")
 
     args = parser.parse_args()
 
@@ -301,6 +382,11 @@ def main():
         sample_column=args.sample_column,
         modeling=args.modeling,
         phenotype_column=args.phenotype_column,
+        filter_type=args.filter_type,
+        num_features=args.num_features,
+        num_runs_fs=args.num_runs_fs,
+        num_runs_modeling=args.num_runs_modeling,
+        method=args.method,
         threads=args.threads
     )
 
