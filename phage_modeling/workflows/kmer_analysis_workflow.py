@@ -1,4 +1,6 @@
 import argparse
+import pandas as pd
+import logging
 import os
 from phage_modeling.kmer_modeling_analysis import (
     load_aa_sequences,
@@ -18,7 +20,7 @@ def kmer_analysis_workflow(
     feature2cluster_path,
     protein_families_file,
     output_dir,
-    feature_type='host',
+    feature_type='strain',
     annotation_file=None,
 ):
     """
@@ -39,29 +41,57 @@ def kmer_analysis_workflow(
     """
     # Step 1: Load amino acid sequences
     aa_sequences_df = load_aa_sequences(aa_sequence_file)
+    print('Printing aa_sequences_df')
+    print(aa_sequences_df.head())
     
     # Step 2: Get predictive kmers
     filtered_kmers = get_predictive_kmers(feature_file_path, feature2cluster_path, feature_type)
-    kmer_full_df = filtered_kmers.merge(aa_sequences_df, on='protein_ID', how='inner')
+    filtered_kmers.to_csv(os.path.join(output_dir, 'filtered_kmers.csv'), index=False)
+    print('Printing filtered_kmers')
+    print(filtered_kmers.head())
     
     # Step 3: Merge with protein families
-    protein_families_df = merge_kmers_with_families(kmer_full_df, protein_families_file, aa_sequences_df)
+    protein_families_df = merge_kmers_with_families(protein_families_file, aa_sequences_df)
+    protein_families_df.to_csv(os.path.join(output_dir, 'protein_families_df.csv'), index=False)
+    print('Printing protein_families_df')
+    print(protein_families_df.head())
+
+
+    kmer_full_df = filtered_kmers.merge(protein_families_df, on='protein_family', how='inner')
+    kmer_full_df.to_csv(os.path.join(output_dir, 'kmer_full_df.csv'), index=False)
+    print('Printing kmer_full_df')
+    print(kmer_full_df.head())
     
     # Step 4: Construct kmer ID DataFrame
     kmer_id_df = construct_kmer_id_df(protein_families_df, kmer_full_df)
+    print('Printing kmer_id_df')
+    print(kmer_id_df.head())
     
     # Step 5: Align sequences and extract indices
-    aligned_df = align_sequences([(row['protein_ID'], row['sequence']) for _, row in protein_families_df.iterrows()])
+    seqs_df = aa_sequences_df[['protein_ID', 'sequence']].drop_duplicates()
+    aligned_df = align_sequences([(row['protein_ID'], row['sequence']) for _, row in seqs_df.iterrows()])
+    aligned_df = aligned_df.merge(kmer_full_df[['Feature', 'cluster', 'protein_ID', 'kmer']], on='protein_ID', how='inner')
+    aligned_df = aligned_df.merge(protein_families_df[['protein_family', 'protein_ID']], on='protein_ID', how='inner')
+    # aligned_df = aligned_df.drop_duplicates()
     aligned_df[['start_indices', 'stop_indices']] = aligned_df.apply(find_kmer_indices, axis=1)
+    aligned_df.to_csv(os.path.join(output_dir, 'aligned_df.csv'), index=False)
+    print('Printing aligned_df')
+    print(aligned_df.head())
     
     # Step 6: Calculate coverage and identify segments
     coverage_summary = calculate_coverage(aligned_df)
+    coverage_summary = coverage_summary.drop_duplicates()
+    coverage_summary.to_csv(os.path.join(output_dir, 'coverage_summary.csv'), index=False)
     segments_df = identify_segments(coverage_summary)
+    segments_df.to_csv(os.path.join(output_dir, 'segments_df.csv'), index=False)
     
     # Step 7: Plot segments with optional annotations
     if annotation_file:
+        logging.info(f"Merging segments with annotation data from {annotation_file}")
         annotation_df = pd.read_csv(annotation_file)
-        segments_df = segments_df.merge(annotation_df, on='protein_family', how='left')
+        segments_df = segments_df.merge(annotation_df, on='protein_ID', how='left')
+        segments_df.to_csv(os.path.join(output_dir, 'segments_annotated.csv'), index=False)
+    logging.info(f"Plotting segments in {output_dir}")
     plot_segments(segments_df, output_dir)
 
 def main():

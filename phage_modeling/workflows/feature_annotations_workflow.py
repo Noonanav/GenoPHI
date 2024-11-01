@@ -82,20 +82,9 @@ def run_predictive_proteins_workflow(
         logging.info("Skipping annotation merge as no annotation table was provided.")
         filtered_proteins = predictive_proteins
 
-    # Step 5: Generate predictive feature overview (CSV)
-    if feature_assignments_path:
-        logging.info("Step 5: Generating predictive feature overview CSV.")
-        feature_assignments_df = pd.read_csv(feature_assignments_path)
-        output_predictive_feature_overview(
-            predictive_proteins=predictive_proteins,
-            feature_assignments_df=feature_assignments_df,
-            strain_column=strain_column,
-            output_dir=output_dir
-        )
-
-    # Step 6: Parse AA sequences from the FASTA file(s)
-    logging.info("Step 6: Parsing and filtering AA sequences.")
-    parse_and_filter_aa_sequences(
+    # Step 5: Parse AA sequences from the FASTA file(s)
+    logging.info("Step 5: Parsing and filtering AA sequences.")
+    genome_protein_df = parse_and_filter_aa_sequences(
         fasta_dir_or_file=fasta_dir_or_file,
         filtered_proteins=filtered_proteins,
         protein_id_col=protein_id_col,
@@ -106,6 +95,17 @@ def run_predictive_proteins_workflow(
 
     logging.info("Predictive protein workflow completed.")
 
+    # Step 6: Generate predictive feature overview (CSV)
+    if feature_assignments_path:
+        logging.info("Step 6: Generating predictive feature overview CSV.")
+        feature_assignments_df = pd.read_csv(feature_assignments_path)
+        output_predictive_feature_overview(
+            predictive_proteins=predictive_proteins,
+            feature_assignments_df=feature_assignments_df,
+            genome_protein_df=genome_protein_df,
+            strain_column=strain_column,
+            output_dir=output_dir
+        )
 
 # Command-line interface for the workflow
 def main():

@@ -101,7 +101,7 @@ def run_modeling_workflow_from_feature_table(
                 output_fasta='predictive_AA_seqs_strain.faa',
                 protein_id_col=protein_id_col,
                 annotation_table_path=annotation_table_path,
-                feature_assignments_path=os.path.join(output_dir, 'features', 'feature_assignments.csv'),
+                feature_assignments_path=os.path.join(output_dir, 'strain', 'features', 'feature_assignments.csv'),
                 strain_column=sample_column
             )
 
