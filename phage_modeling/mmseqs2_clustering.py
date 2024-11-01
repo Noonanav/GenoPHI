@@ -434,7 +434,7 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
     if compare:
         compare_cluster_and_search_results(clusters_tsv, best_hits_tsv, output_dir)
 
-def run_feature_assignment(input_file, output_dir, source='bacteria', select='none', select_column='strain'):
+def run_feature_assignment(input_file, output_dir, source='strain', select='none', select_column='strain', input_type='directory'):
     """
     Runs the feature assignment workflow from the presence-absence matrix.
     
@@ -444,7 +444,7 @@ def run_feature_assignment(input_file, output_dir, source='bacteria', select='no
     Args:
         input_file (str): Path to the presence-absence matrix CSV file.
         output_dir (str): Directory to save the results (selected features, assignments, and feature table).
-        source (str): Prefix for naming the selected features (e.g., 'bacteria' or 'phage').
+        source (str): Prefix for naming the selected features (e.g., 'strain' or 'phage').
         select (str): Path to a strain list file for filtering, or 'none' to skip filtering.
         select_column (str): Column name in the strain list file that contains strain names.
     
@@ -462,7 +462,20 @@ def run_feature_assignment(input_file, output_dir, source='bacteria', select='no
 
     # If a strain list is provided, filter the presence-absence matrix
     if select_value:
-        presence_absence = filter_presence_absence(presence_absence, select_value, select_column)
+        if input_type == 'file':
+            if select_column in presence_absence.columns:
+                logging.info(f"Filtering presence-absence matrix based on selected {select_column}...")
+                presence_absence = filter_presence_absence(presence_absence, select_value, select_column)
+            elif 'Genome' in presence_absence.columns:
+                logging.info(f"Renaming 'Genome' column to {select_column} and filtering presence-absence matrix...")
+                # Rename 'Genome' column to the selected column name
+                presence_absence = presence_absence.rename(columns={'Genome': select_column})
+                presence_absence = filter_presence_absence(presence_absence, select_value, select_column)
+            else:
+                logging.error(f"Column '{select_column}' not found in presence-absence matrix.")
+                raise ValueError(f"Column '{select_column}' not found in presence-absence matrix.")
+        else:
+            presence_absence = filter_presence_absence(presence_absence, select_value, select_column)
 
     genome_column_name = source
 

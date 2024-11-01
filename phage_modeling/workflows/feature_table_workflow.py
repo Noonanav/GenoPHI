@@ -24,7 +24,8 @@ def run_full_feature_workflow(input_path_strain, output_dir, phenotype_matrix, t
     feature_output_dir_strain = os.path.join(strain_output_dir, "features")
     
     print("Running feature assignment workflow for strain genomes...")
-    run_feature_assignment(presence_absence_strain, feature_output_dir_strain, source=source_strain, select=strain_list or 'none', select_column=strain_column)
+    strain_input_type = 'directory' if os.path.isdir(input_path_strain) else 'file'
+    run_feature_assignment(presence_absence_strain, feature_output_dir_strain, source=source_strain, select=strain_list or 'none', select_column=strain_column, input_type=strain_input_type)
 
     if input_path_phage:
         # Run clustering and feature assignment for phage if provided
@@ -38,7 +39,8 @@ def run_full_feature_workflow(input_path_strain, output_dir, phenotype_matrix, t
         feature_output_dir_phage = os.path.join(phage_output_dir, "features")
         
         print("Running feature assignment workflow for phage genomes...")
-        run_feature_assignment(presence_absence_phage, feature_output_dir_phage, source=source_phage, select=phage_list or 'none', select_column=phage_column)
+        phage_input_type = 'directory' if os.path.isdir(input_path_phage) else 'file'
+        run_feature_assignment(presence_absence_phage, feature_output_dir_phage, source=source_phage, select=phage_list or 'none', select_column=phage_column, input_type=phage_input_type)
 
         # Merge strain and phage feature tables
         print("Merging feature tables for strain and phage genomes...")
