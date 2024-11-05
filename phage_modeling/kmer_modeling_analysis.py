@@ -4,13 +4,15 @@ import numpy as np
 import pandas as pd
 from Bio import SeqIO, AlignIO
 from Bio.Align.Applications import ClustalwCommandline
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
 from plotnine import *
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load AA sequences from file
-def load_aa_sequences(aa_sequence_file):
+def load_aa_sequences(aa_sequence_file, feature_type='strain'):
     """
     Loads amino acid sequences from a FASTA file into a DataFrame.
 
@@ -21,13 +23,19 @@ def load_aa_sequences(aa_sequence_file):
     DataFrame: A DataFrame with 'protein_ID' and 'sequence' columns.
     """
     logging.info(f"Loading amino acid sequences from {aa_sequence_file}")
-    aa_records = SeqIO.parse(aa_sequence_file, 'fasta')
+    
+    # Convert the iterator to a list to prevent re-consumption
+    aa_records = list(SeqIO.parse(aa_sequence_file, 'fasta'))
+    
+    # Create the DataFrame with consistent-length lists
     aa_sequences_df = pd.DataFrame({
-        'protein_ID': [record.id for record in aa_records],
-        'sequence': [str(record.seq) for record in SeqIO.parse(aa_sequence_file, 'fasta')]
+        feature_type: [record.id.split('::')[0] for record in aa_records],
+        'full_protein_ID': [record.id for record in aa_records],
+        'protein_ID': [record.id.split('::')[1] for record in aa_records],
+        'sequence': [str(record.seq) for record in aa_records]
     })
+    
     logging.info(f"Loaded {len(aa_sequences_df)} sequences.")
-    # print(aa_sequences_df.head())
     return aa_sequences_df
 
 # Get predictive features based on host or phage
@@ -52,6 +60,7 @@ def get_predictive_kmers(feature_file_path, feature2cluster_path, feature_type):
     feature2cluster_df.rename(columns={'Cluster_Label': 'cluster'}, inplace=True)
     filtered_kmers = feature2cluster_df[feature2cluster_df['Feature'].isin(select_features)]
     filtered_kmers['kmer'] = filtered_kmers['cluster'].str.split('_').str[-1]
+    filtered_kmers['protein_family'] = filtered_kmers['cluster'].str.split('_').str[:-1].str.join('_')
     # filtered_kmers['protein_ID'] = ['_'.join(x.split('_')[:-1]) for x in filtered_kmers['cluster']]
     # print(filtered_kmers.head())
     
@@ -73,9 +82,9 @@ def merge_kmers_with_families(protein_families_file, aa_sequences_df, feature_ty
     """
     logging.info(f"Merging k-mer data with protein families from {protein_families_file}")
     protein_families_df = pd.read_csv(protein_families_file)
-    protein_families_df = protein_families_df[['cluster', 'protein_ID']].drop_duplicates()
+    protein_families_df = protein_families_df[[feature_type, 'cluster', 'protein_ID']].drop_duplicates()
     protein_families_df.rename(columns={'cluster': 'protein_family'}, inplace=True)
-    merged_df = protein_families_df.merge(aa_sequences_df, on='protein_ID', how='inner')
+    merged_df = protein_families_df.merge(aa_sequences_df, on=[feature_type, 'protein_ID'], how='inner')
     # print(merged_df.head())
     logging.info(f"Merged k-mer data with {len(merged_df)} protein family entries.")
     return merged_df
@@ -104,39 +113,53 @@ def construct_kmer_id_df(protein_families_df, kmer_df):
     return kmer_id_df
 
 # Perform MSA and extract indices
-def align_sequences(sequences):
+def align_sequences(sequences, output_dir):
     """
     Performs multiple sequence alignment and extracts alignment start indices.
 
     Parameters:
     sequences (list of tuples): List of (header, sequence) tuples.
+    output_dir (str): Directory to save temporary files for alignment.
 
     Returns:
     DataFrame: DataFrame with 'protein_ID', 'aln_sequence', and 'start_index'.
     """
     logging.info("Performing multiple sequence alignment.")
     
-    # Write sequences to a temporary FASTA file
-    with open("temp_sequences.fasta", "w") as f:
-        for header, seq in sequences:
-            f.write(f">{header}\n{seq}\n")
+    # Paths for temporary files
+    temp_fasta_path = os.path.join(output_dir, "temp_sequences.fasta")
+    temp_aln_path = os.path.join(output_dir, "temp_sequences.aln")
+
+    # Create temporary IDs for ClustalW compatibility and mapping dictionary
+    seq_records = []
+    temp_id_map = {}
+    for i, (header, seq) in enumerate(sequences):
+        temp_id = f"seq_{i}"
+        record = SeqRecord(Seq(seq), id=temp_id, description="")
+        seq_records.append(record)
+        temp_id_map[temp_id] = header  # Mapping temp ID to original header
+
+    # Write sequences to the temporary FASTA file
+    with open(temp_fasta_path, "w") as output_handle:
+        SeqIO.write(seq_records, output_handle, "fasta")
     
-    # Run ClustalW to align the sequences
-    clustalw_cline = ClustalwCommandline("clustalw2", infile="temp_sequences.fasta")
+    # Run ClustalW for alignment
+    clustalw_cline = ClustalwCommandline("clustalw2", infile=temp_fasta_path)
     clustalw_cline()
-    
-    # Read the alignment results
-    alignment = AlignIO.read("temp_sequences.aln", "clustal")
-    
-    # Store sequences and start positions in dictionaries
+
+    # Read alignment results from ClustalW output
+    alignment = AlignIO.read(temp_aln_path, "clustal")
+
+    # Store aligned sequences and start positions using original headers
     start_positions = {}
     aligned_sequences = {}
     
     for record in alignment:
         seq_str = str(record.seq)
         start_pos = seq_str.find(seq_str.lstrip('-'))
-        start_positions[record.id] = start_pos
-        aligned_sequences[record.id] = seq_str
+        original_id = temp_id_map[record.id]  # Retrieve original ID from map
+        start_positions[original_id] = start_pos
+        aligned_sequences[original_id] = seq_str
     
     # Construct the DataFrame from the stored values
     result_df = pd.DataFrame({
@@ -144,6 +167,10 @@ def align_sequences(sequences):
         'aln_sequence': list(aligned_sequences.values()),
         'start_index': list(start_positions.values())
     })
+    
+    # Clean up temporary files
+    os.remove(temp_fasta_path)
+    os.remove(temp_aln_path)
     
     logging.info("Alignment and index extraction completed.")
     return result_df

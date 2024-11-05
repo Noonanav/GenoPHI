@@ -176,14 +176,41 @@ def feature_selection_optimized(presence_absence, source, genome_column_name, ou
 
     return selected_features
 
-def feature_assignment(genome_assignments, selected_features, genome_column_name, output_dir, prefix=None):
-    """Assigns features to genomes based on the selected features."""
+def feature_assignment(genome_assignments, selected_features, genome_column_name, output_dir, prefix=None, all_genomes=None):
+    """
+    Assigns features to genomes based on the selected features and ensures all genomes are included in the output,
+    even those without predictive features.
+
+    Args:
+        genome_assignments (DataFrame): DataFrame of genome assignments.
+        selected_features (DataFrame): DataFrame of selected features.
+        genome_column_name (str): Column name representing genome IDs.
+        output_dir (str): Directory to save outputs.
+        prefix (str, optional): Prefix for output files.
+        all_genomes (list, optional): List of all genomes to ensure they appear in the output, even if missing features.
+
+    Returns:
+        assignment_df (DataFrame): DataFrame of assigned features to genomes.
+        feature_table (DataFrame): Final feature table with presence-absence for each genome.
+        final_feature_table_output (str): Path to the saved final feature table.
+    """
     logging.info("Assigning features to genomes...")
     assignment_df = genome_assignments.merge(selected_features, on="Cluster_Label", how="inner")
     assignment_df = assignment_df.drop(columns=["Cluster_Label"]).drop_duplicates()
 
     # Create feature table in wide format
     feature_table = assignment_df.pivot_table(index=genome_column_name, columns="Feature", aggfunc=lambda x: 1, fill_value=0).reset_index()
+
+    # Ensure all genomes are included with zeros for missing features
+    if all_genomes:
+        missing_genomes = set(all_genomes) - set(feature_table[genome_column_name])
+        if missing_genomes:
+            logging.info(f"Adding {len(missing_genomes)} missing genomes with zero values.")
+            missing_df = pd.DataFrame({genome_column_name: list(missing_genomes)})
+            for feature in feature_table.columns:
+                if feature != genome_column_name:
+                    missing_df[feature] = 0
+            feature_table = pd.concat([feature_table, missing_df], ignore_index=True)
 
     # Save the feature assignment and final feature table
     feature_assignment_output = os.path.join(output_dir, "feature_assignment.csv")
@@ -199,10 +226,20 @@ def feature_assignment(genome_assignments, selected_features, genome_column_name
 
     return assignment_df, feature_table, final_feature_table_output
 
+def load_genome_list(file_path, genome_column):
+    """Load a list of genomes from a file, ensuring deduplication."""
+    if file_path and os.path.exists(file_path):
+        genome_df = pd.read_csv(file_path)
+        return list(genome_df[genome_column].unique())
+    else:
+        logging.warning(f"Genome list file {file_path} not found or not provided.")
+        return None
+
 def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, output_dir, k_range=False,
                       phenotype_matrix=None, phage_fasta=None, protein_csv_phage=None, remove_suffix=False, 
                       sample_column='strain', phenotype_column='interaction', modeling=False, filter_type='strain', 
-                      num_features=100, num_runs_fs=10, num_runs_modeling=20, method='rfe', threads=4):
+                      num_features=100, num_runs_fs=10, num_runs_modeling=20, method='rfe', strain_list=None, 
+                      phage_list=None, threads=4):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
     feature selection, phenotype merging, and optional modeling.
@@ -227,6 +264,8 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         num_runs_fs (int, optional): Number of iterations for feature selection. Default is 10.
         num_runs_modeling (int, optional): Number of modeling iterations per feature table. Default is 20.
         method (str, optional): Feature selection method, such as 'rfe' or 'lasso'. Default is 'rfe'.
+        strain_list (str, optional): Path to a list of strains to include in the analysis. Default is None.
+        phage_list (str, optional): Path to a list of phages to include in the analysis. Default is None.
         threads (int, optional): Number of threads to use for parallel processing. Default is 4.
 
     Returns:
@@ -249,8 +288,11 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
     # Step 3: Optimize feature selection for strain
     selected_features = feature_selection_optimized(strain_feature_table, "selected", id_col, feature_output_dir)
 
+    # Load all_genomes from strain list if provided
+    all_genomes = load_genome_list(strain_list, sample_column)
+
     # Step 4: Assign features to genomes and generate final feature table for strain
-    assignment_df, final_feature_table, final_feature_table_output = feature_assignment(genome_assignments, selected_features, id_col, feature_output_dir)
+    assignment_df, final_feature_table, final_feature_table_output = feature_assignment(genome_assignments, selected_features, id_col, feature_output_dir, all_genomes=all_genomes)
 
     # Optionally, construct phage feature table if phage_fasta is provided
     phage_feature_table_path = None
@@ -266,8 +308,10 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         # Optimize feature selection for phage
         phage_selected_features = feature_selection_optimized(phage_feature_table, "phage_selected", 'phage', feature_output_dir, prefix='phage')
 
-        # Phage feature assignment
-        phage_assignment_df, phage_final_feature_table, phage_final_feature_table_output = feature_assignment(phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage')
+        # Load phage_genomes from phage list if provided
+        phage_genomes = load_genome_list(phage_list, 'phage')
+
+        phage_assignment_df, phage_final_feature_table, phage_final_feature_table_output = feature_assignment(phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage', all_genomes=phage_genomes)
 
     # Step 5: Merge feature tables if phenotype_matrix is provided
     if phenotype_matrix:
@@ -346,6 +390,8 @@ def main():
     optional_input_group.add_argument('--remove_suffix', action='store_true', help="Remove suffix from genome names when merging.")
     optional_input_group.add_argument('--sample_column', default='strain', help="Sample identifier column name (default: 'strain').")
     optional_input_group.add_argument('--phenotype_column', default='interaction', help="Phenotype column name in the phenotype matrix.")
+    optional_input_group.add_argument('--strain_list', default=None, help="Full list of strains to include in the analysis.")
+    optional_input_group.add_argument('--phage_list', default=None, help="Full list of phages to include in the analysis.")
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -387,6 +433,8 @@ def main():
         num_runs_fs=args.num_runs_fs,
         num_runs_modeling=args.num_runs_modeling,
         method=args.method,
+        strain_list=args.strain_list,
+        phage_list=args.phage_list,
         threads=args.threads
     )
 

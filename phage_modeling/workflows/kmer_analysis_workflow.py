@@ -40,7 +40,8 @@ def kmer_analysis_workflow(
         Segment plots and coverage summaries in the specified output directory.
     """
     # Step 1: Load amino acid sequences
-    aa_sequences_df = load_aa_sequences(aa_sequence_file)
+    aa_sequences_df = load_aa_sequences(aa_sequence_file, feature_type)
+    aa_sequences_df.to_csv(os.path.join(output_dir, 'aa_sequences_df.csv'), index=False)
     print('Printing aa_sequences_df')
     print(aa_sequences_df.head())
     
@@ -51,7 +52,7 @@ def kmer_analysis_workflow(
     print(filtered_kmers.head())
     
     # Step 3: Merge with protein families
-    protein_families_df = merge_kmers_with_families(protein_families_file, aa_sequences_df)
+    protein_families_df = merge_kmers_with_families(protein_families_file, aa_sequences_df, feature_type)
     protein_families_df.to_csv(os.path.join(output_dir, 'protein_families_df.csv'), index=False)
     print('Printing protein_families_df')
     print(protein_families_df.head())
@@ -68,8 +69,11 @@ def kmer_analysis_workflow(
     print(kmer_id_df.head())
     
     # Step 5: Align sequences and extract indices
-    seqs_df = aa_sequences_df[['protein_ID', 'sequence']].drop_duplicates()
-    aligned_df = align_sequences([(row['protein_ID'], row['sequence']) for _, row in seqs_df.iterrows()])
+    seqs_df = aa_sequences_df[['full_protein_ID', 'sequence']].drop_duplicates()
+    aligned_df = align_sequences([(row['full_protein_ID'], row['sequence']) for _, row in seqs_df.iterrows()], output_dir)
+    print('Printing aligned_df')
+    print(aligned_df.head())
+    aligned_df['protein_ID'] = aligned_df['protein_ID'].str.split('::').str[1]
     aligned_df = aligned_df.merge(kmer_full_df[['Feature', 'cluster', 'protein_ID', 'kmer']], on='protein_ID', how='inner')
     aligned_df = aligned_df.merge(protein_families_df[['protein_family', 'protein_ID']], on='protein_ID', how='inner')
     # aligned_df = aligned_df.drop_duplicates()

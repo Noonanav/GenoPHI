@@ -177,60 +177,66 @@ def parse_feature_information(modeling_dir, output_dir="."):
     """
     logging.info("Parsing feature importance and SHAP values from modeling results.")
 
-    run_dirs = os.listdir(modeling_dir)
-    run_dirs = [run_dir for run_dir in run_dirs if run_dir.startswith("run_")]
-
-    feature_importance_df = pd.DataFrame()
-    shap_importance_df = pd.DataFrame()
-    for run_dir in run_dirs:
-        feature_importance_file = os.path.join(
-            modeling_dir, run_dir, "feature_importances.csv"
-        )
-        if os.path.exists(feature_importance_file):
-            feature_importance_run = pd.read_csv(feature_importance_file)
-            feature_importance_run["run"] = run_dir
-            feature_importance_df = pd.concat([feature_importance_df, feature_importance_run], ignore_index=True)
-        else:
-            logging.warning(f"Feature importance file not found in {run_dir}")
-
-        shap_importance_file = os.path.join(
-            modeling_dir, run_dir, "shap_importances.csv"
-        )
-        if os.path.exists(shap_importance_file):
-            shap_importance_run = pd.read_csv(shap_importance_file)
-            shap_importance_run = shap_importance_run.rename(columns={"feature": "Feature"})
-            shap_importance_run["run"] = run_dir
-            shap_importance_df = pd.concat([shap_importance_df, shap_importance_run], ignore_index=True)
-        else:
-            logging.warning(f"SHAP importance file not found in {run_dir}")
-
-    if not feature_importance_df.empty:
-        feature_importance_df = feature_importance_df.groupby("Feature")[["Importance"]].mean().reset_index()
-    else:
-        logging.error("No feature importance data found.")
-        return pd.DataFrame()
-
-    if not shap_importance_df.empty:
-        shap_importance_df['SHAP_importance'] = np.abs(shap_importance_df['shap_value'])
-        shap_importance_df = shap_importance_df.groupby("Feature")[["SHAP_importance"]].mean().reset_index()
-    else:
-        logging.error("No SHAP importance data found.")
-        return pd.DataFrame()
-
-    full_feature_importance_df = pd.merge(
-        feature_importance_df, shap_importance_df, on="Feature", how="inner"
-    )
-
-    full_feature_importance_df = full_feature_importance_df.sort_values(
-        by="Importance", ascending=False
-    )
-
     full_feature_importance_path = os.path.join(output_dir, "full_feature_importances.csv")
-    full_feature_importance_df.to_csv(full_feature_importance_path, index=False)
-    logging.info(f"Saved full feature importances to {full_feature_importance_path}.")
+    if os.path.exists(full_feature_importance_path):
+        logging.info(f"Feature importance file already exists at {full_feature_importance_path}.")
+        return pd.read_csv(full_feature_importance_path)
+    else:
+        logging.info(f"Feature importance file not found at {full_feature_importance_path}. Parsing feature importance data.")
 
-    logging.info("Parsed and combined feature importance data.")
-    return full_feature_importance_df
+        run_dirs = os.listdir(modeling_dir)
+        run_dirs = [run_dir for run_dir in run_dirs if run_dir.startswith("run_")]
+
+        feature_importance_df = pd.DataFrame()
+        shap_importance_df = pd.DataFrame()
+        for run_dir in run_dirs:
+            feature_importance_file = os.path.join(
+                modeling_dir, run_dir, "feature_importances.csv"
+            )
+            if os.path.exists(feature_importance_file):
+                feature_importance_run = pd.read_csv(feature_importance_file)
+                feature_importance_run["run"] = run_dir
+                feature_importance_df = pd.concat([feature_importance_df, feature_importance_run], ignore_index=True)
+            else:
+                logging.warning(f"Feature importance file not found in {run_dir}")
+
+            shap_importance_file = os.path.join(
+                modeling_dir, run_dir, "shap_importances.csv"
+            )
+            if os.path.exists(shap_importance_file):
+                shap_importance_run = pd.read_csv(shap_importance_file)
+                shap_importance_run = shap_importance_run.rename(columns={"feature": "Feature"})
+                shap_importance_run["run"] = run_dir
+                shap_importance_df = pd.concat([shap_importance_df, shap_importance_run], ignore_index=True)
+            else:
+                logging.warning(f"SHAP importance file not found in {run_dir}")
+
+        if not feature_importance_df.empty:
+            feature_importance_df = feature_importance_df.groupby("Feature")[["Importance"]].mean().reset_index()
+        else:
+            logging.error("No feature importance data found.")
+            return pd.DataFrame()
+
+        if not shap_importance_df.empty:
+            shap_importance_df['SHAP_importance'] = np.abs(shap_importance_df['shap_value'])
+            shap_importance_df = shap_importance_df.groupby("Feature")[["SHAP_importance"]].mean().reset_index()
+        else:
+            logging.error("No SHAP importance data found.")
+            return pd.DataFrame()
+
+        full_feature_importance_df = pd.merge(
+            feature_importance_df, shap_importance_df, on="Feature", how="inner"
+        )
+
+        full_feature_importance_df = full_feature_importance_df.sort_values(
+            by="Importance", ascending=False
+        )
+
+        full_feature_importance_df.to_csv(full_feature_importance_path, index=False)
+        logging.info(f"Saved full feature importances to {full_feature_importance_path}.")
+
+        logging.info("Parsed and combined feature importance data.")
+        return full_feature_importance_df
 
 def merge_annotation_table(annotation_table_path, predictive_proteins, feature_importance_df, output_dir = '.', protein_id_col="protein_ID", file_type='check', prefix='strain'):
     """
@@ -298,9 +304,11 @@ def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_d
     # Determine if input is a directory or a single file
     if os.path.isdir(fasta_dir_or_file):
         fasta_files = [os.path.join(fasta_dir_or_file, f) for f in os.listdir(fasta_dir_or_file) if f.endswith('.faa')]
+        input_type = 'directory'
         if not fasta_files:
             raise FileNotFoundError(f"No FASTA files found in directory {fasta_dir_or_file}")
     else:
+        input_type = 'file'
         if not os.path.exists(fasta_dir_or_file):
             raise FileNotFoundError(f"FASTA file {fasta_dir_or_file} does not exist")
         fasta_files = [fasta_dir_or_file]
@@ -309,12 +317,20 @@ def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_d
     for fasta_file in fasta_files:
         logging.info(f"Parsing {fasta_file}.")
         filtered_ids = []
-        genome_id = os.path.basename(fasta_file).split('.')[0]
-        logging.info(f"Detected genome ID: {genome_id} from {fasta_file}")
+        if input_type == 'directory':
+            genome_id = os.path.basename(fasta_file).split('.')[0]
+            logging.info(f"Detected genome ID: {genome_id} from {fasta_file}")
+        else:
+            genome_id = None
 
         for record in SeqIO.parse(fasta_file, "fasta"):
             protein_id = record.id  # Assuming protein ID is directly in record.id
+            if genome_id:
+                full_protein_id = genome_id + '::' + protein_id
+            else:
+                full_protein_id = '_'.join(protein_id.split('_')[:-1]) + '::' + protein_id
             if protein_id in predictive_protein_ids:
+                record.id = full_protein_id
                 filtered_seqs.append(record)
                 filtered_ids.append(protein_id)
 
@@ -322,7 +338,10 @@ def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_d
             logging.info(f"No matching sequences found in {fasta_file}.")
         
         protein_ids_df_temp = pd.DataFrame(filtered_ids, columns=[protein_id_col])
-        protein_ids_df_temp[prefix] = genome_id
+        if input_type == 'directory':
+            protein_ids_df_temp[prefix] = genome_id
+        else:
+            protein_ids_df_temp[prefix] = protein_ids_df_temp[protein_id_col].str.split('_').str[:-1].str.join('_')
         genome_protein_df = pd.concat([genome_protein_df, protein_ids_df_temp])
 
     # Save the genome-protein mapping to a CSV file
