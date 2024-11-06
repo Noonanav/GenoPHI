@@ -11,6 +11,7 @@ from phage_modeling.kmer_modeling_analysis import (
     find_kmer_indices,
     calculate_coverage,
     identify_segments,
+    merge_no_coverage_proteins,
     plot_segments,
 )
 
@@ -87,16 +88,24 @@ def kmer_analysis_workflow(
     coverage_summary = coverage_summary.drop_duplicates()
     coverage_summary.to_csv(os.path.join(output_dir, 'coverage_summary.csv'), index=False)
     segments_df = identify_segments(coverage_summary)
+    print('Printing segments_df')
+    print(segments_df.head())
     segments_df.to_csv(os.path.join(output_dir, 'segments_df.csv'), index=False)
+
+    # Step 6.1: Merge proteins without coverage segments
+    # Adding proteins with no coverage segments to ensure complete representation
+    final_segments_df = merge_no_coverage_proteins(segments_df, aligned_df)
+    final_segments_df.to_csv(os.path.join(output_dir, 'final_segments_df.csv'), index=False)
     
     # Step 7: Plot segments with optional annotations
     if annotation_file:
         logging.info(f"Merging segments with annotation data from {annotation_file}")
         annotation_df = pd.read_csv(annotation_file)
-        segments_df = segments_df.merge(annotation_df, on='protein_ID', how='left')
-        segments_df.to_csv(os.path.join(output_dir, 'segments_annotated.csv'), index=False)
+        final_segments_df = final_segments_df.merge(annotation_df, on='protein_ID', how='left')
+        final_segments_df.to_csv(os.path.join(output_dir, 'segments_annotated.csv'), index=False)
+    
     logging.info(f"Plotting segments in {output_dir}")
-    plot_segments(segments_df, output_dir)
+    plot_segments(final_segments_df, output_dir)
 
 def main():
     parser = argparse.ArgumentParser(
