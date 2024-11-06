@@ -115,12 +115,12 @@ def construct_kmer_id_df(protein_families_df, kmer_df):
 # Perform MSA and extract indices
 def align_sequences(sequences, output_dir):
     """
-    Performs multiple sequence alignment and extracts alignment start indices.
-
+    Performs multiple sequence alignment and removes excessive leading gaps.
+    
     Parameters:
     sequences (list of tuples): List of (header, sequence) tuples.
     output_dir (str): Directory to save temporary files for alignment.
-
+    
     Returns:
     DataFrame: DataFrame with 'protein_ID', 'aln_sequence', and 'start_index'.
     """
@@ -130,49 +130,54 @@ def align_sequences(sequences, output_dir):
     temp_fasta_path = os.path.join(output_dir, "temp_sequences.fasta")
     temp_aln_path = os.path.join(output_dir, "temp_sequences.aln")
 
-    # Create temporary IDs for ClustalW compatibility and mapping dictionary
+    # Create temp IDs for compatibility and mapping dictionary
     seq_records = []
     temp_id_map = {}
     for i, (header, seq) in enumerate(sequences):
         temp_id = f"seq_{i}"
         record = SeqRecord(Seq(seq), id=temp_id, description="")
         seq_records.append(record)
-        temp_id_map[temp_id] = header  # Mapping temp ID to original header
+        temp_id_map[temp_id] = header
 
-    # Write sequences to the temporary FASTA file
+    # Write sequences to the temp FASTA file
     with open(temp_fasta_path, "w") as output_handle:
         SeqIO.write(seq_records, output_handle, "fasta")
-    
-    # Run ClustalW for alignment
+
+    # Run ClustalW
     clustalw_cline = ClustalwCommandline("clustalw2", infile=temp_fasta_path)
     clustalw_cline()
 
-    # Read alignment results from ClustalW output
+    # Read alignment results
     alignment = AlignIO.read(temp_aln_path, "clustal")
 
-    # Store aligned sequences and start positions using original headers
+    # Remove leading gaps from alignment
+    aln_length = alignment.get_alignment_length()
+    non_gap_positions = [any(record.seq[i] != '-' for record in alignment) for i in range(aln_length)]
+    first_non_gap = non_gap_positions.index(True)
+    
+    # Create DataFrame with trimmed alignment
     start_positions = {}
     aligned_sequences = {}
-    
+
     for record in alignment:
-        seq_str = str(record.seq)
-        start_pos = seq_str.find(seq_str.lstrip('-'))
-        original_id = temp_id_map[record.id]  # Retrieve original ID from map
+        trimmed_seq = str(record.seq[first_non_gap:])  # Trim leading gaps
+        original_id = temp_id_map[record.id]
+        start_pos = trimmed_seq.find(trimmed_seq.lstrip('-'))  # Adjusted start
         start_positions[original_id] = start_pos
-        aligned_sequences[original_id] = seq_str
-    
-    # Construct the DataFrame from the stored values
+        aligned_sequences[original_id] = trimmed_seq
+
+    # Construct DataFrame
     result_df = pd.DataFrame({
         'protein_ID': list(aligned_sequences.keys()),
         'aln_sequence': list(aligned_sequences.values()),
         'start_index': list(start_positions.values())
     })
-    
+
     # Clean up temporary files
     os.remove(temp_fasta_path)
     os.remove(temp_aln_path)
-    
-    logging.info("Alignment and index extraction completed.")
+
+    logging.info("Alignment and trimming completed.")
     return result_df
 
 # Find kmer indices within aligned sequences
@@ -285,6 +290,35 @@ def identify_segments(df):
     logging.info(f"Identified {len(segments_df)} segments.")
     return segments_df
 
+def merge_no_coverage_proteins(coverage_segments_df, aligned_df):
+    """
+    Merges proteins with no coverage into the final segment summary.
+
+    Parameters:
+    coverage_segments_df (DataFrame): DataFrame with identified segments and coverage.
+    aa_sequences_df (DataFrame): Original grouped DataFrame containing all proteins.
+
+    Returns:
+    DataFrame: The final coverage summary DataFrame, including proteins with no segments.
+    """
+    logging.info("Adding proteins with no coverage segments to the final summary.")
+    
+    # Identify proteins without any coverage segments
+    no_coverage_proteins_df = aligned_df[~aligned_df['protein_ID'].isin(coverage_segments_df['protein_ID'].unique())]
+    no_coverage_proteins_df = no_coverage_proteins_df[['protein_family', 'protein_ID', 'start_index', 'aln_sequence']].drop_duplicates()
+    
+    # Clean up and prepare no-coverage proteins for merging
+    no_coverage_proteins_df['aln_sequence'] = no_coverage_proteins_df['aln_sequence'].str.strip('-')
+    no_coverage_proteins_df['stop'] = no_coverage_proteins_df['aln_sequence'].str.len()
+    no_coverage_proteins_df = no_coverage_proteins_df.rename(columns={'start_index': 'start'})
+    no_coverage_proteins_df = no_coverage_proteins_df.drop(columns=['aln_sequence'])
+    no_coverage_proteins_df['coverage'] = 0  # Set coverage to 0 for proteins with no segments
+
+    # Concatenate the no-coverage proteins with the coverage segments
+    final_coverage_summary_df = pd.concat([coverage_segments_df, no_coverage_proteins_df], ignore_index=True)
+    logging.info(f"Final coverage summary includes {len(final_coverage_summary_df)} proteins.")
+
+    return final_coverage_summary_df
 
 # Plot segments
 def plot_segments(segment_summary_df, output_dir):
