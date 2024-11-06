@@ -403,6 +403,7 @@ def run_experiments(input_dir, base_output_dir, threads, num_runs, set_filter='n
             if os.path.exists(shap_values_csv_path):
                 # Load SHAP values and append to top_models_shap_df
                 shap_values_temp = pd.read_csv(shap_values_csv_path)
+                shap_values_temp = shap_values_temp.groupby(['feature', 'value']).agg({'shap_value': 'median'}).reset_index()
                 top_models_shap_df = pd.concat([top_models_shap_df, shap_values_temp])
 
         # Generate SHAP summary plot for the top models
