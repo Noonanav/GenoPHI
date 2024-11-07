@@ -11,7 +11,7 @@ def run_modeling_workflow_from_feature_table(
     method='rfe', annotation_table_path=None, protein_id_col="protein_ID",
     feature2cluster_path=None, cluster2protein_path=None, fasta_dir_or_file=None,
     run_predictive_proteins=False, phage_feature2cluster_path=None, phage_cluster2protein_path=None,
-    phage_fasta_dir_or_file=None
+    phage_fasta_dir_or_file=None, task_type='classification', binary_data=False
 ):
     """
     Workflow for feature selection, modeling, and predictive protein extraction starting from a pre-generated full feature table.
@@ -26,7 +26,7 @@ def run_modeling_workflow_from_feature_table(
         num_runs_modeling (int): Number of runs per feature table for modeling.
         sample_column (str): Column name for the sample identifier.
         phenotype_column (str): Column name for the phenotype.
-        method (str): Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
+        method (str): Feature selection method.
         annotation_table_path (str, optional): Path to an optional annotation table for merging predictive protein annotations.
         protein_id_col (str): Column name for protein IDs in the predictive_proteins DataFrame.
         feature2cluster_path (str, optional): Path to the feature-to-cluster mapping file for strains.
@@ -36,6 +36,8 @@ def run_modeling_workflow_from_feature_table(
         phage_feature2cluster_path (str, optional): Path to the feature-to-cluster mapping file for phages.
         phage_cluster2protein_path (str, optional): Path to the cluster-to-protein mapping file for phages.
         phage_fasta_dir_or_file (str, optional): Path to a FASTA file or directory for phages.
+        task_type (str): Either 'classification' or 'regression' (default: classification).
+        binary_data (bool): If True, converts feature values to binary (0/1).
     """
     # Step 1: Feature Selection
     print("Step 1: Running feature selection iterations...")
@@ -49,7 +51,8 @@ def run_modeling_workflow_from_feature_table(
         num_runs=num_runs_fs,
         method=method,
         sample_column=sample_column,
-        phenotype_column=phenotype_column
+        phenotype_column=phenotype_column,
+        task_type=task_type
     )
 
     # Step 2: Generate feature tables from feature selection results
@@ -61,7 +64,8 @@ def run_modeling_workflow_from_feature_table(
         filter_table_dir=filter_table_dir,
         phenotype_column=phenotype_column,
         sample_column=sample_column,
-        cut_offs=[3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45, 47, 50]
+        cut_offs=[3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45, 47, 50],
+        binary_data=binary_data
     )
 
     # Step 3: Modeling
@@ -74,7 +78,9 @@ def run_modeling_workflow_from_feature_table(
         num_runs=num_runs_modeling,
         set_filter=filter_type,
         sample_column=sample_column,
-        phenotype_column=phenotype_column
+        phenotype_column=phenotype_column,
+        task_type=task_type,
+        binary_data=binary_data
     )
 
     # Conditional Step 4: Predictive Proteins Workflow
@@ -83,7 +89,12 @@ def run_modeling_workflow_from_feature_table(
         
         metrics_file = os.path.join(modeling_output_dir, 'model_performance', 'model_performance_metrics.csv')
         performance_df = pd.read_csv(metrics_file)
-        top_cutoff = performance_df.loc[performance_df['MCC'].idxmax(), 'cut_off'].split('_')[-1]
+        
+        # Choose the top cutoff based on metric (MCC for classification, R2 for regression)
+        if task_type == 'classification':
+            top_cutoff = performance_df.loc[performance_df['MCC'].idxmax(), 'cut_off'].split('_')[-1]
+        elif task_type == 'regression':
+            top_cutoff = performance_df.loc[performance_df['R2'].idxmax(), 'cut_off'].split('_')[-1]
 
         # Define paths based on selected top cutoff
         feature_file_path = os.path.join(base_fs_output_dir, 'filtered_feature_tables', f'select_feature_table_cutoff_{top_cutoff}.csv')
@@ -143,6 +154,8 @@ def main():
                                    help="Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).")
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection iterations to run (default: 10).')
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=10, help='Number of runs per feature table for modeling (default: 10).')
+    fs_modeling_group.add_argument('--task_type', type=str, default='classification', choices=['classification', 'regression'], help="Specify 'classification' or 'regression' task (default: classification).")
+    fs_modeling_group.add_argument('--binary_data', action='store_true', help='If set, converts feature values to binary (1/0); otherwise, continuous values are kept.')
 
     # Predictive proteins and annotations
     predictive_proteins_group = parser.add_argument_group('Predictive Proteins and Annotations')
@@ -187,7 +200,9 @@ def main():
         run_predictive_proteins=args.run_predictive_proteins,
         phage_feature2cluster_path=args.phage_feature2cluster_path,
         phage_cluster2protein_path=args.phage_cluster2protein_path,
-        phage_fasta_dir_or_file=args.phage_fasta_dir_or_file
+        phage_fasta_dir_or_file=args.phage_fasta_dir_or_file,
+        task_type=args.task_type,
+        binary_data=args.binary_data
     )
 
 if __name__ == "__main__":
