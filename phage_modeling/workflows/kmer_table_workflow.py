@@ -239,7 +239,7 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
                       phenotype_matrix=None, phage_fasta=None, protein_csv_phage=None, remove_suffix=False, 
                       sample_column='strain', phenotype_column='interaction', modeling=False, filter_type='strain', 
                       num_features=100, num_runs_fs=10, num_runs_modeling=20, method='rfe', strain_list=None, 
-                      phage_list=None, threads=4):
+                      phage_list=None, threads=4, task_type='classification'):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
     feature selection, phenotype merging, and optional modeling.
@@ -359,7 +359,9 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
             num_runs_modeling=num_runs_modeling,
             sample_column=sample_column,
             phenotype_column=phenotype_column,
-            method=method
+            method=method,
+            task_type=task_type,
+            binary_data=True
         )
 
     else:
@@ -405,6 +407,7 @@ def main():
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help="Number of runs for feature selection (default: 10).")
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=20, help="Number of runs for modeling (default: 20).")
     fs_modeling_group.add_argument('--method', default='rfe', help="Feature selection method to use (default: 'rfe').")
+    fs_modeling_group.add_argument('--task_type', default='classification', choices=['classification', 'regression'], help="Specify 'classification' or 'regression' task.")
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -435,7 +438,8 @@ def main():
         method=args.method,
         strain_list=args.strain_list,
         phage_list=args.phage_list,
-        threads=args.threads
+        threads=args.threads,
+        task_type=args.task_type
     )
 
 if __name__ == "__main__":
