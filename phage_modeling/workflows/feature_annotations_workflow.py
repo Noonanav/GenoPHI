@@ -8,7 +8,8 @@ from phage_modeling.feature_annotations import (
     parse_and_filter_aa_sequences,
     parse_feature_information, 
     merge_annotation_table,  # Optional function call
-    output_predictive_feature_overview  # New function to output predictive feature overview
+    output_predictive_feature_overview,
+    merge_importance_table
 )
 
 # Set up logging
@@ -25,7 +26,8 @@ def run_predictive_proteins_workflow(
     protein_id_col="protein_ID",
     annotation_table_path=None,  # Annotation table is optional
     feature_assignments_path=None,  # New argument for feature assignments
-    strain_column='strain'  # Column to use for strain
+    strain_column='strain',  # Column to use for strain
+    feature_type='strain'  # Default feature type
 ):
     """
     Runs the full workflow to retrieve predictive proteins, optionally merge with annotation table, filter AA sequences, 
@@ -43,6 +45,7 @@ def run_predictive_proteins_workflow(
         annotation_table_path (str, optional): Path to an annotation table (CSV/TSV format). If provided, proteins will be merged with annotation data.
         feature_assignments_path (str, optional): Path to feature assignments CSV file for merging strain information.
         strain_column (str): Column to use for strain information (default: 'strain').
+        feature_type (str): Type of features to extract ('strain' or 'phage').
 
     Returns:
         None
@@ -52,7 +55,7 @@ def run_predictive_proteins_workflow(
 
     # Step 1: Get predictive features
     logging.info("Step 1: Extracting predictive features.")
-    select_features = get_predictive_features(feature_file_path)
+    select_features = get_predictive_features(feature_file_path, feature_type=feature_type)
 
     # Step 2: Get predictive proteins based on selected features
     logging.info("Step 2: Retrieving predictive proteins.")
@@ -66,23 +69,29 @@ def run_predictive_proteins_workflow(
     logging.info("Step 3: Parsing feature importance information.")
     feature_importance_df = parse_feature_information(modeling_dir, output_dir)
 
-    # Optional Step 4: Merge predictive proteins with annotation table if provided
+    # Step 4: Merge predictive proteins with feature importance information
+    filtered_proteins = merge_importance_table(
+        predictive_proteins=predictive_proteins,
+        feature_importance_df=feature_importance_df,
+        output_dir=output_dir,
+        protein_id_col=protein_id_col,
+        prefix=strain_column
+    )
+
+    # Optional Step 5: Merge predictive proteins with annotation table if provided
     if annotation_table_path:
         logging.info("Step 4: Merging predictive proteins with annotation table.")
-        merged_proteins = merge_annotation_table(
+        merge_annotation_table(
             annotation_table_path=annotation_table_path,
-            predictive_proteins=predictive_proteins,
-            feature_importance_df=feature_importance_df,
+            merged_df=filtered_proteins,
             output_dir=output_dir,
             protein_id_col=protein_id_col,
             prefix=strain_column
         )
-        filtered_proteins = merged_proteins
     else:
         logging.info("Skipping annotation merge as no annotation table was provided.")
-        filtered_proteins = predictive_proteins
 
-    # Step 5: Parse AA sequences from the FASTA file(s)
+    # Step 6: Parse AA sequences from the FASTA file(s)
     logging.info("Step 5: Parsing and filtering AA sequences.")
     genome_protein_df = parse_and_filter_aa_sequences(
         fasta_dir_or_file=fasta_dir_or_file,
@@ -121,6 +130,7 @@ def main():
     parser.add_argument('--annotation_table_path', help="Path to an optional annotation table (CSV/TSV).")
     parser.add_argument('--feature_assignments_path', help="Path to feature assignments CSV file for merging strain information.")
     parser.add_argument('--strain_column', default='strain', help="Column to use for strain information (default: 'strain').")
+    parser.add_argument('--feature_type', default='strain', help="Type of features to extract ('strain' or 'phage').")
 
     args = parser.parse_args()
 
@@ -136,7 +146,8 @@ def main():
         protein_id_col=args.protein_id_col,
         annotation_table_path=args.annotation_table_path,
         feature_assignments_path=args.feature_assignments_path,  # Optional
-        strain_column=args.strain_column
+        strain_column=args.strain_column,
+        feature_type=args.feature_type
     )
 
 if __name__ == "__main__":

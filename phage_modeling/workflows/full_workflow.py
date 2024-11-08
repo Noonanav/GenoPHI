@@ -178,7 +178,8 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         protein_id_col=protein_id_col,
         annotation_table_path=annotation_table_path,  # Optional
         feature_assignments_path=feature_assignments_path,  # Optional
-        strain_column='strain'
+        strain_column='strain',
+        feature_type='strain'
     )
 
     if input_path_phage:
@@ -197,9 +198,9 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
             output_dir=predictive_proteins_output_dir,
             output_fasta='predictive_AA_seqs_phage.faa',
             protein_id_col=protein_id_col,
-            annotation_table_path=annotation_table_path,  # Optional
             feature_assignments_path=feature_assignments_path,  # Optional
-            strain_column='phage'
+            strain_column='phage',
+            feature_type='phage'
         )
 
 # Main function for CLI
