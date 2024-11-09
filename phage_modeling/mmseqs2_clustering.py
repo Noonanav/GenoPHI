@@ -3,6 +3,7 @@ import pandas as pd
 import subprocess
 import logging
 from Bio import SeqIO
+from collections import defaultdict
 
 # Set thread limits for libraries to prevent oversubscription
 os.environ['OMP_NUM_THREADS'] = '12'
@@ -39,6 +40,84 @@ def load_strains(strain_list, strain_column):
     except Exception as e:
         logging.error(f"Error loading strain list: {e}")
         raise
+    
+def detect_duplicate_ids(input_path, suffix='faa', strains_to_process=None, input_type='directory'):
+    """
+    Detects duplicate protein IDs across relevant .faa files in the input directory.
+    
+    Args:
+        input_path (str): Directory containing .faa files.
+        suffix (str): Suffix for the input FASTA files (default is 'faa').
+        strains_to_process (list or None): List of strains to process; if None, processes all .faa files.
+    
+    Returns:
+        bool: True if duplicates are found, False otherwise.
+    """
+    logging.info("Detecting duplicate protein IDs...")
+    duplicate_found = False
+    protein_id_tracker = defaultdict(set)
+
+    if input_type == 'directory':
+        file_list = os.listdir(input_path)
+    elif input_type == 'file':
+        file_list = [input_path]
+    else:
+        logging.error(f"Invalid input type: {input_type}")
+        return duplicate_found
+
+    # Identify and track protein IDs in specified strains
+    for file_name in file_list:
+        if file_name.endswith(suffix):
+            strain_name = file_name.replace(f".{suffix}", "")
+            if strains_to_process and strain_name not in strains_to_process:
+                continue  # Skip strains not in the strain list
+            
+            file_path = os.path.join(input_path, file_name)
+            for record in SeqIO.parse(file_path, "fasta"):
+                if record.id in protein_id_tracker:
+                    duplicate_found = True
+                    logging.warning(f"Duplicate protein ID found: {record.id} in strain {strain_name}")
+                    break
+                protein_id_tracker[record.id].add(strain_name)
+    
+    return duplicate_found
+
+def modify_duplicate_ids(input_path, output_dir, suffix='faa', strains_to_process=None, strain_column='strain'):
+    """
+    Detects duplicate protein IDs and modifies all protein IDs in relevant .faa files 
+    by prefixing them with genome names to ensure uniqueness.
+
+    Args:
+        input_path (str): Directory containing .faa files.
+        suffix (str): Suffix for the input FASTA files (default is 'faa').
+        strains_to_process (list or None): List of strains to process; if None, processes all .faa files.
+    
+    Returns:
+        list: Path to modified .faa files.
+    """
+    logging.info(f"Duplicate protein IDs found; modifying protein IDs and saving to {output_dir}/modified_AAs/{strain_column}")
+    modified_file_dir = os.path.join(output_dir, 'modified_AAs', strain_column)
+    os.makedirs(modified_file_dir, exist_ok=True)
+
+    for file_name in os.listdir(input_path):
+        if file_name.endswith(suffix):
+            strain_name = file_name.replace(f".{suffix}", "")
+            if strains_to_process and strain_name not in strains_to_process:
+                continue
+            
+            file_path = os.path.join(input_path, file_name)
+            modified_file_path = os.path.join(modified_file_dir, file_name)
+            
+            with open(modified_file_path, "w") as modified_file:
+                for record in SeqIO.parse(file_path, "fasta"):
+                    # Update ID with <genome_id>::<protein_ID> format
+                    record.id = f"{strain_name}::{record.id}"
+                    record.description = ""  # Clear description to avoid duplication
+                    SeqIO.write(record, modified_file, "fasta")
+
+            logging.info(f"Modified protein IDs in file: {modified_file_path}")
+    
+    return modified_file_dir
 
 def create_mmseqs_database(input_path, db_name, suffix, input_type, strains, threads):
     """
@@ -412,15 +491,26 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
     """
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(tmp_dir, exist_ok=True)
-
-    # Convert 'none' to None internally for processing
-    strain_list_value = None if strain_list == 'none' else strain_list
-
+    
+    # Determine input type (directory or file)
     input_type = 'directory' if os.path.isdir(input_path) else 'file'
-    strains = load_strains(strain_list_value, strain_column) if strain_list_value else None
+
+    # Convert 'none' to None for easier handling of strain_list
+    strain_list_value = None if strain_list == 'none' else strain_list
+    strains_to_process = load_strains(strain_list_value, strain_column) if strain_list_value else None
+
+    # Check for duplicate protein IDs and modify if necessary
+    duplicate_found = detect_duplicate_ids(input_path, suffix, strains_to_process, input_type)
+    if duplicate_found:
+        if input_type == 'directory':
+            logging.info("Duplicate protein IDs found in input directory; modifying protein IDs.")
+            input_path = modify_duplicate_ids(input_path, output_dir, suffix, strains_to_process, strain_column)
+        if input_type == 'file':
+            logging.error("Duplicate protein IDs found in input file; please modify the IDs manually.")
+            return
 
     db_name = os.path.join(tmp_dir, "mmseqs_db")
-    fasta_files = create_mmseqs_database(input_path, db_name, suffix, input_type, strains, threads)
+    fasta_files = create_mmseqs_database(input_path, db_name, suffix, input_type, strains_to_process, threads)
 
     contig_to_genome, genome_list = create_contig_to_genome_dict(fasta_files, input_type)
 

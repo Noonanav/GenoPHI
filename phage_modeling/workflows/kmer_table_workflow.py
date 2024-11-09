@@ -365,7 +365,7 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         )
 
     else:
-        logging.warning("Modeling step skipped due to missing merged table or phenotype matrix.")
+        logging.warning("Modeling step skipped.")
 
 # Command-line interface
 

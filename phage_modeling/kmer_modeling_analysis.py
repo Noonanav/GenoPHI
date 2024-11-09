@@ -29,9 +29,7 @@ def load_aa_sequences(aa_sequence_file, feature_type='strain'):
     
     # Create the DataFrame with consistent-length lists
     aa_sequences_df = pd.DataFrame({
-        feature_type: [record.id.split('::')[0] for record in aa_records],
-        'full_protein_ID': [record.id for record in aa_records],
-        'protein_ID': [record.id.split('::')[1] for record in aa_records],
+        'protein_ID': [record.id for record in aa_records],
         'sequence': [str(record.seq) for record in aa_records]
     })
     
@@ -84,7 +82,7 @@ def merge_kmers_with_families(protein_families_file, aa_sequences_df, feature_ty
     protein_families_df = pd.read_csv(protein_families_file)
     protein_families_df = protein_families_df[[feature_type, 'cluster', 'protein_ID']].drop_duplicates()
     protein_families_df.rename(columns={'cluster': 'protein_family'}, inplace=True)
-    merged_df = protein_families_df.merge(aa_sequences_df, on=[feature_type, 'protein_ID'], how='inner')
+    merged_df = protein_families_df.merge(aa_sequences_df, on='protein_ID', how='inner')
     # print(merged_df.head())
     logging.info(f"Merged k-mer data with {len(merged_df)} protein family entries.")
     return merged_df
@@ -113,24 +111,25 @@ def construct_kmer_id_df(protein_families_df, kmer_df):
     return kmer_id_df
 
 # Perform MSA and extract indices
-def align_sequences(sequences, output_dir):
+def align_sequences(sequences, output_dir, family_name):
     """
-    Performs multiple sequence alignment and removes excessive leading gaps.
-    
+    Aligns sequences within a protein family and removes excessive leading gaps.
+
     Parameters:
     sequences (list of tuples): List of (header, sequence) tuples.
     output_dir (str): Directory to save temporary files for alignment.
-    
+    family_name (str): Name of the protein family for unique file handling.
+
     Returns:
     DataFrame: DataFrame with 'protein_ID', 'aln_sequence', and 'start_index'.
     """
-    logging.info("Performing multiple sequence alignment.")
+    logging.info(f"Aligning sequences for protein family: {family_name}")
     
     # Paths for temporary files
-    temp_fasta_path = os.path.join(output_dir, "temp_sequences.fasta")
-    temp_aln_path = os.path.join(output_dir, "temp_sequences.aln")
+    temp_fasta_path = os.path.join(output_dir, f"{family_name}_temp_sequences.fasta")
+    temp_aln_path = os.path.join(output_dir, f"{family_name}_temp_sequences.aln")
 
-    # Create temp IDs for compatibility and mapping dictionary
+    # Create temporary IDs and map to original IDs
     seq_records = []
     temp_id_map = {}
     for i, (header, seq) in enumerate(sequences):
@@ -139,11 +138,11 @@ def align_sequences(sequences, output_dir):
         seq_records.append(record)
         temp_id_map[temp_id] = header
 
-    # Write sequences to the temp FASTA file
+    # Write sequences to the temporary FASTA file
     with open(temp_fasta_path, "w") as output_handle:
         SeqIO.write(seq_records, output_handle, "fasta")
 
-    # Run ClustalW
+    # Run ClustalW for alignment
     clustalw_cline = ClustalwCommandline("clustalw2", infile=temp_fasta_path)
     clustalw_cline()
 
@@ -155,18 +154,18 @@ def align_sequences(sequences, output_dir):
     non_gap_positions = [any(record.seq[i] != '-' for record in alignment) for i in range(aln_length)]
     first_non_gap = non_gap_positions.index(True)
     
-    # Create DataFrame with trimmed alignment
+    # Construct DataFrame with trimmed alignment
     start_positions = {}
     aligned_sequences = {}
 
     for record in alignment:
         trimmed_seq = str(record.seq[first_non_gap:])  # Trim leading gaps
         original_id = temp_id_map[record.id]
-        start_pos = trimmed_seq.find(trimmed_seq.lstrip('-'))  # Adjusted start
+        start_pos = trimmed_seq.find(trimmed_seq.lstrip('-'))
         start_positions[original_id] = start_pos
         aligned_sequences[original_id] = trimmed_seq
 
-    # Construct DataFrame
+    # Construct the DataFrame for this protein family
     result_df = pd.DataFrame({
         'protein_ID': list(aligned_sequences.keys()),
         'aln_sequence': list(aligned_sequences.values()),
@@ -176,8 +175,9 @@ def align_sequences(sequences, output_dir):
     # Clean up temporary files
     os.remove(temp_fasta_path)
     os.remove(temp_aln_path)
+    os.remove(os.path.join(output_dir, f"{family_name}_temp_sequences.dnd"))
 
-    logging.info("Alignment and trimming completed.")
+    logging.info(f"Alignment completed for protein family: {family_name}")
     return result_df
 
 # Find kmer indices within aligned sequences
@@ -296,7 +296,7 @@ def merge_no_coverage_proteins(coverage_segments_df, aligned_df):
 
     Parameters:
     coverage_segments_df (DataFrame): DataFrame with identified segments and coverage.
-    aa_sequences_df (DataFrame): Original grouped DataFrame containing all proteins.
+    aligned_df (DataFrame): DataFrame with aligned sequences and k-mer indices.
 
     Returns:
     DataFrame: The final coverage summary DataFrame, including proteins with no segments.
