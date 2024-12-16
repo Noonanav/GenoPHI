@@ -2,9 +2,9 @@ import os
 import argparse
 from phage_modeling.select_feature_modeling import run_experiments
 
-def run_modeling_workflow(input_dir, base_output_dir, threads=4, num_runs=100, set_filter='none', sample_column=None, phenotype_column=None):
+def run_modeling_workflow(input_dir, base_output_dir, threads=4, num_runs=100, set_filter='none', sample_column=None, phenotype_column=None, task_type='classification', binary_data=False):
     """
-    Workflow to run experiments on selected feature tables using grid search and MCC optimization.
+    Workflow to run experiments on selected feature tables using grid search and MCC/R2 optimization.
     
     Args:
         input_dir (str): Directory containing the feature tables to model.
@@ -14,9 +14,11 @@ def run_modeling_workflow(input_dir, base_output_dir, threads=4, num_runs=100, s
         set_filter (str): Filter type for dataset ('none', 'strain', 'phage', 'dataset').
         sample_column (str): Column for sample identification.
         phenotype_column (str): Column for phenotype data.
+        task_type (str): Specifies if the task is 'classification' or 'regression'.
+        binary_data (bool): If True, plot SHAP jitter plot with binary data.
     """
     # Run the experiments on each feature table in the input directory
-    print("Running modeling experiments on feature tables...")
+    print(f"Running {task_type} modeling experiments on feature tables...")
     run_experiments(
         input_dir=input_dir,
         base_output_dir=base_output_dir,
@@ -24,7 +26,9 @@ def run_modeling_workflow(input_dir, base_output_dir, threads=4, num_runs=100, s
         num_runs=num_runs,
         set_filter=set_filter,
         sample_column=sample_column,
-        phenotype_column=phenotype_column
+        phenotype_column=phenotype_column,
+        task_type=task_type,
+        binary_data=binary_data
     )
 
 # Main function for CLI
@@ -37,6 +41,8 @@ def main():
     parser.add_argument('--set_filter', type=str, default='none', help="Filter for dataset ('none', 'strain', 'phage', 'dataset').")
     parser.add_argument('--sample_column', type=str, default='strain', help='Column name for the sample identifier (optional).')
     parser.add_argument('--phenotype_column', type=str, default='interaction', help='Column name for the phenotype (optional).')
+    parser.add_argument('--task_type', type=str, default='classification', choices=['classification', 'regression'], help="Specify 'classification' or 'regression' task.")
+    parser.add_argument('--binary_data', action='store_true', help='If True, plot SHAP jitter plot with binary data.')
 
     args = parser.parse_args()
 
@@ -48,7 +54,9 @@ def main():
         num_runs=args.num_runs,
         set_filter=args.set_filter,
         sample_column=args.sample_column,
-        phenotype_column=args.phenotype_column
+        phenotype_column=args.phenotype_column,
+        task_type=args.task_type,
+        binary_data=args.binary_data
     )
 
 if __name__ == "__main__":

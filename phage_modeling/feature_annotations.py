@@ -35,7 +35,7 @@ def load_annotation_table(annotation_table_path):
             else:
                 raise ValueError("Unsupported file format and unable to detect delimiter. Please provide a valid CSV or TSV file.")
 
-def get_predictive_features(feature_file_path, sample_column='strain', phenotype_column='interaction'):
+def get_predictive_features(feature_file_path, sample_column='strain', phenotype_column='interaction', feature_type='strain'):
     """
     Loads the feature table from a CSV file and extracts the predictive features, excluding the specified sample and phenotype columns.
 
@@ -51,7 +51,7 @@ def get_predictive_features(feature_file_path, sample_column='strain', phenotype
     feature_df = pd.read_csv(feature_file_path)
 
     # Identify predictive feature groups
-    predictive_features = [x for x in feature_df.columns if x not in {sample_column, phenotype_column, 'phage'}]
+    predictive_features = [x for x in feature_df.columns if x not in {sample_column, phenotype_column, 'phage', 'strain'}]
     predictive_feature_groups = list(set(x.split('c_')[0] for x in predictive_features))
     predictive_feature_groups = [x + 'c' for x in predictive_feature_groups]
     logging.info(f"Predictive feature groups detected: {predictive_feature_groups}")
@@ -59,26 +59,51 @@ def get_predictive_features(feature_file_path, sample_column='strain', phenotype
     # Check the number of detected groups and classify features
     if len(predictive_feature_groups) > 2:
         logging.warning("More than two feature groups detected. Please ensure the correct feature groups are selected.")
-    elif 'sc' in predictive_feature_groups and 'pc' in predictive_feature_groups:
-        logging.info("Strain features with 'sc' ID detected.")
-        strain_features = [x for x in predictive_features if 'sc_' in x]
-        phage_features = [x for x in predictive_features if 'pc_' in x]
-    elif 'sc' in predictive_feature_groups:
-        logging.info("Only strain features with 'sc' ID detected.")
-        strain_features = [x for x in predictive_features if 'sc_' in x]
-        phage_group = [x for x in predictive_feature_groups if x != 'sc'][0]
-        logging.info(f"Phage group detected: {phage_group}")
-        phage_features = [x for x in predictive_features if phage_group in x]
-    elif 'pc' in predictive_feature_groups:
-        logging.info("Only phage features with 'pc' ID detected.")
-        phage_features = [x for x in predictive_features if 'pc_' in x]
-        strain_group = [x for x in predictive_feature_groups if x != 'pc'][0]
-        logging.info(f"Strain group detected: {strain_group}")
-        strain_features = [x for x in predictive_features if strain_group in x]
+    elif len(predictive_feature_groups) == 2:
+        if 'sc' in predictive_feature_groups and 'pc' in predictive_feature_groups:
+            logging.info("Strain features with 'sc' ID detected.")
+            strain_features = [x for x in predictive_features if 'sc_' in x]
+            phage_features = [x for x in predictive_features if 'pc_' in x]
+        elif 'sc' in predictive_feature_groups:
+            logging.info("Only strain features with 'sc' ID detected.")
+            strain_features = [x for x in predictive_features if 'sc_' in x]
+            phage_group = [x for x in predictive_feature_groups if x != 'sc'][0]
+            logging.info(f"Phage group detected: {phage_group}")
+            phage_features = [x for x in predictive_features if phage_group in x]
+        elif 'pc' in predictive_feature_groups:
+            logging.info("Only phage features with 'pc' ID detected.")
+            phage_features = [x for x in predictive_features if 'pc_' in x]
+            strain_group = [x for x in predictive_feature_groups if x != 'pc'][0]
+            logging.info(f"Strain group detected: {strain_group}")
+            strain_features = [x for x in predictive_features if strain_group in x]
+        else:
+            logging.error("No valid feature groups detected.")
+            strain_features = []
+            phage_features = []
+    elif len(predictive_feature_groups) == 1:
+        if 'sc' in predictive_feature_groups:
+            logging.info("Only strain features with 'sc' ID detected.")
+            strain_features = [x for x in predictive_features if 'sc_' in x]
+            phage_features = []
+        elif 'pc' in predictive_feature_groups:
+            logging.info("Only phage features with 'pc' ID detected.")
+            phage_features = [x for x in predictive_features if 'pc_' in x]
+            strain_features = []
+        else:
+            logging.error("No valid feature groups detected.")
+            strain_features = []
+            phage_features = []
     else:
         logging.error("No valid feature groups detected.")
         strain_features = []
         phage_features = []
+
+    if feature_type == 'strain':
+        predictive_features = strain_features
+    elif feature_type == 'phage':
+        predictive_features = phage_features
+    else:
+        predictive_features = predictive_features
 
     logging.info(f"Loaded {len(predictive_features)} predictive total features.")
     logging.info(f"Loaded {len(strain_features)} predictive strain features.")
@@ -238,7 +263,34 @@ def parse_feature_information(modeling_dir, output_dir="."):
         logging.info("Parsed and combined feature importance data.")
         return full_feature_importance_df
 
-def merge_annotation_table(annotation_table_path, predictive_proteins, feature_importance_df, output_dir = '.', protein_id_col="protein_ID", file_type='check', prefix='strain'):
+def merge_importance_table(predictive_proteins, feature_importance_df, output_dir = '.', protein_id_col="protein_ID", file_type='check', prefix='strain'):
+    """
+    Merges the predictive proteins DataFrame with an annotation table based on protein IDs and combines it with feature importance data.
+
+    Args:
+        predictive_proteins (DataFrame): DataFrame with predictive proteins and protein IDs.
+        feature_importance_df (DataFrame): DataFrame containing feature importance and SHAP importance.
+        protein_id_col (str): Column name for protein IDs in the predictive_proteins DataFrame (default: 'protein_ID').
+
+    Returns:
+        merged_df (DataFrame): DataFrame with merged annotation and feature importance information.
+    """
+    logging.info(f"Merging predictive proteins with feature importance data.")
+
+    # Ensure necessary columns are present
+    if protein_id_col not in predictive_proteins.columns:
+        raise ValueError(f"Column '{protein_id_col}' not found in predictive_proteins DataFrame.")
+
+    # Merge feature importance with predictive proteins
+    merged_df = feature_importance_df.merge(predictive_proteins, on='Feature', how='inner')
+
+    predictive_protein_info_path = os.path.join(output_dir, f'{prefix}_predictive_protein_info.csv')
+    merged_df.to_csv(predictive_protein_info_path, index=False)
+    logging.info(f"Saved predictive proteins overview to {predictive_protein_info_path}.")
+
+    return merged_df
+
+def merge_annotation_table(annotation_table_path, merged_df, output_dir = '.', protein_id_col="protein_ID", file_type='check', prefix='strain'):
     """
     Merges the predictive proteins DataFrame with an annotation table based on protein IDs and combines it with feature importance data.
 
@@ -256,24 +308,13 @@ def merge_annotation_table(annotation_table_path, predictive_proteins, feature_i
     # Load the annotation table using the helper function
     annotation_df = load_annotation_table(annotation_table_path)
 
-    # Ensure necessary columns are present
-    if protein_id_col not in predictive_proteins.columns:
-        raise ValueError(f"Column '{protein_id_col}' not found in predictive_proteins DataFrame.")
+    merged_df_annotations = merged_df.merge(annotation_df, left_on='protein_ID', right_on=protein_id_col, how='inner')
 
-    # Merge feature importance with predictive proteins
-    merged_df = feature_importance_df.merge(predictive_proteins, on='Feature', how='left')
-
-    predictive_protein_info_path = os.path.join(output_dir, f'{prefix}_predictive_protein_info.csv')
-    merged_df.to_csv(predictive_protein_info_path, index=False)
-    logging.info(f"Saved predictive proteins overview to {predictive_protein_info_path}.")
-
-    merged_df = merged_df.merge(annotation_df, left_on='protein_ID', right_on=protein_id_col, how='inner')
     prediction_protein_annotations_path = os.path.join(output_dir, f'{prefix}_predictive_protein_annotations.csv')
-    merged_df.to_csv(prediction_protein_annotations_path, index=False)
+    merged_df_annotations.to_csv(prediction_protein_annotations_path, index=False)
     logging.info(f"Saved predictive protein annotations to {prediction_protein_annotations_path}.")
 
-    logging.info(f"Merged {merged_df.shape[0]} rows with annotation information.")
-    return merged_df
+    logging.info(f"Merged {merged_df_annotations.shape[0]} rows with annotation information.")
 
 def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_dir, protein_id_col="protein_ID", output_fasta="predictive_AA_seqs.faa", prefix='strain'):
     """
@@ -325,12 +366,7 @@ def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_d
 
         for record in SeqIO.parse(fasta_file, "fasta"):
             protein_id = record.id  # Assuming protein ID is directly in record.id
-            if genome_id:
-                full_protein_id = genome_id + '::' + protein_id
-            else:
-                full_protein_id = '_'.join(protein_id.split('_')[:-1]) + '::' + protein_id
             if protein_id in predictive_protein_ids:
-                record.id = full_protein_id
                 filtered_seqs.append(record)
                 filtered_ids.append(protein_id)
 
