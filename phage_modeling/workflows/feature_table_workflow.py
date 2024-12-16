@@ -41,44 +41,54 @@ def run_full_feature_workflow(input_path_strain, output_dir, phenotype_matrix, t
         print("Running feature assignment workflow for phage genomes...")
         phage_input_type = 'directory' if os.path.isdir(input_path_phage) else 'file'
         run_feature_assignment(presence_absence_phage, feature_output_dir_phage, source=source_phage, select=phage_list or 'none', select_column=phage_column, input_type=phage_input_type)
+        
+        if phenotype_matrix:
+            # Merge strain and phage feature tables
+            print("Merging feature tables for strain and phage genomes...")
+            strain_features = os.path.join(feature_output_dir_strain, "feature_table.csv")
+            phage_features = os.path.join(feature_output_dir_phage, "feature_table.csv")
+            
+            merged_output_dir = os.path.join(output_dir, "merged")
+            os.makedirs(merged_output_dir, exist_ok=True)
 
-        # Merge strain and phage feature tables
-        print("Merging feature tables for strain and phage genomes...")
-        strain_features = os.path.join(feature_output_dir_strain, "feature_table.csv")
-        phage_features = os.path.join(feature_output_dir_phage, "feature_table.csv")
-        
-        merged_output_dir = os.path.join(output_dir, "merged")
-        os.makedirs(merged_output_dir, exist_ok=True)
-        
-        merge_feature_tables(
-            strain_features=strain_features, 
-            phenotype_matrix=phenotype_matrix,
-            output_dir=merged_output_dir,
-            sample_column=strain_column,
-            phage_features=phage_features,
-            remove_suffix=False
-        )
-        print(f"Merged feature table saved in: {merged_output_dir}")
+            merge_feature_tables(
+                strain_features=strain_features, 
+                phenotype_matrix=phenotype_matrix,
+                output_dir=merged_output_dir,
+                sample_column=strain_column,
+                phage_features=phage_features,
+                remove_suffix=False
+            )
+            print(f"Merged feature table saved in: {merged_output_dir}")
+        else:
+            print("No phenotype matrix provided. Skipping merging step.")
+
     else:
-        # Only strain data: merge with phenotype_matrix
-        print("Merging strain features with the phenotype matrix...")
-        strain_features = os.path.join(feature_output_dir_strain, "feature_table.csv")
-        
-        merge_feature_tables(
-            strain_features=strain_features,
-            phenotype_matrix=phenotype_matrix,
-            output_dir=output_dir,
-            sample_column=strain_column,
-            remove_suffix=False
-        )
-        print(f"Strain feature table merged with phenotype matrix and saved at: {output_dir}")
+        if phenotype_matrix:     
+            # Only strain data: merge with phenotype_matrix
+            print("Merging strain features with the phenotype matrix...")
+            strain_features = os.path.join(feature_output_dir_strain, "feature_table.csv")   
+
+            merged_output_dir = os.path.join(output_dir, "merged")
+            os.makedirs(merged_output_dir, exist_ok=True)
+
+            merge_feature_tables(
+                strain_features=strain_features,
+                phenotype_matrix=phenotype_matrix,
+                output_dir=merged_output_dir,
+                sample_column=strain_column,
+                remove_suffix=False
+            )
+            print(f"Strain feature table merged with phenotype matrix and saved at: {merged_output_dir}")
+        else:
+            print("No phenotype matrix provided. Skipping merging step.")
 
 # Main function for CLI
 def main():
     parser = argparse.ArgumentParser(description='Run full feature table generation and merging workflow.')
     parser.add_argument('-ih', '--input_strain', type=str, required=True, help='Input path for strain clustering (directory or file).')
     parser.add_argument('-ip', '--input_phage', type=str, help='Input path for phage clustering (directory or file). Optional; if not provided, only strain data will be used.')
-    parser.add_argument('-pm', '--phenotype_matrix', type=str, required=True, help='Path to the phenotype matrix.')
+    parser.add_argument('-pm', '--phenotype_matrix', type=str, help='Path to the phenotype matrix.')
     parser.add_argument('-o', '--output', type=str, required=True, help='Output directory to save results.')
     parser.add_argument('--tmp', type=str, default="tmp", help='Temporary directory for intermediate files.')
     parser.add_argument('--min_seq_id', type=float, default=0.6, help='Minimum sequence identity for clustering.')

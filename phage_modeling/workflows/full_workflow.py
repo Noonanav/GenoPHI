@@ -13,7 +13,8 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
                       source_strain='strain', source_phage='phage', num_features=100, 
                       filter_type='none', num_runs_fs=10, num_runs_modeling=10, 
                       sample_column='strain', phenotype_column=None, method='rfe',
-                      annotation_table_path=None, protein_id_col="protein_ID"):
+                      annotation_table_path=None, protein_id_col="protein_ID",
+                      task_type='classification', max_features='none'):
     """
     Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
 
@@ -52,6 +53,8 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         num_features (int): Number of features to select (default: 100).
         num_runs_fs (int): Number of feature selection iterations (default: 10).
         num_runs_modeling (int): Number of runs per feature table for modeling (default: 10).
+        task_type (str): Task type for modeling ('classification' or 'regression').
+        max_features (str): Maximum number of features to include in the feature tables.
     
     General:
         threads (int): Number of threads to use (default: 4).
@@ -115,11 +118,13 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         num_runs=num_runs_fs,
         method=method,
         sample_column=sample_column,
-        phenotype_column=phenotype_column
+        phenotype_column=phenotype_column,
+        task_type=task_type
     )
     
     # Step 3: Generate feature tables from feature selection results
     print("Generating feature tables from feature selection results...")
+    max_features = None if max_features == 'none' else int(max_features)
     filter_table_dir = os.path.join(base_fs_output_dir, 'filtered_feature_tables')
     generate_feature_tables(
         model_testing_dir=base_fs_output_dir,
@@ -127,7 +132,10 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         filter_table_dir=filter_table_dir,
         phenotype_column=phenotype_column,
         sample_column=sample_column,
-        cut_offs=[3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45, 47, 50]
+        cut_offs=[3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45, 47, 50],
+        binary_data=True,
+        max_features=max_features,
+        filter_type=filter_type
     )
 
     # Step 4: Modeling
@@ -139,7 +147,9 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         num_runs=num_runs_modeling,
         set_filter=filter_type,
         sample_column=sample_column,
-        phenotype_column=phenotype_column
+        phenotype_column=phenotype_column,
+        task_type=task_type,
+        binary_data=True
     )
 
     # Step 5: Select top cutoff based on MCC and run predictive proteins workflow
@@ -147,7 +157,10 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
     # Load model performance metrics and find the top cutoff
     metrics_file = os.path.join(output_dir, 'modeling_results', 'model_performance', 'model_performance_metrics.csv')
     performance_df = pd.read_csv(metrics_file)
-    top_cutoff = performance_df.loc[performance_df['MCC'].idxmax(), 'cut_off'].split('_')[-1]
+    if task_type == 'classification':
+        top_cutoff = performance_df.loc[performance_df['MCC'].idxmax(), 'cut_off'].split('_')[-1]
+    else:
+        top_cutoff = performance_df.loc[performance_df['R2'].idxmax(), 'cut_off'].split('_')[-1]
 
     feature_file_path = os.path.join(output_dir, 'feature_selection', 'filtered_feature_tables', f'select_feature_table_cutoff_{top_cutoff}.csv')
     feature2cluster_path = os.path.join(output_dir, 'strain', 'features', 'selected_features.csv')
@@ -169,7 +182,8 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         protein_id_col=protein_id_col,
         annotation_table_path=annotation_table_path,  # Optional
         feature_assignments_path=feature_assignments_path,  # Optional
-        strain_column='strain'
+        strain_column='strain',
+        feature_type='strain'
     )
 
     if input_path_phage:
@@ -186,11 +200,11 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
             fasta_dir_or_file=fasta_dir_or_file,
             modeling_dir=modeling_dir,
             output_dir=predictive_proteins_output_dir,
-            output_fasta='predictive_AA_seqs_phage.faa',
+            output_fasta='predictive_AA_seqs.faa',
             protein_id_col=protein_id_col,
-            annotation_table_path=annotation_table_path,  # Optional
             feature_assignments_path=feature_assignments_path,  # Optional
-            strain_column='phage'
+            strain_column='phage',
+            feature_type='phage'
         )
 
 # Main function for CLI
@@ -237,6 +251,8 @@ def main():
     fs_modeling_group.add_argument('--num_features', type=int, default=100, help='Number of features to select (default: 100).')
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection iterations to run (default: 10).')
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=10, help='Number of runs per feature table for modeling (default: 10).')
+    fs_modeling_group.add_argument('--task_type', type=str, default='classification', choices=['classification', 'regression'], help="Task type for modeling ('classification' or 'regression').")
+    fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -269,8 +285,11 @@ def main():
         num_runs_modeling=args.num_runs_modeling,
         sample_column=args.sample_column,
         phenotype_column=args.phenotype_column,
+        method=args.method,
         annotation_table_path=args.annotation_table_path,  # Optional
-        protein_id_col=args.protein_id_col
+        protein_id_col=args.protein_id_col,
+        task_type=args.task_type,
+        max_features=args.max_features
     )
 
 if __name__ == "__main__":
