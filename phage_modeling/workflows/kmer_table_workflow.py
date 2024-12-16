@@ -40,7 +40,7 @@ def generate_kmer_df(seqrecords, k):
     logging.info(f"Generated k-mer DataFrame with {len(kmer_df)} rows.")
     return kmer_df
 
-def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output_dir, output_name, k_range=False):
+def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output_dir, output_name, k_range=False, ignore_families=False):
     """Constructs a feature table from k-mers and merges it with protein feature data."""
     logging.info(f"Starting feature table construction for {fasta_file} with k = {k} (range: {k_range}).")
     
@@ -80,7 +80,12 @@ def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output
     # Aggregate k-mer data by feature and cluster
     logging.info("Aggregating k-mer data by feature and cluster.")
     full_kmer_df_counts = full_kmer_df_merged.copy()
-    full_kmer_df_counts['counts'] = full_kmer_df_counts.groupby(['kmer', 'Feature', 'cluster'])['protein_ID'].transform('nunique')
+    
+    if ignore_families:
+        logging.info("Ignoring protein families when aggregating k-mers.")
+
+    group_cols = ['kmer'] if ignore_families else ['kmer', 'Feature', 'cluster']
+    full_kmer_df_counts['counts'] = full_kmer_df_counts.groupby(group_cols)['protein_ID'].transform('nunique')
     full_kmer_df_counts['k_length'] = full_kmer_df_counts['kmer'].apply(len)
 
     # Filter unique k-mers based on 'one_gene' parameter
@@ -93,7 +98,10 @@ def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output
 
     # Create kmer_id by concatenating cluster and kmer, and filter by k length
     logging.info("Creating kmer IDs and filtering by k length.")
-    full_kmer_df_counts['kmer_id'] = full_kmer_df_counts['cluster'] + '_' + full_kmer_df_counts['kmer']
+    if ignore_families:
+        full_kmer_df_counts['kmer_id'] = full_kmer_df_counts['kmer']
+    else:
+        full_kmer_df_counts['kmer_id'] = full_kmer_df_counts['cluster'] + '_' + full_kmer_df_counts['kmer']
     full_kmer_df_counts = full_kmer_df_counts.drop_duplicates(subset=[id_col, 'kmer_id'])
 
     # Construct presence-absence matrix
@@ -239,7 +247,7 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
                       phenotype_matrix=None, phage_fasta=None, protein_csv_phage=None, remove_suffix=False, 
                       sample_column='strain', phenotype_column='interaction', modeling=False, filter_type='strain', 
                       num_features=100, num_runs_fs=10, num_runs_modeling=20, method='rfe', strain_list=None, 
-                      phage_list=None, threads=4, task_type='classification'):
+                      phage_list=None, threads=4, task_type='classification', max_features='none', ignore_families=False):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
     feature selection, phenotype merging, and optional modeling.
@@ -266,6 +274,7 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         method (str, optional): Feature selection method, such as 'rfe' or 'lasso'. Default is 'rfe'.
         strain_list (str, optional): Path to a list of strains to include in the analysis. Default is None.
         phage_list (str, optional): Path to a list of phages to include in the analysis. Default is None.
+        ignore_families (bool, optional): If True, ignores protein families when defining k-mer features. Default is False.
         threads (int, optional): Number of threads to use for parallel processing. Default is 4.
 
     Returns:
@@ -279,7 +288,7 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         os.makedirs(feature_output_dir)
 
     # Step 1: Construct strain feature table
-    strain_feature_table_path = construct_feature_table(strain_fasta, protein_csv, k, id_col, one_gene, feature_output_dir, "strain", k_range)
+    strain_feature_table_path = construct_feature_table(strain_fasta, protein_csv, k, id_col, one_gene, feature_output_dir, "strain", k_range, ignore_families=ignore_families)
     strain_feature_table = pd.read_csv(strain_feature_table_path)
 
     # Step 2: Get genome assignments for strain
@@ -299,7 +308,7 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
     if phage_fasta:
         # Use protein_csv_phage if provided; otherwise, fall back to protein_csv
         phage_protein_csv = protein_csv_phage if protein_csv_phage else protein_csv
-        phage_feature_table_path = construct_feature_table(phage_fasta, phage_protein_csv, k, 'phage', one_gene, feature_output_dir, "phage", k_range)
+        phage_feature_table_path = construct_feature_table(phage_fasta, phage_protein_csv, k, 'phage', one_gene, feature_output_dir, "phage", k_range, ignore_families=ignore_families)
         phage_feature_table = pd.read_csv(phage_feature_table_path)
 
         # Phage genome assignments
@@ -312,6 +321,9 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         phage_genomes = load_genome_list(phage_list, 'phage')
 
         phage_assignment_df, phage_final_feature_table, phage_final_feature_table_output = feature_assignment(phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage', all_genomes=phage_genomes)
+    else:
+        logging.info("Skipping phage feature table construction as no phage FASTA provided.")
+        phage_final_feature_table_output = None
 
     # Step 5: Merge feature tables if phenotype_matrix is provided
     if phenotype_matrix:
@@ -361,7 +373,8 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
             phenotype_column=phenotype_column,
             method=method,
             task_type=task_type,
-            binary_data=True
+            binary_data=True,
+            max_features=max_features
         )
 
     else:
@@ -388,12 +401,13 @@ def main():
     optional_input_group.add_argument('--id_col', default="strain", help="Column name for genome ID.")
     optional_input_group.add_argument('--one_gene', action='store_true', help="Include features with 1 gene.")
     optional_input_group.add_argument('--k_range', action='store_true', help="Generate range of k-mer lengths from 3 to k.")
-    optional_input_group.add_argument('--phenotype_matrix', default=None, help="Path to the phenotype matrix CSV for merging.")
+    optional_input_group.add_argument('--phenotype_matrix', default=None, help="Path to the phenotype matrix CSV for merging. (optional)")
     optional_input_group.add_argument('--remove_suffix', action='store_true', help="Remove suffix from genome names when merging.")
     optional_input_group.add_argument('--sample_column', default='strain', help="Sample identifier column name (default: 'strain').")
     optional_input_group.add_argument('--phenotype_column', default='interaction', help="Phenotype column name in the phenotype matrix.")
     optional_input_group.add_argument('--strain_list', default=None, help="Full list of strains to include in the analysis.")
     optional_input_group.add_argument('--phage_list', default=None, help="Full list of phages to include in the analysis.")
+    optional_input_group.add_argument('--ignore_families', action='store_true', help="Ignore protein families when defining k-mer features")
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -408,6 +422,7 @@ def main():
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=20, help="Number of runs for modeling (default: 20).")
     fs_modeling_group.add_argument('--method', default='rfe', help="Feature selection method to use (default: 'rfe').")
     fs_modeling_group.add_argument('--task_type', default='classification', choices=['classification', 'regression'], help="Specify 'classification' or 'regression' task.")
+    fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -439,7 +454,9 @@ def main():
         strain_list=args.strain_list,
         phage_list=args.phage_list,
         threads=args.threads,
-        task_type=args.task_type
+        task_type=args.task_type,
+        max_features=args.max_features,
+        ignore_families=args.ignore_families
     )
 
 if __name__ == "__main__":

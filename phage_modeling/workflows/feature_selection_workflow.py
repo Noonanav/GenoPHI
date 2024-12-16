@@ -23,7 +23,7 @@ def check_method_task_type_compatibility(method, task_type):
 
 def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_features=500, filter_type='none', 
                                    num_runs=50, method='rfe', task_type='classification', phenotype_column=None, 
-                                   sample_column='strain', binary_data=False):
+                                   sample_column='strain', binary_data=False, max_features='none'):
     """
     Workflow for running feature selection iterations and generating feature tables.
 
@@ -64,6 +64,7 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
     
     # Generate feature tables based on the results
     print("Generating feature tables...")
+    max_features = None if max_features == 'none' else int(max_features)
     filter_table_dir = os.path.join(base_output_dir, 'filtered_feature_tables')
     generate_feature_tables(
         model_testing_dir=base_output_dir,
@@ -72,7 +73,9 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
         phenotype_column=phenotype_column,
         sample_column=sample_column,
         cut_offs=[3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50],
-        binary_data=binary_data
+        binary_data=binary_data,
+        max_features=max_features,
+        filter_type=filter_type
     )
 
 # Main function for CLI
@@ -91,6 +94,7 @@ def main():
     parser.add_argument('--phenotype_column', type=str, help='Optional column name for phenotype/target variable.')
     parser.add_argument('--sample_column', type=str, default='strain', help='Optional column name for sample identifiers.')
     parser.add_argument('--binary_data', action='store_true', help='If set, converts feature values to binary (1/0); otherwise, continuous values are kept.')
+    parser.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
 
     args = parser.parse_args()
 
@@ -106,7 +110,8 @@ def main():
         task_type=args.task_type,
         phenotype_column=args.phenotype_column,
         sample_column=args.sample_column,
-        binary_data=args.binary_data
+        binary_data=args.binary_data,
+        max_features=args.max_features
     )
 
 if __name__ == "__main__":

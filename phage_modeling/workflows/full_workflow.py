@@ -14,7 +14,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
                       filter_type='none', num_runs_fs=10, num_runs_modeling=10, 
                       sample_column='strain', phenotype_column=None, method='rfe',
                       annotation_table_path=None, protein_id_col="protein_ID",
-                      task_type='classification'):
+                      task_type='classification', max_features='none'):
     """
     Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
 
@@ -54,6 +54,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         num_runs_fs (int): Number of feature selection iterations (default: 10).
         num_runs_modeling (int): Number of runs per feature table for modeling (default: 10).
         task_type (str): Task type for modeling ('classification' or 'regression').
+        max_features (str): Maximum number of features to include in the feature tables.
     
     General:
         threads (int): Number of threads to use (default: 4).
@@ -123,6 +124,7 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
     
     # Step 3: Generate feature tables from feature selection results
     print("Generating feature tables from feature selection results...")
+    max_features = None if max_features == 'none' else int(max_features)
     filter_table_dir = os.path.join(base_fs_output_dir, 'filtered_feature_tables')
     generate_feature_tables(
         model_testing_dir=base_fs_output_dir,
@@ -131,7 +133,9 @@ def run_full_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="
         phenotype_column=phenotype_column,
         sample_column=sample_column,
         cut_offs=[3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45, 47, 50],
-        binary_data=True
+        binary_data=True,
+        max_features=max_features,
+        filter_type=filter_type
     )
 
     # Step 4: Modeling
@@ -248,6 +252,7 @@ def main():
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection iterations to run (default: 10).')
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=10, help='Number of runs per feature table for modeling (default: 10).')
     fs_modeling_group.add_argument('--task_type', type=str, default='classification', choices=['classification', 'regression'], help="Task type for modeling ('classification' or 'regression').")
+    fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -283,7 +288,8 @@ def main():
         method=args.method,
         annotation_table_path=args.annotation_table_path,  # Optional
         protein_id_col=args.protein_id_col,
-        task_type=args.task_type
+        task_type=args.task_type,
+        max_features=args.max_features
     )
 
 if __name__ == "__main__":

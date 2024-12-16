@@ -51,7 +51,7 @@ def get_predictive_features(feature_file_path, sample_column='strain', phenotype
     feature_df = pd.read_csv(feature_file_path)
 
     # Identify predictive feature groups
-    predictive_features = [x for x in feature_df.columns if x not in {sample_column, phenotype_column, 'phage'}]
+    predictive_features = [x for x in feature_df.columns if x not in {sample_column, phenotype_column, 'phage', 'strain'}]
     predictive_feature_groups = list(set(x.split('c_')[0] for x in predictive_features))
     predictive_feature_groups = [x + 'c' for x in predictive_feature_groups]
     logging.info(f"Predictive feature groups detected: {predictive_feature_groups}")
@@ -59,22 +59,40 @@ def get_predictive_features(feature_file_path, sample_column='strain', phenotype
     # Check the number of detected groups and classify features
     if len(predictive_feature_groups) > 2:
         logging.warning("More than two feature groups detected. Please ensure the correct feature groups are selected.")
-    elif 'sc' in predictive_feature_groups and 'pc' in predictive_feature_groups:
-        logging.info("Strain features with 'sc' ID detected.")
-        strain_features = [x for x in predictive_features if 'sc_' in x]
-        phage_features = [x for x in predictive_features if 'pc_' in x]
-    elif 'sc' in predictive_feature_groups:
-        logging.info("Only strain features with 'sc' ID detected.")
-        strain_features = [x for x in predictive_features if 'sc_' in x]
-        phage_group = [x for x in predictive_feature_groups if x != 'sc'][0]
-        logging.info(f"Phage group detected: {phage_group}")
-        phage_features = [x for x in predictive_features if phage_group in x]
-    elif 'pc' in predictive_feature_groups:
-        logging.info("Only phage features with 'pc' ID detected.")
-        phage_features = [x for x in predictive_features if 'pc_' in x]
-        strain_group = [x for x in predictive_feature_groups if x != 'pc'][0]
-        logging.info(f"Strain group detected: {strain_group}")
-        strain_features = [x for x in predictive_features if strain_group in x]
+    elif len(predictive_feature_groups) == 2:
+        if 'sc' in predictive_feature_groups and 'pc' in predictive_feature_groups:
+            logging.info("Strain features with 'sc' ID detected.")
+            strain_features = [x for x in predictive_features if 'sc_' in x]
+            phage_features = [x for x in predictive_features if 'pc_' in x]
+        elif 'sc' in predictive_feature_groups:
+            logging.info("Only strain features with 'sc' ID detected.")
+            strain_features = [x for x in predictive_features if 'sc_' in x]
+            phage_group = [x for x in predictive_feature_groups if x != 'sc'][0]
+            logging.info(f"Phage group detected: {phage_group}")
+            phage_features = [x for x in predictive_features if phage_group in x]
+        elif 'pc' in predictive_feature_groups:
+            logging.info("Only phage features with 'pc' ID detected.")
+            phage_features = [x for x in predictive_features if 'pc_' in x]
+            strain_group = [x for x in predictive_feature_groups if x != 'pc'][0]
+            logging.info(f"Strain group detected: {strain_group}")
+            strain_features = [x for x in predictive_features if strain_group in x]
+        else:
+            logging.error("No valid feature groups detected.")
+            strain_features = []
+            phage_features = []
+    elif len(predictive_feature_groups) == 1:
+        if 'sc' in predictive_feature_groups:
+            logging.info("Only strain features with 'sc' ID detected.")
+            strain_features = [x for x in predictive_features if 'sc_' in x]
+            phage_features = []
+        elif 'pc' in predictive_feature_groups:
+            logging.info("Only phage features with 'pc' ID detected.")
+            phage_features = [x for x in predictive_features if 'pc_' in x]
+            strain_features = []
+        else:
+            logging.error("No valid feature groups detected.")
+            strain_features = []
+            phage_features = []
     else:
         logging.error("No valid feature groups detected.")
         strain_features = []

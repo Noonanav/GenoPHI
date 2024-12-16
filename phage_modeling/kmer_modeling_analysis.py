@@ -7,12 +7,14 @@ from Bio.Align.Applications import ClustalwCommandline
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from plotnine import *
+from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.spatial.distance import pdist, squareform
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load AA sequences from file
-def load_aa_sequences(aa_sequence_file, feature_type='strain'):
+def load_aa_sequences(aa_sequence_file):
     """
     Loads amino acid sequences from a FASTA file into a DataFrame.
 
@@ -53,6 +55,7 @@ def get_predictive_kmers(feature_file_path, feature2cluster_path, feature_type):
     feature_df = pd.read_csv(feature_file_path)
     feature_prefix = feature_type[0] + 'c_'
     select_features = [col for col in feature_df.columns if feature_prefix in col]
+    print(select_features)
 
     feature2cluster_df = pd.read_csv(feature2cluster_path)
     feature2cluster_df.rename(columns={'Cluster_Label': 'cluster'}, inplace=True)
@@ -83,6 +86,9 @@ def merge_kmers_with_families(protein_families_file, aa_sequences_df, feature_ty
     protein_families_df = protein_families_df[[feature_type, 'cluster', 'protein_ID']].drop_duplicates()
     protein_families_df.rename(columns={'cluster': 'protein_family'}, inplace=True)
     merged_df = protein_families_df.merge(aa_sequences_df, on='protein_ID', how='inner')
+    print(merged_df.groupby('protein_family').size().reset_index(name='protein_count'))
+    merged_df['protein_count'] = merged_df.groupby('protein_family')['protein_ID'].transform('nunique')
+    merged_df = merged_df[merged_df['protein_count'] > 1]
     # print(merged_df.head())
     logging.info(f"Merged k-mer data with {len(merged_df)} protein family entries.")
     return merged_df
@@ -125,60 +131,92 @@ def align_sequences(sequences, output_dir, family_name):
     """
     logging.info(f"Aligning sequences for protein family: {family_name}")
     
+    if len(sequences) < 2:
+        logging.warning(f"Skipping alignment for {family_name}: Only one sequence provided.")
+        return pd.DataFrame()  # Return an empty DataFrame for skipped families
+    
     # Paths for temporary files
     temp_fasta_path = os.path.join(output_dir, f"{family_name}_temp_sequences.fasta")
     temp_aln_path = os.path.join(output_dir, f"{family_name}_temp_sequences.aln")
 
-    # Create temporary IDs and map to original IDs
+    # Validate sequences
+    if not sequences:
+        logging.warning(f"No sequences provided for alignment in protein family: {family_name}")
+        return pd.DataFrame()  # Return empty DataFrame
+
     seq_records = []
     temp_id_map = {}
     for i, (header, seq) in enumerate(sequences):
+        if not seq or len(seq.strip('-')) == 0:
+            logging.warning(f"Skipping invalid or empty sequence for protein ID: {header}")
+            continue
         temp_id = f"seq_{i}"
         record = SeqRecord(Seq(seq), id=temp_id, description="")
         seq_records.append(record)
         temp_id_map[temp_id] = header
+
+    if not seq_records:
+        logging.warning(f"All sequences are invalid for protein family: {family_name}")
+        return pd.DataFrame()
 
     # Write sequences to the temporary FASTA file
     with open(temp_fasta_path, "w") as output_handle:
         SeqIO.write(seq_records, output_handle, "fasta")
 
     # Run ClustalW for alignment
-    clustalw_cline = ClustalwCommandline("clustalw2", infile=temp_fasta_path)
-    clustalw_cline()
+    try:
+        clustalw_cline = ClustalwCommandline("clustalw2", infile=temp_fasta_path)
+        stdout, stderr = clustalw_cline()
+        logging.info(f"ClustalW output for {family_name}: {stdout}")
+        logging.error(f"ClustalW errors for {family_name}: {stderr}")
+    except Exception as e:
+        logging.error(f"ClustalW failed for {family_name}: {e}")
+        return pd.DataFrame()
 
-    # Read alignment results
-    alignment = AlignIO.read(temp_aln_path, "clustal")
+    # Check if alignment file exists and has content
+    if not os.path.exists(temp_aln_path) or os.path.getsize(temp_aln_path) == 0:
+        logging.error(f"Alignment failed: No alignment file created for {family_name}")
+        return pd.DataFrame()
+
+    # Parse the alignment
+    try:
+        alignment = AlignIO.read(temp_aln_path, "clustal")
+    except Exception as e:
+        logging.error(f"Failed to parse alignment for {family_name}: {e}")
+        os.remove(temp_fasta_path)
+        if os.path.exists(temp_aln_path):
+            os.remove(temp_aln_path)
+        dnd_path = os.path.join(output_dir, f"{family_name}_temp_sequences.dnd")
+        if os.path.exists(dnd_path):
+            os.remove(dnd_path)
+        return pd.DataFrame()
 
     # Remove leading gaps from alignment
     aln_length = alignment.get_alignment_length()
     non_gap_positions = [any(record.seq[i] != '-' for record in alignment) for i in range(aln_length)]
-    first_non_gap = non_gap_positions.index(True)
-    
-    # Construct DataFrame with trimmed alignment
-    start_positions = {}
-    aligned_sequences = {}
+    first_non_gap = non_gap_positions.index(True) if True in non_gap_positions else 0
 
+    aligned_sequences = []
     for record in alignment:
         trimmed_seq = str(record.seq[first_non_gap:])  # Trim leading gaps
         original_id = temp_id_map[record.id]
         start_pos = trimmed_seq.find(trimmed_seq.lstrip('-'))
-        start_positions[original_id] = start_pos
-        aligned_sequences[original_id] = trimmed_seq
-
-    # Construct the DataFrame for this protein family
-    result_df = pd.DataFrame({
-        'protein_ID': list(aligned_sequences.keys()),
-        'aln_sequence': list(aligned_sequences.values()),
-        'start_index': list(start_positions.values())
-    })
+        aligned_sequences.append({
+            'protein_ID': original_id,
+            'aln_sequence': trimmed_seq,
+            'start_index': start_pos
+        })
 
     # Clean up temporary files
     os.remove(temp_fasta_path)
-    os.remove(temp_aln_path)
-    os.remove(os.path.join(output_dir, f"{family_name}_temp_sequences.dnd"))
+    if os.path.exists(temp_aln_path):
+        os.remove(temp_aln_path)
+    dnd_path = os.path.join(output_dir, f"{family_name}_temp_sequences.dnd")
+    if os.path.exists(dnd_path):
+        os.remove(dnd_path)
 
     logging.info(f"Alignment completed for protein family: {family_name}")
-    return result_df
+    return pd.DataFrame(aligned_sequences)
 
 # Find kmer indices within aligned sequences
 def find_kmer_indices(row):
@@ -323,7 +361,7 @@ def merge_no_coverage_proteins(coverage_segments_df, aligned_df):
 # Plot segments
 def plot_segments(segment_summary_df, output_dir):
     """
-    Plots segments by protein family and saves the plots.
+    Plots segments by protein family and saves the plots, ordering sequences based on feature occurrence using hierarchical clustering.
 
     Parameters:
     segment_summary_df (DataFrame): DataFrame with segment summary data.
@@ -334,13 +372,53 @@ def plot_segments(segment_summary_df, output_dir):
     """
     logging.info(f"Plotting segments to {output_dir}.")
     os.makedirs(output_dir, exist_ok=True)
+    
     for family, group in segment_summary_df.groupby('protein_family'):
+        # Pivot table to compute feature occurrence matrix
+        feature_matrix = group.pivot_table(
+            index='protein_ID',
+            columns='Feature',
+            values='coverage',
+            aggfunc='sum',
+            fill_value=0
+        )
+        
+        # Compute pairwise distances and perform hierarchical clustering
+        distances = pdist(feature_matrix, metric='euclidean')  # Pairwise Euclidean distance
+        linkage_matrix = linkage(distances, method='ward')  # Hierarchical clustering
+        ordered_indices = leaves_list(linkage_matrix)  # Order of rows based on clustering
+        
+        # Reorder protein IDs based on clustering
+        reordered_protein_ids = feature_matrix.index[ordered_indices]
+        group['protein_ID'] = pd.Categorical(group['protein_ID'], categories=reordered_protein_ids, ordered=True)
+        group = group.sort_values('protein_ID')
+
+        # Plot segments with reordered protein IDs
         plot = (
             ggplot() +
-            geom_segment(data=group[group['coverage'] == 0], mapping=aes(x='start', xend='stop', y='protein_ID', yend='protein_ID'), color='grey', size=5) +
-            geom_segment(data=group[group['coverage'] == 1], mapping=aes(x='start', xend='stop', y='protein_ID', yend='protein_ID', color='Feature'), size=5) +
-            labs(title=f'Protein Family: {family}', x='AA Index', y='protein_ID') +
-            theme(axis_text_x=element_text(rotation=90), panel_background=element_rect(fill='white'))
+            geom_segment(
+                data=group[group['coverage'] == 0],
+                mapping=aes(x='start', xend='stop', y='protein_ID', yend='protein_ID'),
+                color='grey',
+                size=5
+            ) +
+            geom_segment(
+                data=group[group['coverage'] == 1],
+                mapping=aes(x='start', xend='stop', y='protein_ID', yend='protein_ID', color='Feature'),
+                size=5
+            ) +
+            labs(
+                title=f'Protein Family: {family}',
+                x='AA Index',
+                y='Protein ID'
+            ) +
+            theme(
+                axis_text_x=element_text(rotation=90),
+                panel_background=element_rect(fill='white'),
+                figure_size=(15, 8)
+            )
         )
+        
+        # Save the plot
         plot.save(f"{output_dir}/{family}_coverage_plot.png")
         logging.info(f"Saved plot for protein family {family} at {output_dir}")

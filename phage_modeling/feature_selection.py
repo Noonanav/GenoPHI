@@ -15,7 +15,7 @@ from tqdm import tqdm
 import time
 
 # Function to load and prepare data
-def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None):
+def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None, filter_type='none'):
     """
     Loads the input feature table, drops unnecessary columns, and splits into features and target.
 
@@ -39,7 +39,7 @@ def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None)
     full_feature_table = full_feature_table.dropna()
 
     # Prepare the feature set and drop unnecessary columns
-    drop_columns = ['strain', 'phage', 'interaction', 'header', 'contig_id', 'orf_ko']
+    drop_columns = ['strain', 'phage', 'interaction', 'header', 'contig_id', 'orf_ko', filter_type]
     
     # Ensure the sample and phenotype columns are retained if specified
     if sample_column:
@@ -76,11 +76,12 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         sample_column (str): Column to use as the sample identifier (default: 'strain').
 
     Returns:
-        X_train (DataFrame): Training features.
-        X_test (DataFrame): Testing features.
-        y_train (Series): Training target.
-        y_test (Series): Testing target.
-        X_test_sample_ids (DataFrame): Metadata of the test set samples.
+        X_train (DataFrame or None): Training features, or None if invalid split.
+        X_test (DataFrame or None): Testing features, or None if invalid split.
+        y_train (Series or None): Training target, or None if invalid split.
+        y_test (Series or None): Testing target, or None if invalid split.
+        X_test_sample_ids (DataFrame or None): Metadata of the test set samples, or None if invalid split.
+        X_train_sample_ids (DataFrame or None): Metadata of the training set samples, or None if invalid split.
     """
     if filter_type == 'none':
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=random_state)
@@ -89,12 +90,10 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         train_idx = X_train.index
         X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column]]
     else:
-        if filter_type == 'strain':
-            group = sample_column
-        elif filter_type == 'phage':
-            group = 'phage'
+        if filter_type in full_feature_table.columns:
+            group = filter_type
         else:
-            raise ValueError("Invalid filter type.")
+            raise ValueError("Filter type must be a column in the feature table.")
         
         groups = full_feature_table[group].unique()
         np.random.seed(random_state)
@@ -110,11 +109,20 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         y_test = y[test_idx]
 
         if 'phage' in full_feature_table.columns:
-            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage']]
-            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, 'phage']]
+            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, filter_type, 'phage']]
+            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, filter_type, 'phage']]
         else:
-            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column]]
-            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column]]
+            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, filter_type]]
+            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, filter_type]]
+
+    # Check for multiple unique values in the training set target
+    unique_values = y_train.nunique()
+    if unique_values < 2:
+        logging.warning(
+            f"Training set contains only one unique target value ({y_train.unique()[0]}). "
+            f"Skipping this split."
+        )
+        return None, None, None, None, None, None
 
     return X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
 
@@ -216,7 +224,7 @@ def shap_rfe(X_train, y_train, num_features, threads, task_type='classification'
         model.fit(X_train[current_features], y_train)
 
         # Calculate SHAP values
-        explainer = shap.TreeExplainer(model)
+        explainer = shap.TreeExplainer(model, approximate=True)
         shap_values = explainer.shap_values(X_train[current_features])
         
         # Calculate mean absolute SHAP values for each feature
@@ -373,7 +381,7 @@ def shap_feature_selection(X_train, y_train, num_features, threads, task_type='c
     model.fit(X_train, y_train)
     
     # Calculate SHAP values
-    explainer = shap.TreeExplainer(model)
+    explainer = shap.TreeExplainer(model, approximate=True)
     shap_values = explainer.shap_values(X_train)
     
     # Calculate mean absolute SHAP values for each feature
@@ -774,61 +782,69 @@ def run_feature_selection_iterations(
 
     for i in tqdm(range(num_runs), desc="Running Feature Selection Iterations"):
         output_dir = os.path.join(base_output_dir, f'run_{i}')
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        random_state = i
-
-        X, y, full_feature_table = load_and_prepare_data(input_path, sample_column=sample_column, phenotype_column=phenotype_column)
-        X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state, sample_column=sample_column)
-
-        # Apply selected feature selection method
-        if method == 'rfe':
-            _, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type=task_type)
-        elif method == 'shap_rfe':
-            X_train, selected_features = shap_rfe(X_train, y_train, num_features, threads, task_type=task_type)
-        elif method == 'select_k_best':
-            X_train, selected_features = select_k_best_feature_selection(X_train, y_train, num_features, task_type=task_type)
-        elif method == 'chi_squared' and task_type == 'classification':
-            X_train, selected_features = chi_squared_feature_selection(X_train, y_train, num_features)
-        elif method == 'lasso':
-            X_train, selected_features = lasso_feature_selection(X_train, y_train, num_features, task_type=task_type)
-        elif method == 'shap':
-            X_train, selected_features = shap_feature_selection(X_train, y_train, num_features, threads, task_type=task_type)
-        else:
-            raise ValueError(f"Unsupported feature selection method: {method} or incompatible task_type.")
-
-        X_train_selected = X_train[selected_features]
-        X_test_selected = X_test[selected_features]
-
-        param_grid = {
-            'iterations': [500, 1000],
-            'learning_rate': [0.05, 0.1],
-            'depth': [4, 6],
-            'thread_count': [threads]
-        }
-
-        if task_type == 'classification':
-            param_grid['loss_function'] = ['Logloss']
-            best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column)
-            best_metric = best_mcc
-        elif task_type == 'regression':
-            param_grid['loss_function'] = ['RMSE']
-            best_model, best_params, best_r2 = grid_search_regressor(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column)
-            best_metric = best_r2
-        else:
-            raise ValueError("task_type must be 'classification' or 'regression'")
-
-        if best_model is None:
-            logging.warning(f"No best model found for iteration {i}. Skipping feature importance saving.")
-            continue
-
-        # Save feature importances
         feature_importances_path = os.path.join(output_dir, 'feature_importances.csv')
-        save_feature_importances(best_model, pd.DataFrame(X_train_selected, columns=selected_features), feature_importances_path)
 
-        features_df = pd.read_csv(feature_importances_path)
-        for feature in features_df['Feature'].values:
-            features_occurrence[feature] = features_occurrence.get(feature, 0) + 1
+        if not os.path.exists(feature_importances_path):
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+            random_state = i
+
+            X, y, full_feature_table = load_and_prepare_data(input_path, sample_column=sample_column, phenotype_column=phenotype_column, filter_type=filter_type)
+            X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state, sample_column=sample_column)
+
+            if X_train is None:
+                logging.info("Skipping this run due to insufficient training data.")
+                continue  # Skip this iteration and proceed to the next
+
+            # Apply selected feature selection method
+            if method == 'rfe':
+                _, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type=task_type)
+            elif method == 'shap_rfe':
+                X_train, selected_features = shap_rfe(X_train, y_train, num_features, threads, task_type=task_type)
+            elif method == 'select_k_best':
+                X_train, selected_features = select_k_best_feature_selection(X_train, y_train, num_features, task_type=task_type)
+            elif method == 'chi_squared' and task_type == 'classification':
+                X_train, selected_features = chi_squared_feature_selection(X_train, y_train, num_features)
+            elif method == 'lasso':
+                X_train, selected_features = lasso_feature_selection(X_train, y_train, num_features, task_type=task_type)
+            elif method == 'shap':
+                X_train, selected_features = shap_feature_selection(X_train, y_train, num_features, threads, task_type=task_type)
+            else:
+                raise ValueError(f"Unsupported feature selection method: {method} or incompatible task_type.")
+
+            X_train_selected = X_train[selected_features]
+            X_test_selected = X_test[selected_features]
+
+            param_grid = {
+                'iterations': [500, 1000],
+                'learning_rate': [0.05, 0.1],
+                'depth': [4, 6],
+                'thread_count': [threads]
+            }
+
+            if task_type == 'classification':
+                param_grid['loss_function'] = ['Logloss']
+                best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column)
+                best_metric = best_mcc
+            elif task_type == 'regression':
+                param_grid['loss_function'] = ['RMSE']
+                best_model, best_params, best_r2 = grid_search_regressor(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column)
+                best_metric = best_r2
+            else:
+                raise ValueError("task_type must be 'classification' or 'regression'")
+
+            if best_model is None:
+                logging.warning(f"No best model found for iteration {i}. Skipping feature importance saving.")
+                continue
+
+            # Save feature importances
+            save_feature_importances(best_model, pd.DataFrame(X_train_selected, columns=selected_features), feature_importances_path)
+
+            features_df = pd.read_csv(feature_importances_path)
+            for feature in features_df['Feature'].values:
+                features_occurrence[feature] = features_occurrence.get(feature, 0) + 1
+        else:
+            print(f"Feature importances already exist for run {i}. Skipping feature selection.")
 
     features_occurrence_df = pd.DataFrame(list(features_occurrence.items()), columns=['Feature', 'Occurrence'])
     features_occurrence_df.sort_values(by='Occurrence', ascending=False, inplace=True)
@@ -841,7 +857,7 @@ def run_feature_selection_iterations(
 def generate_feature_tables(
     model_testing_dir, full_feature_table_file, filter_table_dir, 
     phenotype_column=None, sample_column='strain', cut_offs=[3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50],
-    binary_data=False  # New parameter to control binary conversion
+    binary_data=False, max_features=None, filter_type='strain'
 ):
     """
     Generate and save feature tables based on feature selection results from multiple runs in the main directory.
@@ -875,8 +891,10 @@ def generate_feature_tables(
     features_occurrence_df = pd.DataFrame(list(features_occurrence.items()), columns=['Feature', 'Occurrence'])
     features_occurrence_df.sort_values(by='Occurrence', ascending=False, inplace=True)
 
-    min_features = 10 if interaction_count < 500 else 20
-    max_features = interaction_count / 10 if interaction_count < 500 else interaction_count / 20
+
+    min_features = 5 if interaction_count < 500 else 20
+    if max_features is None:
+        max_features = interaction_count / 10 if interaction_count < 500 else interaction_count / 20
 
     for cut_off in cut_offs:
         features_occurrence_filter = features_occurrence_df[features_occurrence_df['Occurrence'] >= cut_off]
@@ -890,6 +908,10 @@ def generate_feature_tables(
                 id_vars.append('phage')
             if phenotype_column in full_feature_table.columns:
                 id_vars.append(phenotype_column)
+            if filter_type in full_feature_table.columns:
+                id_vars.append(filter_type)
+
+            id_vars = list(set(id_vars))
 
             select_feature_table = full_feature_table[id_vars + select_features]
             select_feature_table = select_feature_table.melt(

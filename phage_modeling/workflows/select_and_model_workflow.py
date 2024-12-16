@@ -11,7 +11,7 @@ def run_modeling_workflow_from_feature_table(
     method='rfe', annotation_table_path=None, protein_id_col="protein_ID",
     feature2cluster_path=None, cluster2protein_path=None, fasta_dir_or_file=None,
     run_predictive_proteins=False, phage_feature2cluster_path=None, phage_cluster2protein_path=None,
-    phage_fasta_dir_or_file=None, task_type='classification', binary_data=False
+    phage_fasta_dir_or_file=None, task_type='classification', binary_data=False, max_features='none'
 ):
     """
     Workflow for feature selection, modeling, and predictive protein extraction starting from a pre-generated full feature table.
@@ -21,7 +21,7 @@ def run_modeling_workflow_from_feature_table(
         output_dir (str): Directory to save results.
         threads (int): Number of threads to use.
         num_features (int): Number of features to select.
-        filter_type (str): Filter type for the input data ('strain', 'phage', 'none').
+        filter_type (str): Filter type for the input data (default: 'none').
         num_runs_fs (int): Number of feature selection iterations.
         num_runs_modeling (int): Number of runs per feature table for modeling.
         sample_column (str): Column name for the sample identifier.
@@ -57,6 +57,7 @@ def run_modeling_workflow_from_feature_table(
 
     # Step 2: Generate feature tables from feature selection results
     print("Step 2: Generating feature tables from feature selection results...")
+    max_features = None if max_features == 'none' else int(max_features)
     filter_table_dir = os.path.join(base_fs_output_dir, 'filtered_feature_tables')
     generate_feature_tables(
         model_testing_dir=base_fs_output_dir,
@@ -64,8 +65,10 @@ def run_modeling_workflow_from_feature_table(
         filter_table_dir=filter_table_dir,
         phenotype_column=phenotype_column,
         sample_column=sample_column,
-        cut_offs=[3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45, 47, 50],
-        binary_data=binary_data
+        cut_offs=[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45, 47, 50],
+        binary_data=binary_data,
+        max_features=max_features,
+        filter_type=filter_type
     )
 
     # Step 3: Modeling
@@ -94,7 +97,7 @@ def run_modeling_workflow_from_feature_table(
         if task_type == 'classification':
             top_cutoff = performance_df.loc[performance_df['MCC'].idxmax(), 'cut_off'].split('_')[-1]
         elif task_type == 'regression':
-            top_cutoff = performance_df.loc[performance_df['R2'].idxmax(), 'cut_off'].split('_')[-1]
+            top_cutoff = performance_df.loc[performance_df['r2'].idxmax(), 'cut_off'].split('_')[-1]
 
         # Define paths based on selected top cutoff
         feature_file_path = os.path.join(base_fs_output_dir, 'filtered_feature_tables', f'select_feature_table_cutoff_{top_cutoff}.csv')
@@ -149,13 +152,14 @@ def main():
     # Feature selection and modeling parameters
     fs_modeling_group = parser.add_argument_group('Feature selection and modeling')
     fs_modeling_group.add_argument('--num_features', type=int, default=100, help='Number of features to select (default: 100).')
-    fs_modeling_group.add_argument('--filter_type', type=str, default='none', help="Filter type for the input data ('none', 'strain', 'phage').")
+    fs_modeling_group.add_argument('--filter_type', type=str, default='none', help="Filter column for the input data.")
     fs_modeling_group.add_argument('--method', type=str, default='rfe', choices=['rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
                                    help="Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).")
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection iterations to run (default: 10).')
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=10, help='Number of runs per feature table for modeling (default: 10).')
     fs_modeling_group.add_argument('--task_type', type=str, default='classification', choices=['classification', 'regression'], help="Specify 'classification' or 'regression' task (default: classification).")
     fs_modeling_group.add_argument('--binary_data', action='store_true', help='If set, converts feature values to binary (1/0); otherwise, continuous values are kept.')
+    fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
 
     # Predictive proteins and annotations
     predictive_proteins_group = parser.add_argument_group('Predictive Proteins and Annotations')
@@ -202,7 +206,8 @@ def main():
         phage_cluster2protein_path=args.phage_cluster2protein_path,
         phage_fasta_dir_or_file=args.phage_fasta_dir_or_file,
         task_type=args.task_type,
-        binary_data=args.binary_data
+        binary_data=args.binary_data,
+        max_features=args.max_features
     )
 
 if __name__ == "__main__":

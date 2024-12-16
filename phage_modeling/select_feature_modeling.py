@@ -12,6 +12,8 @@ import re
 from phage_modeling.feature_selection import load_and_prepare_data, filter_data, train_and_evaluate, grid_search, save_feature_importances, grid_search_regressor, train_and_evaluate_regressor
 import shap
 import matplotlib.pyplot as plt
+import logging
+import gc
 
 # Set environment variables to control threading
 os.environ['OMP_NUM_THREADS'] = '12'
@@ -65,6 +67,9 @@ def plot_custom_shap_beeswarm(shap_values_df, output_dir, prefix=None, binary_da
     shap_plot.save(shap_plot_path)
     print(f"Custom SHAP beeswarm plot saved to {shap_plot_path}")
 
+    del shap_plot, top_20_shap_df, full_shap_values_df_top20
+    gc.collect()
+
 def model_testing_select_MCC(input, output_dir, threads, random_state, task_type='classification', set_filter='none', sample_column=None, phenotype_column=None, binary_data=False):
     """
     Runs a single experiment for feature table, training a CatBoost model with grid search and saving results.
@@ -83,11 +88,15 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
     start_time = time.time()
     
     # Load and prepare data
-    X, y, full_feature_table = load_and_prepare_data(input, sample_column, phenotype_column)
+    X, y, full_feature_table = load_and_prepare_data(input, sample_column, phenotype_column, filter_type=set_filter)
     X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(
         X, y, full_feature_table, set_filter, sample_column=sample_column if sample_column else 'strain', random_state=random_state
     )
     print(f"Training data shape: {X_train.shape}, Testing data shape: {X_test.shape}")
+
+    if X_train is None:
+        logging.info("Skipping this run due to insufficient training data.")
+        return  # Exit this function, skipping further processing for this run
 
     # Define task-specific grid search parameters
     if task_type == 'classification':
@@ -136,7 +145,7 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
     print(f"Best model saved to {best_model_path}")
 
     # Calculate and save SHAP values
-    explainer = shap.TreeExplainer(best_model)
+    explainer = shap.TreeExplainer(best_model, approximate=True)
     shap_values = explainer.shap_values(X_train)
 
     # Save SHAP values as .npy
@@ -146,6 +155,7 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
     
     # Save SHAP values as CSV for each feature
     X_train_sample_ids = X_train_sample_ids.reset_index(drop=True)
+    X_train_sample_ids = X_train_sample_ids.loc[:, ~X_train_sample_ids.columns.duplicated()]
     X_train_df = X_train.copy().reset_index(drop=True)
     X_train_id_columns = list(X_train_sample_ids.columns)
 
@@ -171,6 +181,9 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
 
     # Custom SHAP beeswarm plot using plotnine
     plot_custom_shap_beeswarm(shap_values_df, output_dir, binary_data=binary_data)
+
+    del explainer, shap_values, shap_values_df, X_train_df
+    gc.collect()
 
     end_time = time.time()
     print(f"Total execution time: {end_time - start_time:.2f} seconds")
@@ -244,6 +257,9 @@ def parse_model_predictions_and_performance(model_dir, task_type='classification
             top_models_temp['cut_off'] = cut_off
             model_performance_df = pd.concat([model_performance_df, top_models_temp])
 
+    del predictions_temp, top_models_temp
+    gc.collect()
+
     return model_predictions_df, model_performance_df
 
 def evaluate_model_performance(predictions_file, output_dir, sample_column='strain', phenotype_column='interaction', task_type='classification'):
@@ -264,7 +280,7 @@ def evaluate_model_performance(predictions_file, output_dir, sample_column='stra
     model_predictions_df_full['cut_off'] = model_predictions_df_full['cut_off'].astype(str)
 
     grouping_columns = ['cut_off', sample_column, phenotype_column]
-    if 'phage' in model_predictions_df_full.columns:
+    if 'phage' in model_predictions_df_full.columns and 'phage' not in grouping_columns:
         grouping_columns.insert(2, 'phage')
 
     if task_type == 'classification':
@@ -273,6 +289,9 @@ def evaluate_model_performance(predictions_file, output_dir, sample_column='stra
         evaluate_regressor_performance(model_predictions_df_full, model_performance_dir, grouping_columns, phenotype_column)
     else:
         raise ValueError("Invalid task_type. Must be 'classification' or 'regression'.")
+
+    del model_predictions_df_full
+    gc.collect()
 
 def evaluate_classifier_performance(df, model_performance_dir, grouping_columns, phenotype_column):
     """
@@ -326,6 +345,9 @@ def evaluate_classifier_performance(df, model_performance_dir, grouping_columns,
     plot_classifier_performance(roc_df, pr_df, model_performance_dir)
     metrics_df.to_csv(os.path.join(model_performance_dir, 'model_performance_metrics.csv'), index=False)
 
+    del metrics_list, roc_list, pr_list, metrics_df, roc_df, pr_df
+    gc.collect()
+
 def evaluate_regressor_performance(df, model_performance_dir, grouping_columns, phenotype_column):
     """
     Evaluates regressor performance and generates comparison plots for predicted vs. actual values.
@@ -360,6 +382,9 @@ def evaluate_regressor_performance(df, model_performance_dir, grouping_columns, 
     plot_regressor_performance(comparison_df, model_performance_dir)
     metrics_df.to_csv(os.path.join(model_performance_dir, 'model_performance_metrics.csv'), index=False)
 
+    del metrics_list, comparison_list, metrics_df, comparison_df
+    gc.collect()
+
 def plot_classifier_performance(roc_df, pr_df, model_performance_dir):
     """
     Plots and saves classifier performance graphs including ROC and PR curves.
@@ -385,6 +410,8 @@ def plot_classifier_performance(roc_df, pr_df, model_performance_dir):
         theme(figure_size=(5, 4))
     )
     pr_curve_plot.save(os.path.join(model_performance_dir, 'pr_curve.png'))
+    del roc_curve_plot, pr_curve_plot
+    gc.collect()
 
 def plot_regressor_performance(comparison_df, model_performance_dir):
     """
@@ -403,6 +430,8 @@ def plot_regressor_performance(comparison_df, model_performance_dir):
         theme(figure_size=(6, 6))
     )
     regressor_plot.save(os.path.join(model_performance_dir, 'predicted_vs_actual_comparison.png'))
+    del regressor_plot
+    gc.collect()
 
 def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='classification', set_filter='none', sample_column='strain', phenotype_column='interaction', binary_data=False):
     """
@@ -420,91 +449,122 @@ def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='cl
         binary_data (bool): If True, plot SHAP jitter plot with binary data.
     """
     start_total_time = time.time()
-    feature_tables = os.listdir(input_dir)
+    if os.path.isdir(input_dir):
+        feature_tables = os.listdir(input_dir)
+    else:
+        feature_tables = [os.path.basename(input_dir)]
 
     for feature_table in feature_tables:
-        feature_table_path = os.path.join(input_dir, feature_table)
+        if os.path.isdir(input_dir):
+            feature_table_path = os.path.join(input_dir, feature_table)
+        else:
+            feature_table_path = input_dir
         
         # Use the extract_cutoff_from_filename to generate the directory name
-        cutoff_value = extract_cutoff_from_filename(feature_table)
-        model_output_dir = os.path.join(base_output_dir, f'cutoff_{cutoff_value}')
-
-        if not os.path.exists(model_output_dir):
-            os.makedirs(model_output_dir)
-
-        top_models_df = pd.DataFrame()
-        top_models_shap_df = pd.DataFrame()
-
-        for i in tqdm(range(num_runs), desc=f"Running Experiments for cutoff {cutoff_value}"):
-            output_dir = os.path.join(model_output_dir, f'run_{i}')
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-            random_state = i
-
-            model_performance_path = os.path.join(output_dir, 'model_performance.csv')
-            if not os.path.exists(model_performance_path):
-                model_testing_select_MCC(
-                    input=feature_table_path,
-                    output_dir=output_dir,
-                    threads=threads,
-                    random_state=random_state,
-                    task_type=task_type,
-                    set_filter=set_filter,
-                    sample_column=sample_column,
-                    phenotype_column=phenotype_column,
-                    binary_data=binary_data
-                )
-
-            # Load model performance data for the best model selection
-            if os.path.exists(model_performance_path):
-                run_results = pd.read_csv(model_performance_path)
-                # Select the best metric based on task type
-                if task_type == 'classification':
-                    top_model = run_results.nlargest(1, 'mcc')
-                elif task_type == 'regression':
-                    top_model = run_results.nlargest(1, 'r2')
-                top_models_df = pd.concat([top_models_df, top_model])
-
-            # Load SHAP values for each run if available
-            shap_values_csv_path = os.path.join(output_dir, "shap_importances.csv")
-            if os.path.exists(shap_values_csv_path):
-                shap_values_temp = pd.read_csv(shap_values_csv_path)
-                shap_values_temp = shap_values_temp.groupby(['feature', 'value']).agg({'shap_value': 'median'}).reset_index()
-                top_models_shap_df = pd.concat([top_models_shap_df, shap_values_temp])
-
-        # Generate SHAP summary plot for the top models
-        model_performance_dir = os.path.join(base_output_dir, 'model_performance')
-        os.makedirs(model_performance_dir, exist_ok=True)
-
-        plot_custom_shap_beeswarm(top_models_shap_df, model_performance_dir, prefix=f'cutoff_{cutoff_value}', binary_data=binary_data)
-
-        # Save top models summary for each cutoff
+        if 'cutoff' in feature_table:
+            cutoff_value = extract_cutoff_from_filename(feature_table)
+            model_output_dir = os.path.join(base_output_dir, f'cutoff_{cutoff_value}')
+        else:
+            cutoff_value = feature_table.split('/')[-1].split('.')[0]
+            model_output_dir = os.path.join(base_output_dir, cutoff_value)
+        
+        print(cutoff_value)
         top_models_summary_path = os.path.join(model_output_dir, 'top_models_summary.csv')
-        top_models_df.to_csv(top_models_summary_path, index=False)
-        print(f"Top models saved to {top_models_summary_path}")
+
+        if not os.path.exists(top_models_summary_path):
+            if not os.path.exists(model_output_dir):
+                os.makedirs(model_output_dir)
+
+            top_models_df = pd.DataFrame()
+            top_models_shap_df = pd.DataFrame()
+
+            for i in tqdm(range(num_runs), desc=f"Running Experiments for cutoff {cutoff_value}"):
+                output_dir = os.path.join(model_output_dir, f'run_{i}')
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+                random_state = i
+
+                model_performance_path = os.path.join(output_dir, 'model_performance.csv')
+                if not os.path.exists(model_performance_path):
+                    model_testing_select_MCC(
+                        input=feature_table_path,
+                        output_dir=output_dir,
+                        threads=threads,
+                        random_state=random_state,
+                        task_type=task_type,
+                        set_filter=set_filter,
+                        sample_column=sample_column,
+                        phenotype_column=phenotype_column,
+                        binary_data=binary_data
+                    )
+                else:
+                    logging.info(f"Model performance already saved to {model_performance_path}")
+
+                # Load model performance data for the best model selection
+                if os.path.exists(model_performance_path):
+                    run_results = pd.read_csv(model_performance_path)
+                    # Select the best metric based on task type
+                    if task_type == 'classification':
+                        top_model = run_results.nlargest(1, 'mcc')
+                    elif task_type == 'regression':
+                        top_model = run_results.nlargest(1, 'r2')
+                    top_models_df = pd.concat([top_models_df, top_model])
+
+                # Load SHAP values for each run if available
+                shap_values_csv_path = os.path.join(output_dir, "shap_importances.csv")
+                if os.path.exists(shap_values_csv_path):
+                    shap_values_temp = pd.read_csv(shap_values_csv_path)
+                    shap_values_temp = shap_values_temp.groupby(['feature', 'value']).agg({'shap_value': 'median'}).reset_index()
+                    top_models_shap_df = pd.concat([top_models_shap_df, shap_values_temp])
+
+            # Generate SHAP summary plot for the top models
+            model_performance_dir = os.path.join(base_output_dir, 'model_performance')
+            os.makedirs(model_performance_dir, exist_ok=True)
+
+            plot_custom_shap_beeswarm(top_models_shap_df, model_performance_dir, prefix=f'cutoff_{cutoff_value}', binary_data=binary_data)
+
+            # Save top models summary for each cutoff
+            top_models_df.to_csv(top_models_summary_path, index=False)
+            print(f"Top models saved to {top_models_summary_path}")
+
+            del top_models_df, top_models_shap_df
+            gc.collect()
+        else:
+            logging.info(f"Top models summary already saved to {top_models_summary_path}")
 
     # After running all experiments, parse the predictions and performance
     model_predictions_output = os.path.join(base_output_dir, 'select_features_model_predictions.csv')
-    
-    # Parse all predictions from the run directories
-    model_predictions_df, model_performance_df = parse_model_predictions_and_performance(base_output_dir, task_type)
-
-    # Save parsed predictions and performance data
-    model_predictions_df.to_csv(model_predictions_output, index=False)
     model_performance_output = os.path.join(base_output_dir, 'select_features_model_performance.csv')
-    model_performance_df.to_csv(model_performance_output, index=False)
 
-    print(f"Model predictions saved to {model_predictions_output}")
-    print(f"Model performance saved to {model_performance_output}")
+    if not os.path.exists(model_performance_output):
+        logging.info("Parsing model predictions and performance data...")
+        # Parse all predictions from the run directories
+        model_predictions_df, model_performance_df = parse_model_predictions_and_performance(base_output_dir, task_type)
 
-    # Now evaluate model performance and generate performance plots, depending on task type
-    evaluate_model_performance(
-        predictions_file=model_predictions_output,
-        output_dir=base_output_dir,
-        sample_column=sample_column,
-        phenotype_column=phenotype_column,
-        task_type=task_type
-    )
+        # Save parsed predictions and performance data
+        model_predictions_df.to_csv(model_predictions_output, index=False)
+        model_performance_df.to_csv(model_performance_output, index=False)
+        
+        logging.info(f"Model predictions saved to {model_predictions_output}")
+        logging.info(f"Model performance saved to {model_performance_output}")
+
+        del model_predictions_df, model_performance_df
+        gc.collect()
+    else:
+        logging.info(f"Model predictions and performance already saved to {model_predictions_output} and {model_performance_output}")
+
+    model_metrics_path = os.path.join(base_output_dir, 'model_performance', 'model_performance_metrics.csv')
+    if not os.path.exists(model_metrics_path):
+        # Now evaluate model performance and generate performance plots, depending on task type
+        evaluate_model_performance(
+            predictions_file=model_predictions_output,
+            output_dir=base_output_dir,
+            sample_column=sample_column,
+            phenotype_column=phenotype_column,
+            task_type=task_type
+        )
+    else:
+        logging.info(f"Model performance metrics already saved to {model_metrics_path}")
 
     end_total_time = time.time()
     print(f"All experiments completed in {end_total_time - start_total_time:.2f} seconds.")

@@ -25,9 +25,10 @@ def run_predictive_proteins_workflow(
     output_fasta="predictive_AA_seqs.faa", 
     protein_id_col="protein_ID",
     annotation_table_path=None,  # Annotation table is optional
-    feature_assignments_path=None,  # New argument for feature assignments
+    feature_assignments_path=None, # Feature assignments are optional
     strain_column='strain',  # Column to use for strain
-    feature_type='strain'  # Default feature type
+    feature_type='strain',  # Default feature type
+    phenotype_column='interaction'  # Default phenotype column
 ):
     """
     Runs the full workflow to retrieve predictive proteins, optionally merge with annotation table, filter AA sequences, 
@@ -46,6 +47,7 @@ def run_predictive_proteins_workflow(
         feature_assignments_path (str, optional): Path to feature assignments CSV file for merging strain information.
         strain_column (str): Column to use for strain information (default: 'strain').
         feature_type (str): Type of features to extract ('strain' or 'phage').
+        phenotype_column (str): Column name for the phenotype or target variable (default: 'interaction').
 
     Returns:
         None
@@ -55,7 +57,7 @@ def run_predictive_proteins_workflow(
 
     # Step 1: Get predictive features
     logging.info("Step 1: Extracting predictive features.")
-    select_features = get_predictive_features(feature_file_path, feature_type=feature_type)
+    select_features = get_predictive_features(feature_file_path, feature_type=feature_type, sample_column=strain_column, phenotype_column=phenotype_column)
 
     # Step 2: Get predictive proteins based on selected features
     logging.info("Step 2: Retrieving predictive proteins.")
@@ -131,6 +133,7 @@ def main():
     parser.add_argument('--feature_assignments_path', help="Path to feature assignments CSV file for merging strain information.")
     parser.add_argument('--strain_column', default='strain', help="Column to use for strain information (default: 'strain').")
     parser.add_argument('--feature_type', default='strain', help="Type of features to extract ('strain' or 'phage').")
+    parser.add_argument('--phenotype_column', default='interaction', help="Column name for the phenotype or target variable.")
 
     args = parser.parse_args()
 
@@ -147,7 +150,8 @@ def main():
         annotation_table_path=args.annotation_table_path,
         feature_assignments_path=args.feature_assignments_path,  # Optional
         strain_column=args.strain_column,
-        feature_type=args.feature_type
+        feature_type=args.feature_type,
+        phenotype_column=args.phenotype_column
     )
 
 if __name__ == "__main__":

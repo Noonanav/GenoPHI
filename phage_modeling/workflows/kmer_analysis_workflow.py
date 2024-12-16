@@ -41,7 +41,7 @@ def kmer_analysis_workflow(
         Segment plots and coverage summaries in the specified output directory.
     """
     # Step 1: Load amino acid sequences
-    aa_sequences_df = load_aa_sequences(aa_sequence_file, feature_type)
+    aa_sequences_df = load_aa_sequences(aa_sequence_file)
     aa_sequences_df.to_csv(os.path.join(output_dir, 'aa_sequences_df.csv'), index=False)
     print('Printing aa_sequences_df')
     print(aa_sequences_df.head())
@@ -74,13 +74,16 @@ def kmer_analysis_workflow(
     for family_name, family_group in protein_families_df.groupby("protein_family"):
         seqs_for_family = [(row["protein_ID"], row["sequence"]) for _, row in family_group.iterrows()]
         
-        # Align and process each family separately
+        if not seqs_for_family or len(seqs_for_family) < 2:
+            logging.warning(f"Skipping protein family {family_name}: Insufficient sequences for alignment.")
+            continue
+
         aligned_family_df = align_sequences(seqs_for_family, output_dir, family_name)
-        
-        # Merge alignment results with the main kmer data
+        if aligned_family_df.empty:
+            logging.warning(f"Skipping protein family {family_name}: Alignment failed or not performed.")
+            continue
+
         aligned_family_df['protein_family'] = family_name
-        # aligned_family_df = aligned_family_df.merge(kmer_full_df[['Feature', 'cluster', 'protein_ID', 'kmer']],
-        #                                             on='protein_ID', how='inner')
         aligned_df = pd.concat([aligned_df, aligned_family_df], ignore_index=True)
 
     print('Printing aligned_df')
@@ -103,11 +106,15 @@ def kmer_analysis_workflow(
     final_segments_df = merge_no_coverage_proteins(segments_df, aligned_df)
     
     # Step 7: Plot segments with optional annotations
-    if annotation_file:
-        logging.info(f"Merging protein_families_df with annotation data from {annotation_file}")
-        annotation_df = pd.read_csv(annotation_file)
-        protein_families_annotated_df = protein_families_df.merge(annotation_df, on='protein_ID', how='left')
-        protein_families_annotated_df.to_csv(os.path.join(output_dir, 'protein_families_annotated.csv'), index=False)
+    # if annotation_file:
+    #     logging.info(f"Merging protein_families_df with annotation data from {annotation_file}")
+    #     annotation_df = pd.read_csv(annotation_file)
+    #     # protein_families_annotated_df = protein_families_df.merge(annotation_df, on='protein_family', how='left')
+    #     # protein_families_annotated_df.to_csv(os.path.join(output_dir, 'protein_families_annotated.csv'), index=False)
+
+    #     final_segments_df = final_segments_df.merge(annotation_df, on='protein_family', how='left')
+    #     final_segments_df['protein_family'] = final_segments_df['protein_family'] + ' - ' + final_segments_df['annotation_overview']
+    #     final_segments_df = final_segments_df.drop(columns=['Feature', 'annotation_overview'])
     
     logging.info(f"Plotting segments in {output_dir}")
     plot_segments(final_segments_df, output_dir)
