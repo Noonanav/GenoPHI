@@ -127,7 +127,7 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
     return X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
 
 # Function to perform Recursive Feature Elimination (RFE)
-def perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type='classification'):
+def perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type='classification', max_ram=8):
     """
     Performs Recursive Feature Elimination (RFE) to select the top features.
 
@@ -154,7 +154,8 @@ def perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type='
             depth=4,
             verbose=10,
             thread_count=threads,
-            train_dir=os.path.join(output_dir, '..', 'catboost_info')
+            train_dir=os.path.join(output_dir, '..', 'catboost_info'),
+            used_ram_limit=f"{max_ram}gb"  # Set the RAM limit
         )
     elif task_type == 'regression':
         model = CatBoostRegressor(
@@ -163,7 +164,8 @@ def perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type='
             depth=4,
             verbose=10,
             thread_count=threads,
-            train_dir=os.path.join(output_dir, '..', 'catboost_info')
+            train_dir=os.path.join(output_dir, '..', 'catboost_info'),
+            used_ram_limit=f"{max_ram}gb"  # Set the RAM limit
         )
     else:
         raise ValueError("task_type must be 'classification' or 'regression'")
@@ -179,7 +181,7 @@ def perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type='
     
     return rfe, selected_features
 
-def shap_rfe(X_train, y_train, num_features, threads, task_type='classification'):
+def shap_rfe(X_train, y_train, num_features, threads, task_type='classification', max_ram=8):
     """
     Performs Recursive Feature Elimination (RFE) based on SHAP feature importances.
 
@@ -205,7 +207,8 @@ def shap_rfe(X_train, y_train, num_features, threads, task_type='classification'
             learning_rate=0.1,
             depth=4,
             verbose=0,
-            thread_count=threads
+            thread_count=threads,
+            used_ram_limit=f"{max_ram}gb"  # Set the RAM limi
         )
     elif task_type == 'regression':
         model = CatBoostRegressor(
@@ -213,7 +216,8 @@ def shap_rfe(X_train, y_train, num_features, threads, task_type='classification'
             learning_rate=0.1,
             depth=4,
             verbose=0,
-            thread_count=threads
+            thread_count=threads,
+            used_ram_limit=f"{max_ram}gb"  # Set the RAM limi
         )
     else:
         raise ValueError("task_type must be 'classification' or 'regression'")
@@ -354,7 +358,7 @@ def lasso_feature_selection(X_train, y_train, num_features, task_type='classific
     print(f"Lasso selected {len(selected_features)} features.")
     return X_train_selected, selected_features
 
-def shap_feature_selection(X_train, y_train, num_features, threads, task_type='classification'):
+def shap_feature_selection(X_train, y_train, num_features, threads, task_type='classification', max_ram=8):
     """
     Selects top features based on SHAP values for classification or regression.
 
@@ -371,9 +375,9 @@ def shap_feature_selection(X_train, y_train, num_features, threads, task_type='c
     """
     # Choose the model based on the task type
     if task_type == 'classification':
-        model = CatBoostClassifier(iterations=500, learning_rate=0.1, depth=4, verbose=0, thread_count=threads)
+        model = CatBoostClassifier(iterations=500, learning_rate=0.1, depth=4, verbose=0, thread_count=threads, used_ram_limit=f"{max_ram}gb")
     elif task_type == 'regression':
-        model = CatBoostRegressor(iterations=500, learning_rate=0.1, depth=4, verbose=0, thread_count=threads)
+        model = CatBoostRegressor(iterations=500, learning_rate=0.1, depth=4, verbose=0, thread_count=threads, used_ram_limit=f"{max_ram}gb")
     else:
         raise ValueError("task_type must be 'classification' or 'regression'")
     
@@ -392,7 +396,7 @@ def shap_feature_selection(X_train, y_train, num_features, threads, task_type='c
     print(f"SHAP selected {len(selected_features)} features.")
     return X_train[selected_features], selected_features
 
-def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir):
+def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir, max_ram=8):
     """
     Train a CatBoost model and evaluate it on the test set.
 
@@ -413,7 +417,7 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir):
     """
     # Setting up CatBoost's training directory
     train_dir = os.path.join(output_dir, '..', 'catboost_info')
-    model = CatBoostClassifier(**params, train_dir=train_dir)
+    model = CatBoostClassifier(**params, train_dir=train_dir, used_ram_limit=f"{max_ram}gb")
 
     print(f"Training with parameters: {params}")
     
@@ -432,7 +436,7 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir):
 
     return model, accuracy, f1, mcc, y_pred
 
-def train_and_evaluate_regressor(X_train, y_train, X_test, y_test, params, output_dir):
+def train_and_evaluate_regressor(X_train, y_train, X_test, y_test, params, output_dir, max_ram=8):
     """
     Train a CatBoost regressor and evaluate it on the test set.
 
@@ -451,7 +455,7 @@ def train_and_evaluate_regressor(X_train, y_train, X_test, y_test, params, outpu
         y_pred (array): Predictions on the test set.
     """
     train_dir = os.path.join(output_dir, '..', 'catboost_info')
-    model = CatBoostRegressor(**params, train_dir=train_dir)
+    model = CatBoostRegressor(**params, train_dir=train_dir, used_ram_limit=f"{max_ram}gb")
 
     print(f"Training regressor with parameters: {params}")
     
@@ -470,7 +474,7 @@ def train_and_evaluate_regressor(X_train, y_train, X_test, y_test, params, outpu
     return model, mse, r2, y_pred
 
 # Function to perform grid search
-def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column='interaction'):
+def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column='interaction', max_ram=8):
     """
     Performs grid search to find the best hyperparameters for CatBoost.
 
@@ -500,7 +504,7 @@ def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid,
     print("Starting grid search...")
     for idx, params in enumerate(itertools.product(*param_grid.values()), start=1):
         params = dict(zip(param_grid.keys(), params))
-        model, accuracy, f1, mcc, y_pred = train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir)
+        model, accuracy, f1, mcc, y_pred = train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir, max_ram=max_ram)
         
         results.append({**params, 'accuracy': accuracy, 'f1_score': f1, 'mcc': mcc})
         
@@ -530,7 +534,7 @@ def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid,
     
     return best_model, best_params, best_mcc
 
-def grid_search_regressor(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column='interaction'):
+def grid_search_regressor(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column='interaction', max_ram=8):
     """
     Performs grid search to find the best hyperparameters for CatBoost regression.
 
@@ -560,7 +564,7 @@ def grid_search_regressor(X_train, y_train, X_test, y_test, X_test_sample_ids, p
     print("Starting grid search for regression...")
     for idx, params in enumerate(itertools.product(*param_grid.values()), start=1):
         params = dict(zip(param_grid.keys(), params))
-        model, mse, r2, y_pred = train_and_evaluate_regressor(X_train, y_train, X_test, y_test, params, output_dir)
+        model, mse, r2, y_pred = train_and_evaluate_regressor(X_train, y_train, X_test, y_test, params, output_dir, max_ram=max_ram)
         
         # Save performance results for this iteration
         results.append({**params, 'mse': mse, 'r2': r2})
@@ -755,7 +759,9 @@ def save_feature_importances(best_model, selected_features, feature_importances_
     logging.info(f"Feature importances saved to {feature_importances_path}")
 
 def run_feature_selection_iterations(
-    input_path, base_output_dir, threads, num_features, filter_type, num_runs, select_cols=False, sample_column='strain', phenotype_column=None, method='rfe', task_type='classification'
+    input_path, base_output_dir, threads, num_features, 
+    filter_type, num_runs, select_cols=False, sample_column='strain', 
+    phenotype_column=None, method='rfe', task_type='classification', max_ram=8
 ):
     """
     Runs multiple iterations of feature selection, saves the results in `run_*` directories, and tracks feature occurrences.
@@ -772,6 +778,7 @@ def run_feature_selection_iterations(
         phenotype_column (str): Column name for the phenotype (if using selected columns).
         method (str): Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
         task_type (str): Task type ('classification' or 'regression').
+        max_ram (int): Maximum RAM to use for CatBoost training.
     """
     
     if not os.path.exists(base_output_dir):
@@ -798,9 +805,9 @@ def run_feature_selection_iterations(
 
             # Apply selected feature selection method
             if method == 'rfe':
-                _, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type=task_type)
+                _, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type=task_type, max_ram=max_ram)
             elif method == 'shap_rfe':
-                X_train, selected_features = shap_rfe(X_train, y_train, num_features, threads, task_type=task_type)
+                X_train, selected_features = shap_rfe(X_train, y_train, num_features, threads, task_type=task_type, max_ram=max_ram)
             elif method == 'select_k_best':
                 X_train, selected_features = select_k_best_feature_selection(X_train, y_train, num_features, task_type=task_type)
             elif method == 'chi_squared' and task_type == 'classification':
@@ -808,7 +815,7 @@ def run_feature_selection_iterations(
             elif method == 'lasso':
                 X_train, selected_features = lasso_feature_selection(X_train, y_train, num_features, task_type=task_type)
             elif method == 'shap':
-                X_train, selected_features = shap_feature_selection(X_train, y_train, num_features, threads, task_type=task_type)
+                X_train, selected_features = shap_feature_selection(X_train, y_train, num_features, threads, task_type=task_type, max_ram=max_ram)
             else:
                 raise ValueError(f"Unsupported feature selection method: {method} or incompatible task_type.")
 
@@ -824,11 +831,11 @@ def run_feature_selection_iterations(
 
             if task_type == 'classification':
                 param_grid['loss_function'] = ['Logloss']
-                best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column)
+                best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column, max_ram=max_ram)
                 best_metric = best_mcc
             elif task_type == 'regression':
                 param_grid['loss_function'] = ['RMSE']
-                best_model, best_params, best_r2 = grid_search_regressor(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column)
+                best_model, best_params, best_r2 = grid_search_regressor(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column, max_ram=max_ram)
                 best_metric = best_r2
             else:
                 raise ValueError("task_type must be 'classification' or 'regression'")

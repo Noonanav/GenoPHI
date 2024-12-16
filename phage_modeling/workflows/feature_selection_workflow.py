@@ -23,7 +23,7 @@ def check_method_task_type_compatibility(method, task_type):
 
 def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_features=500, filter_type='none', 
                                    num_runs=50, method='rfe', task_type='classification', phenotype_column=None, 
-                                   sample_column='strain', binary_data=False, max_features='none'):
+                                   sample_column='strain', binary_data=False, max_features='none', max_ram=8):
     """
     Workflow for running feature selection iterations and generating feature tables.
 
@@ -59,7 +59,8 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
         method=method,
         phenotype_column=phenotype_column,
         sample_column=sample_column,
-        task_type=task_type
+        task_type=task_type,
+        max_ram=max_ram,
     )
     
     # Generate feature tables based on the results
@@ -95,6 +96,7 @@ def main():
     parser.add_argument('--sample_column', type=str, default='strain', help='Optional column name for sample identifiers.')
     parser.add_argument('--binary_data', action='store_true', help='If set, converts feature values to binary (1/0); otherwise, continuous values are kept.')
     parser.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
+    parser.add_argument('--max_ram', type=int, default=8, help='Maximum amount of RAM to use in GB.')
 
     args = parser.parse_args()
 
@@ -111,7 +113,8 @@ def main():
         phenotype_column=args.phenotype_column,
         sample_column=args.sample_column,
         binary_data=args.binary_data,
-        max_features=args.max_features
+        max_features=args.max_features,
+        max_ram=args.max_ram
     )
 
 if __name__ == "__main__":

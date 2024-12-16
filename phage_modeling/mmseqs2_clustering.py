@@ -2,6 +2,8 @@ import os
 import pandas as pd
 import subprocess
 import logging
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from Bio import SeqIO
 from collections import defaultdict
 
@@ -371,7 +373,8 @@ def compare_cluster_and_search_results(clusters_tsv, best_hits_tsv, output_dir):
 # Additional script functions
 def filter_presence_absence(presence_absence, select, select_column):
     """
-    Filters the presence-absence matrix based on a selected strain list.
+    Filters the presence-absence matrix based on a selected strain list and removes clusters
+    present in only one genome.
 
     Args:
         presence_absence (DataFrame): The presence-absence matrix.
@@ -382,13 +385,26 @@ def filter_presence_absence(presence_absence, select, select_column):
         DataFrame: Filtered presence-absence matrix.
     """
     logging.info("Filtering presence-absence table...")
-    select_df = pd.read_csv(select)
-    select_list = list(set(select_df[select_column].tolist()))
-    presence_absence = presence_absence[presence_absence['Genome'].isin(select_list)]
-    
+
+    # Filter by strain list if provided
+    if select:
+        select_df = pd.read_csv(select)
+        select_list = list(set(select_df[select_column].tolist()))
+        presence_absence = presence_absence[presence_absence['Genome'].isin(select_list)]
+        logging.info(f"Filtered to {len(select_list)} selected genomes.")
+
+    # Remove clusters present in only one genome
+    cluster_counts = presence_absence.iloc[:, 1:].sum(axis=0)  # Sum across rows for each cluster
+    valid_clusters = cluster_counts[cluster_counts > 1].index  # Keep clusters with counts > 1
+    all_cols = len(presence_absence.columns)
+    presence_absence = presence_absence[['Genome'] + list(valid_clusters)]
+    logging.info(f"Removed {all_cols - len(valid_clusters) - 1} clusters present in only one genome.")
+
+    # Remove columns with all zeros
     all_cols = len(presence_absence.columns)
     presence_absence = presence_absence.loc[:, (presence_absence != 0).any(axis=0)]
-    logging.info(f"Removed {all_cols - len(presence_absence.columns) - 1} columns with all zeros")
+    logging.info(f"Removed {all_cols - len(presence_absence.columns)} columns with all zeros.")
+
     return presence_absence
 
 def get_genome_assignments_tables(presence_absence, genome_column_name):
@@ -408,34 +424,69 @@ def get_genome_assignments_tables(presence_absence, genome_column_name):
     genome_assignments = genome_assignments[genome_assignments['Presence'] == 1]
     return genome_assignments.drop(columns=["Presence"])
 
-def feature_selection_optimized(presence_absence, source, genome_column_name):
+def feature_selection_optimized(presence_absence, source, genome_column_name, max_ram=8, threads=4):
     """
-    Optimizes feature selection by identifying perfect co-occurrence of features.
+    Optimizes feature selection by identifying perfect co-occurrence of features, using multithreading.
 
     Args:
         presence_absence (DataFrame): The presence-absence matrix.
         source (str): A prefix for naming the selected features.
         genome_column_name (str): The column name that contains genome information (e.g., 'strain' or 'phage').
+        max_ram (float): Maximum allowable RAM usage in GB for the operation.
+        threads (int): Number of threads to use for parallel processing.
 
     Returns:
         DataFrame: Optimized feature selection results.
     """
-    logging.info("Optimizing feature selection...")
+    logging.info("Optimizing feature selection using multithreading...")
 
-    # Set index using the genome_column_name instead of 'Genome'
+    # Set index using the genome_column_name
     presence_absence.set_index(genome_column_name, inplace=True)
-    
+
+    # Estimate memory usage per column
+    single_column_memory = presence_absence.iloc[:, 0].astype(bool).memory_usage(deep=True)
+    boolean_matrix_memory = single_column_memory * len(presence_absence.columns)
+    logging.info(f"Estimated total memory usage for boolean matrix: {boolean_matrix_memory / (1024 ** 3):.2f} GB")
+
+    # Dynamically calculate chunk size based on max_ram in GB
+    max_ram_bytes = max_ram * (1024 ** 3)  # Convert GB to bytes
+    chunk_size = max(1, int(max_ram_bytes / single_column_memory))
+    logging.info(f"Setting dynamic chunk size: {chunk_size} columns per chunk based on max_ram={max_ram} GB")
+
     boolean_matrix = presence_absence.astype(bool)
-    perfect_cooccurrence = {col: set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()]) for col in boolean_matrix.columns}
-    
+    columns = list(boolean_matrix.columns)
+    total_columns = len(columns)
+
+    # Divide columns into chunks
+    column_chunks = np.array_split(columns, max(threads, total_columns // chunk_size))
+    logging.info(f"Total features to process: {total_columns}. Divided into {len(column_chunks)} chunks.")
+
+    def process_chunk(chunk):
+        """Processes a chunk of columns and computes co-occurrence."""
+        chunk_cooccurrence = {}
+        for col in chunk:
+            chunk_cooccurrence[col] = set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()])
+        return chunk_cooccurrence
+
+    # Process chunks in parallel
+    perfect_cooccurrence = {}
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        results = executor.map(process_chunk, column_chunks)
+        for result in results:
+            perfect_cooccurrence.update(result)
+
+    # Identify unique clusters across all chunks
     unique_clusters = []
     seen = set()
     for cluster in perfect_cooccurrence.values():
         if not cluster.intersection(seen):
             unique_clusters.append(list(cluster))
         seen.update(cluster)
-    
+
+    # Prepare output
     data = [(f"{source[0]}c_{idx}", cluster) for idx, cluster_group in enumerate(unique_clusters) for cluster in cluster_group]
+    logging.info(f"Feature selection completed with {len(unique_clusters)} unique clusters.")
+
     return pd.DataFrame(data, columns=["Feature", "Cluster_Label"])
 
 def feature_assignment(genome_assignments, selected_features, genome_column_name):
@@ -524,7 +575,7 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
     if compare:
         compare_cluster_and_search_results(clusters_tsv, best_hits_tsv, output_dir)
 
-def run_feature_assignment(input_file, output_dir, source='strain', select='none', select_column='strain', input_type='directory'):
+def run_feature_assignment(input_file, output_dir, source='strain', select='none', select_column='strain', input_type='directory', max_ram=8, threads=4):
     """
     Runs the feature assignment workflow from the presence-absence matrix.
     
@@ -573,7 +624,7 @@ def run_feature_assignment(input_file, output_dir, source='strain', select='none
     genome_assignments = get_genome_assignments_tables(presence_absence, genome_column_name)
 
     # Pass the correct genome column name to feature_selection_optimized
-    selected_features = feature_selection_optimized(presence_absence, source, genome_column_name)
+    selected_features = feature_selection_optimized(presence_absence, source, genome_column_name, max_ram=max_ram, threads=threads)
 
     # Save the selected features and feature assignments
     selected_features_path = os.path.join(output_dir, 'selected_features.csv')

@@ -24,6 +24,7 @@ setup(
         'joblib',  # For saving and loading models
         'plotnine',  # For ggplot-style plotting
         'shap',  # For SHAP-based feature selection
+        'psutil',  # For monitoring system resources
     ],
     entry_points={
         'console_scripts': [

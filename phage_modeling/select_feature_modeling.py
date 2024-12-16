@@ -70,7 +70,7 @@ def plot_custom_shap_beeswarm(shap_values_df, output_dir, prefix=None, binary_da
     del shap_plot, top_20_shap_df, full_shap_values_df_top20
     gc.collect()
 
-def model_testing_select_MCC(input, output_dir, threads, random_state, task_type='classification', set_filter='none', sample_column=None, phenotype_column=None, binary_data=False):
+def model_testing_select_MCC(input, output_dir, threads, random_state, task_type='classification', set_filter='none', sample_column=None, phenotype_column=None, binary_data=False, max_ram=8):
     """
     Runs a single experiment for feature table, training a CatBoost model with grid search and saving results.
 
@@ -108,7 +108,7 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
             'thread_count': [threads]
         }
         best_model, best_params, best_mcc = grid_search(
-            X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column
+            X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column, max_ram=max_ram
         )
         best_metric = best_mcc
 
@@ -121,7 +121,7 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
             'thread_count': [threads]
         }
         best_model, best_params, best_r2 = grid_search_regressor(
-            X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column
+            X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column, max_ram=max_ram
         )
         best_metric = best_r2
 
@@ -304,7 +304,7 @@ def evaluate_classifier_performance(df, model_performance_dir, grouping_columns,
         phenotype_column (str): Column name for the phenotype.
     """
     # Calculate average prediction and confidence per group
-    df_calcs = df.groupby(grouping_columns).agg({'Prediction': 'mean', 'Confidence': 'mean'}).reset_index()
+    df_calcs = df.groupby(grouping_columns).agg({'Prediction': 'median', 'Confidence': 'median'}).reset_index()
     df_calcs['Prediction'] = (df_calcs['Confidence'] > 0.5).astype(int)
 
     def calculate_metrics(df):
@@ -338,7 +338,9 @@ def evaluate_classifier_performance(df, model_performance_dir, grouping_columns,
         pr_list.append(pr_df)
 
     metrics_df = pd.DataFrame(metrics_list)
-    metrics_df = metrics_df.sort_values('MCC', ascending=False)
+    metrics_df['cutoff_int'] = metrics_df['cut_off'].str.split('_').str[-1].astype(int)
+    metrics_df = metrics_df.sort_values(['MCC', 'cutoff_int'], ascending=[False, True])
+    metrics_df = metrics_df.drop('cutoff_int', axis=1)
     roc_df = pd.concat(roc_list).reset_index(drop=True)
     pr_df = pd.concat(pr_list).reset_index(drop=True)
 
@@ -376,6 +378,9 @@ def evaluate_regressor_performance(df, model_performance_dir, grouping_columns, 
         comparison_list.append(comparison_df)
 
     metrics_df = pd.DataFrame(metrics_list)
+    metrics_df['cutoff_int'] = metrics_df['cut_off'].str.split('_').str[-1].astype(int)
+    metrics_df = metrics_df.sort_values(['r2', 'cutoff_int'], ascending=[False, True])
+    metrics_df = metrics_df.drop('cutoff_int', axis=1)
     metrics_df = metrics_df.sort_values('r2', ascending=False)
     comparison_df = pd.concat(comparison_list).reset_index(drop=True)
 

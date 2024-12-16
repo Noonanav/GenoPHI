@@ -1,13 +1,39 @@
 import argparse
 import logging
 import os
+import time
+import psutil
 import pandas as pd
+import numpy as np
 from Bio import SeqIO
+from concurrent.futures import ThreadPoolExecutor
 from phage_modeling.mmseqs2_clustering import merge_feature_tables
 from phage_modeling.workflows.select_and_model_workflow import run_modeling_workflow_from_feature_table
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+def setup_logging(output_dir):
+    log_file = os.path.join(output_dir, "workflow.log")
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    logging.getLogger().addHandler(file_handler)
+
+# Generate a report
+def write_report(output_dir, start_time, end_time, max_ram_usage, avg_cpu_usage, peak_cpu_usage, input_genomes, select_kmers, features):
+    report_file = os.path.join(output_dir, "workflow_report.txt")
+    with open(report_file, "w") as report:
+        report.write("Workflow Report\n")
+        report.write("=" * 40 + "\n")
+        report.write(f"Start Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}\n")
+        report.write(f"End Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))}\n")
+        report.write(f"Total Runtime: {end_time - start_time:.2f} seconds\n")
+        report.write(f"Max RAM Usage: {max_ram_usage / (1024 ** 3):.2f} GB\n")
+        report.write(f"Average CPU Usage: {avg_cpu_usage:.2f}%\n")
+        report.write(f"Peak CPU Usage: {peak_cpu_usage:.2f}%\n")
+        report.write(f"Input Genomes: {input_genomes}\n")
+        report.write(f"K-mers Identified: {select_kmers}\n")
+        report.write(f"Features in Final Table: {features}\n")
+    logging.info(f"Report saved to: {report_file}")
 
 def split_into_kmers(sequence, k, id):
     """Splits an amino acid sequence into k-mers of length k."""
@@ -136,9 +162,9 @@ def get_genome_assignments_tables(presence_absence, genome_column_name, output_d
 
     return genome_assignments.drop(columns=["Presence"])
 
-def feature_selection_optimized(presence_absence, source, genome_column_name, output_dir=None, prefix=None):
+def feature_selection_optimized(presence_absence, source, genome_column_name, output_dir=None, prefix=None, max_ram=8, threads=4):
     """
-    Optimizes feature selection by identifying perfect co-occurrence of features.
+    Optimizes feature selection by identifying perfect co-occurrence of features with parallelization and memory optimization.
 
     Args:
         presence_absence (DataFrame): The presence-absence matrix.
@@ -146,11 +172,13 @@ def feature_selection_optimized(presence_absence, source, genome_column_name, ou
         genome_column_name (str): The column name that contains genome information.
         output_dir (str, optional): Directory to save the selected features CSV.
         prefix (str, optional): Prefix for the output filename.
+        max_ram (float): Maximum allowable RAM usage in GB for the operation.
+        threads (int): Number of threads to use for parallel processing.
 
     Returns:
         DataFrame: Optimized feature selection results.
     """
-    logging.info("Optimizing feature selection...")
+    logging.info("Optimizing feature selection with memory optimization and parallel processing...")
 
     # Set index using the genome_column_name
     presence_absence.set_index(genome_column_name, inplace=True)
@@ -158,13 +186,39 @@ def feature_selection_optimized(presence_absence, source, genome_column_name, ou
     # Ensure binary presence-absence format
     presence_absence = presence_absence.applymap(lambda x: 1 if x > 0 else 0)
     
-    boolean_matrix = presence_absence.astype(bool)
-    perfect_cooccurrence = {
-        col: set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()])
-        for col in boolean_matrix.columns
-    }
+    # Estimate memory usage per column
+    single_column_memory = presence_absence.iloc[:, 0].astype(bool).memory_usage(deep=True)
+    boolean_matrix_memory = single_column_memory * len(presence_absence.columns)
+    logging.info(f"Estimated total memory usage for boolean matrix: {boolean_matrix_memory / (1024 ** 3):.2f} GB")
 
-    # Identify unique clusters
+    # Dynamically calculate chunk size based on max_ram in GB
+    max_ram_bytes = max_ram * (1024 ** 3)  # Convert GB to bytes
+    chunk_size = max(1, int(max_ram_bytes / single_column_memory))
+    logging.info(f"Setting dynamic chunk size: {chunk_size} columns per chunk based on max_ram={max_ram} GB")
+
+    boolean_matrix = presence_absence.astype(bool)
+    columns = list(boolean_matrix.columns)
+    total_columns = len(columns)
+
+    # Divide columns into chunks
+    column_chunks = np.array_split(columns, max(threads, total_columns // chunk_size))
+    logging.info(f"Total features to process: {total_columns}. Dividing into {len(column_chunks)} chunks for parallel processing.")
+
+    def process_chunk(chunk):
+        """Processes a chunk of columns and computes co-occurrence."""
+        chunk_cooccurrence = {}
+        for col in chunk:
+            chunk_cooccurrence[col] = set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()])
+        return chunk_cooccurrence
+
+    # Process chunks in parallel
+    perfect_cooccurrence = {}
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        results = executor.map(process_chunk, column_chunks)
+        for result in results:
+            perfect_cooccurrence.update(result)
+
+    # Identify unique clusters across all chunks
     unique_clusters = []
     seen = set()
     for cluster in perfect_cooccurrence.values():
@@ -244,10 +298,10 @@ def load_genome_list(file_path, genome_column):
         return None
 
 def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, output_dir, k_range=False,
-                      phenotype_matrix=None, phage_fasta=None, protein_csv_phage=None, remove_suffix=False, 
-                      sample_column='strain', phenotype_column='interaction', modeling=False, filter_type='strain', 
-                      num_features=100, num_runs_fs=10, num_runs_modeling=20, method='rfe', strain_list=None, 
-                      phage_list=None, threads=4, task_type='classification', max_features='none', ignore_families=False):
+                            phenotype_matrix=None, phage_fasta=None, protein_csv_phage=None, remove_suffix=False,
+                            sample_column='strain', phenotype_column='interaction', modeling=False, filter_type='strain',
+                            num_features=100, num_runs_fs=10, num_runs_modeling=20, method='rfe', strain_list=None,
+                            phage_list=None, threads=4, task_type='classification', max_features='none', ignore_families=False, max_ram=8):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
     feature selection, phenotype merging, and optional modeling.
@@ -276,109 +330,131 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         phage_list (str, optional): Path to a list of phages to include in the analysis. Default is None.
         ignore_families (bool, optional): If True, ignores protein families when defining k-mer features. Default is False.
         threads (int, optional): Number of threads to use for parallel processing. Default is 4.
+        max_ram (float, optional): Maximum allowable RAM usage in GB for feature selection.
 
     Returns:
         None. Saves the final feature tables and optional modeling results to `output_dir`.
     """
+    os.makedirs(output_dir, exist_ok=True)
+    setup_logging(output_dir)
 
-    logging.info("Running the full k-mer feature table workflow...")
+    # Track time, memory, and CPU usage
+    start_time = time.time()
+    ram_monitor = psutil.Process()
+    max_ram_usage = 0
+    cpu_percentages = []  # Track CPU usage over time
 
-    feature_output_dir = os.path.join(output_dir, "feature_tables")
-    if not os.path.exists(feature_output_dir):
-        os.makedirs(feature_output_dir)
+    # Initialize metrics for the report
+    input_genomes = select_kmers = features = 0
 
-    # Step 1: Construct strain feature table
-    strain_feature_table_path = construct_feature_table(strain_fasta, protein_csv, k, id_col, one_gene, feature_output_dir, "strain", k_range, ignore_families=ignore_families)
-    strain_feature_table = pd.read_csv(strain_feature_table_path)
+    try:
+        logging.info("Running the full k-mer feature table workflow...")
+        feature_output_dir = os.path.join(output_dir, "feature_tables")
+        os.makedirs(feature_output_dir, exist_ok=True)
 
-    # Step 2: Get genome assignments for strain
-    genome_assignments = get_genome_assignments_tables(strain_feature_table, id_col, feature_output_dir)
+        # Monitor CPU usage in a separate thread
+        def monitor_cpu():
+            while True:
+                cpu_percentages.append(psutil.cpu_percent(interval=1))
+                if stop_monitoring:
+                    break
 
-    # Step 3: Optimize feature selection for strain
-    selected_features = feature_selection_optimized(strain_feature_table, "selected", id_col, feature_output_dir)
+        stop_monitoring = False
+        from threading import Thread
+        cpu_monitor_thread = Thread(target=monitor_cpu)
+        cpu_monitor_thread.start()
 
-    # Load all_genomes from strain list if provided
-    all_genomes = load_genome_list(strain_list, sample_column)
+        # Step 1: Construct strain feature table
+        strain_feature_table_path = construct_feature_table(strain_fasta, protein_csv, k, id_col, one_gene,
+                                                            feature_output_dir, "strain", k_range, ignore_families=ignore_families)
+        strain_feature_table = pd.read_csv(strain_feature_table_path)
+        input_genomes += strain_feature_table[id_col].nunique()
 
-    # Step 4: Assign features to genomes and generate final feature table for strain
-    assignment_df, final_feature_table, final_feature_table_output = feature_assignment(genome_assignments, selected_features, id_col, feature_output_dir, all_genomes=all_genomes)
+        # Step 2: Get genome assignments for strain
+        genome_assignments = get_genome_assignments_tables(strain_feature_table, id_col, feature_output_dir)
 
-    # Optionally, construct phage feature table if phage_fasta is provided
-    phage_feature_table_path = None
-    if phage_fasta:
-        # Use protein_csv_phage if provided; otherwise, fall back to protein_csv
-        phage_protein_csv = protein_csv_phage if protein_csv_phage else protein_csv
-        phage_feature_table_path = construct_feature_table(phage_fasta, phage_protein_csv, k, 'phage', one_gene, feature_output_dir, "phage", k_range, ignore_families=ignore_families)
-        phage_feature_table = pd.read_csv(phage_feature_table_path)
+        # Step 3: Optimize feature selection for strain
+        selected_features = feature_selection_optimized(
+            strain_feature_table, "selected", id_col, feature_output_dir, max_ram=max_ram, threads=threads
+        )
 
-        # Phage genome assignments
-        phage_genome_assignments = get_genome_assignments_tables(phage_feature_table, 'phage', feature_output_dir, prefix='phage')
+        # Step 4: Assign features to genomes
+        assignment_df, final_feature_table, final_feature_table_output = feature_assignment(
+            genome_assignments, selected_features, id_col, feature_output_dir
+        )
 
-        # Optimize feature selection for phage
-        phage_selected_features = feature_selection_optimized(phage_feature_table, "phage_selected", 'phage', feature_output_dir, prefix='phage')
+        select_kmers += len(final_feature_table.columns) - 1  # Exclude genome ID column
 
-        # Load phage_genomes from phage list if provided
-        phage_genomes = load_genome_list(phage_list, 'phage')
-
-        phage_assignment_df, phage_final_feature_table, phage_final_feature_table_output = feature_assignment(phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage', all_genomes=phage_genomes)
-    else:
-        logging.info("Skipping phage feature table construction as no phage FASTA provided.")
+        # Step 5: Optionally, construct phage feature table
         phage_final_feature_table_output = None
+        if phage_fasta:
+            phage_protein_csv = protein_csv_phage if protein_csv_phage else protein_csv
+            phage_feature_table_path = construct_feature_table(phage_fasta, phage_protein_csv, k, 'phage', one_gene,
+                                                               feature_output_dir, "phage", k_range, ignore_families=ignore_families)
+            phage_feature_table = pd.read_csv(phage_feature_table_path)
 
-    # Step 5: Merge feature tables if phenotype_matrix is provided
-    if phenotype_matrix:
-        logging.info("Merging with phenotype and optional phage feature tables.")
-        merged_table_path = merge_feature_tables(
-            strain_features=final_feature_table_output,
-            phenotype_matrix=phenotype_matrix,
-            output_dir=output_dir,
-            sample_column=sample_column,
-            phage_features=phage_final_feature_table_output,
-            remove_suffix=remove_suffix,
-            output_file="merged_features"
-        )
-        logging.info(f"Merged feature table saved to {merged_table_path}")
-    else:
-        logging.info("Skipping merge as no phenotype matrix provided.")
+            phage_genome_assignments = get_genome_assignments_tables(phage_feature_table, 'phage', feature_output_dir, prefix='phage')
 
-    logging.info("Feature table construction workflow completed successfully.")
+            phage_selected_features = feature_selection_optimized(
+                phage_feature_table, "phage_selected", 'phage', feature_output_dir, prefix='phage', max_ram=max_ram, threads=threads
+            )
 
-    if modeling and merged_table_path:
-        logging.info("Running modeling workflow...")
-        modeling_output_dir = os.path.join(output_dir, "modeling")
-        if not os.path.exists(modeling_output_dir):
-            os.makedirs(modeling_output_dir)
+            phage_assignment_df, phage_final_feature_table, phage_final_feature_table_output = feature_assignment(
+                phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage'
+            )
 
-        full_feature_table = pd.read_csv(merged_table_path)
-        features = full_feature_table.columns
-        features = [f for f in features if 'c_' in f]
-        features_count = len(features)
-        print(f"Number of features: {features_count}")
+        # Step 6: Merge feature tables
+        if phenotype_matrix:
+            merged_table_path = merge_feature_tables(
+                strain_features=final_feature_table_output,
+                phenotype_matrix=phenotype_matrix,
+                output_dir=output_dir,
+                sample_column=sample_column,
+                phage_features=phage_final_feature_table_output,
+                remove_suffix=remove_suffix
+            )
+            logging.info(f"Merged feature table saved to: {merged_table_path}")
+            final_df = pd.read_csv(merged_table_path)
+            features = len(final_df.columns) - 1
+        else:
+            features = len(final_feature_table.columns) - 1
 
-        if features_count*0.5 < num_features:
-            num_features = int(features_count*0.5)
-            logging.warning(f"Number of features reduced to {num_features} due to insufficient features")
+        # Optional: Run modeling
+        if modeling:
+            modeling_output_dir = os.path.join(output_dir, "modeling")
+            os.makedirs(modeling_output_dir, exist_ok=True)
+            run_modeling_workflow_from_feature_table(
+                full_feature_table=merged_table_path,
+                output_dir=modeling_output_dir,
+                threads=threads,
+                num_features=num_features,
+                filter_type=filter_type,
+                num_runs_fs=num_runs_fs,
+                num_runs_modeling=num_runs_modeling,
+                sample_column=sample_column,
+                phenotype_column=phenotype_column,
+                method=method,
+                task_type=task_type,
+                binary_data=True,
+                max_features=max_features
+            )
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        raise
+    finally:
+        # Stop CPU monitoring and compute CPU usage stats
+        stop_monitoring = True
+        cpu_monitor_thread.join()
 
-        # Run the modeling workflow using the merged feature table
-        # Assuming `final_feature_table_output` is the path to the feature table from the k-mer workflow
-        run_modeling_workflow_from_feature_table(
-            full_feature_table=merged_table_path,
-            output_dir=modeling_output_dir,
-            threads=threads,
-            num_features=num_features,
-            filter_type=filter_type,
-            num_runs_fs=num_runs_fs,
-            num_runs_modeling=num_runs_modeling,
-            sample_column=sample_column,
-            phenotype_column=phenotype_column,
-            method=method,
-            task_type=task_type,
-            binary_data=True,
-            max_features=max_features
-        )
+        avg_cpu_usage = sum(cpu_percentages) / len(cpu_percentages) if cpu_percentages else 0
+        peak_cpu_usage = max(cpu_percentages) if cpu_percentages else 0
 
-    else:
-        logging.warning("Modeling step skipped.")
+        # Track end time and max RAM usage
+        end_time = time.time()
+        max_ram_usage = max(max_ram_usage, ram_monitor.memory_info().rss)
+
+        # Write the workflow report
+        write_report(output_dir, start_time, end_time, max_ram_usage, avg_cpu_usage, peak_cpu_usage, input_genomes, select_kmers, features)
 
 # Command-line interface
 
@@ -427,6 +503,7 @@ def main():
     # General parameters
     general_group = parser.add_argument_group('General')
     general_group.add_argument('--threads', type=int, default=4, help="Number of threads to use (default: 4).")
+    general_group.add_argument('--max_ram', type=float, default=8, help="Maximum RAM usage in GB for feature selection (default: 8).")
 
     args = parser.parse_args()
 
@@ -456,7 +533,8 @@ def main():
         threads=args.threads,
         task_type=args.task_type,
         max_features=args.max_features,
-        ignore_families=args.ignore_families
+        ignore_families=args.ignore_families,
+        max_ram=args.max_ram  # Pass the max_ram parameter
     )
 
 if __name__ == "__main__":
