@@ -14,15 +14,30 @@ from phage_modeling.workflows.kmer_table_workflow import run_kmer_table_workflow
 
 # Set up logging
 def setup_logging(output_dir):
+    """
+    Set up logging to both console and a log file.
+    Ensures duplicate handlers are not added.
+    """
     log_file = os.path.join(output_dir, "combined_workflow.log")
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
+    os.makedirs(output_dir, exist_ok=True)
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Prevent duplicate handlers
+    if not logger.hasHandlers():
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        logger.addHandler(console_handler)
+
+        # File handler
+        file_handler = logging.FileHandler(log_file, mode='w')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        logger.addHandler(file_handler)
+
+    logger.info("Logging has been set up. Writing logs to: %s", log_file)
+
 
 def monitor_resources(start_time, func, *args, **kwargs):
     """
@@ -107,7 +122,8 @@ def run_full_workflow(args):
                                                      task_type=args.task_type,
                                                      max_features=args.max_features,
                                                      max_ram=args.max_ram,
-                                                     threads=args.threads)
+                                                     threads=args.threads,
+                                                     use_shap=args.use_shap)
     write_section_report("Protein_Family_Workflow", metrics['protein_family'], args.output)
 
     # Step 2: Run K-mer Workflow
@@ -165,7 +181,8 @@ def run_full_workflow(args):
                                                     task_type=args.task_type,
                                                     max_features=args.max_features,
                                                     ignore_families=args.ignore_families,
-                                                    max_ram=args.max_ram)
+                                                    max_ram=args.max_ram,
+                                                    use_shap=args.use_shap)
     write_section_report("Kmer_Workflow", metrics['kmer_workflow'], args.output)
 
     # Final combined report
@@ -201,6 +218,7 @@ def main():
     optional_input_group.add_argument('--phenotype_column', default='interaction', help='Phenotype column name.')
     optional_input_group.add_argument('--annotation_table_path', help='Path to annotation table.')
     optional_input_group.add_argument('--protein_id_col', default='protein_ID', help='Protein ID column name.')
+    optional_input_group.add_argument('--use_shap', action='store_true', help='Use SHAP values for analysis (default: False).')
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')

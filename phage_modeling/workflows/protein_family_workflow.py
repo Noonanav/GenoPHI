@@ -3,6 +3,7 @@ import pandas as pd
 import argparse
 import logging
 import csv
+import gc
 from phage_modeling.mmseqs2_clustering import run_clustering_workflow, run_feature_assignment, merge_feature_tables
 from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
 from phage_modeling.select_feature_modeling import run_experiments
@@ -10,23 +11,30 @@ from phage_modeling.workflows.feature_annotations_workflow import run_predictive
 import time
 import psutil
 
-def setup_logging(output_dir):
+def setup_logging(output_dir, log_filename="protein_family_workflow.log"):
     """
-    Sets up logging to both a file and console.
+    Set up logging to both console and file if logging is not already configured.
 
     Args:
         output_dir (str): Directory where the log file will be saved.
+        log_filename (str): Name of the log file. Default is "workflow.log".
     """
-    log_file = os.path.join(output_dir, 'workflow.log')
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
-    logging.info("Logging setup complete.")
+    if not logging.getLogger().hasHandlers():
+        os.makedirs(output_dir, exist_ok=True)
+        log_file = os.path.join(output_dir, log_filename)
+
+        # Configure root logger
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file, mode='w'),  # Overwrite log file
+                logging.StreamHandler()
+            ]
+        )
+        logging.info("Logging initialized. Logs will be written to: %s", log_file)
+    else:
+        logging.info("Logging is already configured by the calling workflow.")
 
 def write_csv_log(output_dir, data):
     """
@@ -44,7 +52,7 @@ def write_csv_log(output_dir, data):
             writer.writerow([key, value])
     logging.info(f"CSV log saved to {csv_file}.")
 
-def write_report(output_dir, start_time, end_time, ram_usage, avg_cpu_usage, max_cpu_usage, input_genomes, output_genomes, protein_families, features):
+def write_report(output_dir, start_time, end_time, ram_usage, avg_cpu_usage, max_cpu_usage, input_genomes, protein_families, features, strain_feature_count, phage_feature_count=None):
     """
     Writes a detailed workflow report to a text file.
 
@@ -56,7 +64,6 @@ def write_report(output_dir, start_time, end_time, ram_usage, avg_cpu_usage, max
         avg_cpu_usage (float): Average CPU usage during workflow.
         max_cpu_usage (float): Maximum CPU usage during workflow.
         input_genomes (int): Number of input genomes.
-        output_genomes (int): Number of output genomes.
         protein_families (int): Number of protein families identified.
         features (int): Number of features in the final table.
     """
@@ -71,7 +78,9 @@ def write_report(output_dir, start_time, end_time, ram_usage, avg_cpu_usage, max
         report.write(f"Average CPU Usage: {avg_cpu_usage:.2f}%\n")
         report.write(f"Max CPU Usage: {max_cpu_usage:.2f}%\n")
         report.write(f"Input Genomes: {input_genomes}\n")
-        report.write(f"Output Genomes: {output_genomes}\n")
+        report.write(f"Total strain features: {strain_feature_count}\n")
+        if phage_feature_count:
+            report.write(f"Total phage features: {phage_feature_count}\n")
         report.write(f"Protein Families Identified: {protein_families}\n")
         report.write(f"Features in Final Table: {features}\n")
     logging.info(f"Report saved to: {report_file}")
@@ -80,11 +89,11 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
                       input_path_phage=None, min_seq_id=0.6, coverage=0.8, sensitivity=7.5, 
                       suffix='faa', threads=4, strain_list='none', phage_list='none', 
                       strain_column='strain', phage_column='phage', compare=False, 
-                      source_strain='strain', source_phage='phage', num_features=100, 
+                      source_strain='strain', source_phage='phage', num_features='none', 
                       filter_type='none', num_runs_fs=10, num_runs_modeling=10, 
                       sample_column='strain', phenotype_column=None, method='rfe',
                       annotation_table_path=None, protein_id_col="protein_ID",
-                      task_type='classification', max_features='none', max_ram=8):
+                      task_type='classification', max_features='none', max_ram=8, use_shap=False):
     """
     Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
     """
@@ -101,40 +110,57 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
     max_ram_usage = 0
 
     # Initialize counters for report
-    input_genomes = output_genomes = protein_families = features = 0
+    input_genomes = protein_families = 0
+    phage_feature_count = None
 
     try:
         logging.info("Step 1: Running feature table generation for strain...")
         strain_output_dir = os.path.join(output_dir, "strain")
         strain_tmp_dir = os.path.join(output_dir, "tmp", "strain")
-        run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, strain_list, strain_column, compare)
-        run_feature_assignment(
-            os.path.join(strain_output_dir, "presence_absence_matrix.csv"), 
-            os.path.join(strain_output_dir, "features"), 
-            source=source_strain, 
-            select=strain_list, 
-            select_column=strain_column,
-            max_ram=max_ram
-        )
+        strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
+        
+        if not os.path.exists(strain_features_path):
+            run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, strain_list, strain_column, compare)
+            run_feature_assignment(
+                os.path.join(strain_output_dir, "presence_absence_matrix.csv"), 
+                os.path.join(strain_output_dir, "features"), 
+                source=source_strain, 
+                select=strain_list, 
+                select_column=strain_column,
+                max_ram=max_ram
+            )
 
         strain_matrix = os.path.join(strain_output_dir, "presence_absence_matrix.csv")
         strain_df = pd.read_csv(strain_matrix)
         input_genomes += len(strain_df['Genome'].unique())
         protein_families += len(strain_df.columns) - 1
 
+        strain_features_df = pd.read_csv(strain_features_path)
+        strain_feature_count = len(strain_features_df.columns) - 2
+        del strain_features_df
+        gc.collect()
+
         if input_path_phage:
             logging.info("Step 1 (continued): Running feature table generation for phage...")
             phage_output_dir = os.path.join(output_dir, "phage")
             phage_tmp_dir = os.path.join(output_dir, "tmp", "phage")
-            run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, phage_list, phage_column, compare)
-            run_feature_assignment(
-                os.path.join(phage_output_dir, "presence_absence_matrix.csv"), 
-                os.path.join(phage_output_dir, "features"), 
-                source=source_phage, 
-                select=phage_list, 
-                select_column=phage_column,
-                max_ram=max_ram
-            )
+            phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
+
+            if not os.path.exists(phage_features_path):
+                run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, phage_list, phage_column, compare)
+                run_feature_assignment(
+                    os.path.join(phage_output_dir, "presence_absence_matrix.csv"), 
+                    os.path.join(phage_output_dir, "features"), 
+                    source=source_phage, 
+                    select=phage_list, 
+                    select_column=phage_column,
+                    max_ram=max_ram
+                )
+
+            phage_features_df = pd.read_csv(phage_features_path)
+            phage_feature_count = len(phage_features_df.columns) - 2
+            del phage_features_df
+            gc.collect()
 
             merged_output_dir = os.path.join(output_dir, "merged")
             os.makedirs(merged_output_dir, exist_ok=True)
@@ -159,6 +185,20 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
             )
             logging.info(f"Strain feature table merged and saved at: {feature_selection_input}")
 
+        feature_selection_input_df = pd.read_csv(feature_selection_input)
+        features = len(feature_selection_input_df.columns) - 3
+
+        num_rows = len(feature_selection_input_df)
+        if num_features == 'none':
+            if num_rows < 500:
+                num_features = 50
+            elif num_rows < 2000:
+                num_features = 100
+            else:
+                num_features = int(num_rows/20)
+        del feature_selection_input_df
+        gc.collect()
+
         logging.info("Step 2: Running feature selection iterations...")
         base_fs_output_dir = os.path.join(output_dir, 'feature_selection')
         run_feature_selection_iterations(
@@ -176,7 +216,7 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
         )
 
         logging.info("Generating feature tables from feature selection results...")
-        max_features = None if max_features == 'none' else int(max_features)
+        max_features = num_features if max_features == 'none' else int(max_features)
         filter_table_dir = os.path.join(base_fs_output_dir, 'filtered_feature_tables')
         generate_feature_tables(
             model_testing_dir=base_fs_output_dir,
@@ -200,7 +240,9 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
             sample_column=sample_column,
             phenotype_column=phenotype_column,
             task_type=task_type,
-            binary_data=True
+            binary_data=True,
+            max_ram=max_ram,
+            use_shap=use_shap
         )
 
         logging.info("Step 5: Selecting top-performing cutoff and running predictive proteins workflow...")
@@ -211,7 +253,11 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
         feature_file_path = os.path.join(output_dir, 'feature_selection', 'filtered_feature_tables', f'select_feature_table_cutoff_{top_cutoff}.csv')
         feature2cluster_path = os.path.join(output_dir, 'strain', 'features', 'selected_features.csv')
         cluster2protein_path = os.path.join(output_dir, 'strain', 'clusters.tsv')
-        fasta_dir_or_file = input_path_strain
+        modified_AA_path = os.path.join(output_dir, 'strain', 'modified_AAs', 'strain')
+        if os.path.exists(modified_AA_path):
+            fasta_dir_or_file = modified_AA_path
+        else:
+            fasta_dir_or_file = input_path_strain
         modeling_dir = os.path.join(output_dir, 'modeling_results', f'cutoff_{top_cutoff}')
         predictive_proteins_output_dir = os.path.join(output_dir, 'modeling_results', 'model_performance', 'predictive_proteins')
         feature_assignments_path = os.path.join(output_dir, 'strain', 'features', 'feature_assignments.csv')
@@ -235,7 +281,11 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
             logging.info("Running predictive proteins workflow for phage...")
             feature2cluster_path = os.path.join(output_dir, 'phage', 'features', 'selected_features.csv')
             cluster2protein_path = os.path.join(output_dir, 'phage', 'clusters.tsv')
-            fasta_dir_or_file = input_path_phage
+            modified_AA_path_phage = os.path.join(output_dir, 'phage', 'modified_AAs', 'phage')
+            if os.path.exists(modified_AA_path_phage):
+                fasta_dir_or_file = modified_AA_path_phage
+            else:
+                fasta_dir_or_file = input_path_phage
             feature_assignments_path = os.path.join(output_dir, 'phage', 'features', 'feature_assignments.csv')
 
             run_predictive_proteins_workflow(
@@ -263,7 +313,7 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
         max_cpu_usage = max(cpu_usage_points)
 
         # Write report and logs
-        write_report(output_dir, start_time, end_time, max_ram_usage, avg_cpu_usage, max_cpu_usage, input_genomes, output_genomes, protein_families, features)
+        write_report(output_dir, start_time, end_time, max_ram_usage, avg_cpu_usage, max_cpu_usage, input_genomes, protein_families, features, strain_feature_count, phage_feature_count)
 
         # Save CSV log with all parameters and report values
         inputs.update({
@@ -273,9 +323,10 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
             'avg_cpu_usage': avg_cpu_usage,
             'max_cpu_usage': max_cpu_usage,
             'input_genomes': input_genomes,
-            'output_genomes': output_genomes,
             'protein_families': protein_families,
-            'features': features
+            'features': features,
+            'strain_feature_count': strain_feature_count,
+            'phage_feature_count': phage_feature_count
         })
         write_csv_log(output_dir, inputs)
 
@@ -303,6 +354,7 @@ def main():
     optional_input_group.add_argument('--phenotype_column', type=str, default='interaction', help='Column name for the phenotype (optional).')
     optional_input_group.add_argument('--annotation_table_path', type=str, help="Path to an optional annotation table (CSV/TSV).")
     optional_input_group.add_argument('--protein_id_col', type=str, default="protein_ID", help="Column name for protein IDs in the predictive_proteins DataFrame.")
+    optional_input_group.add_argument('--use_shap', action='store_true', help='Use SHAP values for analysis (default: False).')
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -320,7 +372,7 @@ def main():
     fs_modeling_group.add_argument('--filter_type', type=str, default='none', help="Filter type for the input data ('none', 'strain', 'phage').")
     fs_modeling_group.add_argument('--method', type=str, default='rfe', choices=['rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
                                    help="Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'; default: rfe).")
-    fs_modeling_group.add_argument('--num_features', type=int, default=100, help='Number of features to select (default: 100).')
+    fs_modeling_group.add_argument('--num_features', default='none', help='Number of features to select (default: 100).')
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection iterations to run (default: 10).')
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=10, help='Number of runs per feature table for modeling (default: 10).')
     fs_modeling_group.add_argument('--task_type', type=str, default='classification', choices=['classification', 'regression'], help="Task type for modeling ('classification' or 'regression').")
@@ -362,7 +414,8 @@ def main():
         protein_id_col=args.protein_id_col,
         task_type=args.task_type,
         max_features=args.max_features,
-        max_ram=args.max_ram
+        max_ram=args.max_ram,
+        use_shap=args.use_shap
     )
 
 if __name__ == "__main__":

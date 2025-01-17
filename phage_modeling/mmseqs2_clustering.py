@@ -3,6 +3,7 @@ import pandas as pd
 import subprocess
 import logging
 import numpy as np
+from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 from Bio import SeqIO
 from collections import defaultdict
@@ -264,6 +265,12 @@ def assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq
     
     best_hits_tsv = os.path.join(output_dir, "best_hits.tsv")
     select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
+
+    # Delete the intermediate clustering files
+    for file in os.listdir(tmp_dir):
+        file_path = os.path.join(tmp_dir, file)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
     
     return best_hits_tsv
 
@@ -424,70 +431,52 @@ def get_genome_assignments_tables(presence_absence, genome_column_name):
     genome_assignments = genome_assignments[genome_assignments['Presence'] == 1]
     return genome_assignments.drop(columns=["Presence"])
 
-def feature_selection_optimized(presence_absence, source, genome_column_name, max_ram=8, threads=4):
+def feature_selection_optimized(presence_absence, source, genome_column_name):
     """
-    Optimizes feature selection by identifying perfect co-occurrence of features, using multithreading.
+    Optimizes feature selection by identifying perfect co-occurrence of features using hashing.
 
     Args:
         presence_absence (DataFrame): The presence-absence matrix.
         source (str): A prefix for naming the selected features.
         genome_column_name (str): The column name that contains genome information (e.g., 'strain' or 'phage').
-        max_ram (float): Maximum allowable RAM usage in GB for the operation.
-        threads (int): Number of threads to use for parallel processing.
 
     Returns:
         DataFrame: Optimized feature selection results.
     """
-    logging.info("Optimizing feature selection using multithreading...")
+    logging.info("Optimizing feature selection using hashing...")
 
     # Set index using the genome_column_name
     presence_absence.set_index(genome_column_name, inplace=True)
 
-    # Estimate memory usage per column
-    single_column_memory = presence_absence.iloc[:, 0].astype(bool).memory_usage(deep=True)
-    boolean_matrix_memory = single_column_memory * len(presence_absence.columns)
-    logging.info(f"Estimated total memory usage for boolean matrix: {boolean_matrix_memory / (1024 ** 3):.2f} GB")
+    # Ensure binary presence-absence format
+    presence_absence = presence_absence.applymap(lambda x: 1 if x > 0 else 0)
 
-    # Dynamically calculate chunk size based on max_ram in GB
-    max_ram_bytes = max_ram * (1024 ** 3)  # Convert GB to bytes
-    chunk_size = max(1, int(max_ram_bytes / single_column_memory))
-    logging.info(f"Setting dynamic chunk size: {chunk_size} columns per chunk based on max_ram={max_ram} GB")
+    # Compute hashes for each column
+    logging.info("Hashing columns to identify identical patterns...")
+    column_hashes = presence_absence.apply(lambda col: hash(tuple(col)), axis=0)
 
-    boolean_matrix = presence_absence.astype(bool)
-    columns = list(boolean_matrix.columns)
-    total_columns = len(columns)
+    # Group columns by hash
+    logging.info("Grouping columns by hash...")
+    hash_to_columns = {}
+    for col, col_hash in column_hashes.items():
+        hash_to_columns.setdefault(col_hash, []).append(col)
 
-    # Divide columns into chunks
-    column_chunks = np.array_split(columns, max(threads, total_columns // chunk_size))
-    logging.info(f"Total features to process: {total_columns}. Divided into {len(column_chunks)} chunks.")
+    # Identify unique clusters based on hash groups
+    unique_clusters = list(hash_to_columns.values())
+    logging.info(f"Identified {len(unique_clusters)} unique clusters.")
 
-    def process_chunk(chunk):
-        """Processes a chunk of columns and computes co-occurrence."""
-        chunk_cooccurrence = {}
-        for col in chunk:
-            chunk_cooccurrence[col] = set(boolean_matrix.columns[boolean_matrix.eq(boolean_matrix[col], axis=0).all()])
-        return chunk_cooccurrence
-
-    # Process chunks in parallel
-    perfect_cooccurrence = {}
-    with ThreadPoolExecutor(max_workers=threads) as executor:
-        results = executor.map(process_chunk, column_chunks)
-        for result in results:
-            perfect_cooccurrence.update(result)
-
-    # Identify unique clusters across all chunks
-    unique_clusters = []
-    seen = set()
-    for cluster in perfect_cooccurrence.values():
-        if not cluster.intersection(seen):
-            unique_clusters.append(list(cluster))
-        seen.update(cluster)
-
-    # Prepare output
-    data = [(f"{source[0]}c_{idx}", cluster) for idx, cluster_group in enumerate(unique_clusters) for cluster in cluster_group]
+    # Prepare output DataFrame
+    logging.info("Preparing output DataFrame...")
+    data = [
+        (f"{source[0]}c_{idx}", cluster)
+        for idx, cluster_group in enumerate(unique_clusters)
+        for cluster in cluster_group
+    ]
     logging.info(f"Feature selection completed with {len(unique_clusters)} unique clusters.")
 
-    return pd.DataFrame(data, columns=["Feature", "Cluster_Label"])
+    selected_features = pd.DataFrame(data, columns=["Feature", "Cluster_Label"])
+
+    return selected_features
 
 def feature_assignment(genome_assignments, selected_features, genome_column_name):
     """
@@ -624,7 +613,7 @@ def run_feature_assignment(input_file, output_dir, source='strain', select='none
     genome_assignments = get_genome_assignments_tables(presence_absence, genome_column_name)
 
     # Pass the correct genome column name to feature_selection_optimized
-    selected_features = feature_selection_optimized(presence_absence, source, genome_column_name, max_ram=max_ram, threads=threads)
+    selected_features = feature_selection_optimized(presence_absence, source, genome_column_name)
 
     # Save the selected features and feature assignments
     selected_features_path = os.path.join(output_dir, 'selected_features.csv')
@@ -670,9 +659,11 @@ def merge_feature_tables(strain_features, phenotype_matrix, output_dir, sample_c
     strain_features_df = read_csv_with_check(strain_features, rename_col='Genome', new_col=sample_column)
     if remove_suffix:
         strain_features_df[sample_column] = strain_features_df[sample_column].str.split('.').str[0]
+    strain_features_df[sample_column] = strain_features_df[sample_column].astype(str)
     
     # Load phenotype matrix
     phenotype_matrix_df = read_csv_with_check(phenotype_matrix)
+    phenotype_matrix_df[sample_column] = phenotype_matrix_df[sample_column].astype(str)
 
     if phage_features:
         # If phage features are provided, merge strain, phage, and phenotype matrices

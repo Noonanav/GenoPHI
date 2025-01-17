@@ -247,11 +247,13 @@ def parse_feature_information(modeling_dir, output_dir="."):
             shap_importance_df = shap_importance_df.groupby("Feature")[["SHAP_importance"]].mean().reset_index()
         else:
             logging.error("No SHAP importance data found.")
-            return pd.DataFrame()
 
-        full_feature_importance_df = pd.merge(
-            feature_importance_df, shap_importance_df, on="Feature", how="inner"
-        )
+        if not shap_importance_df.empty:
+            full_feature_importance_df = pd.merge(
+                feature_importance_df, shap_importance_df, on="Feature", how="inner"
+            )
+        else:
+            full_feature_importance_df = feature_importance_df
 
         full_feature_importance_df = full_feature_importance_df.sort_values(
             by="Importance", ascending=False

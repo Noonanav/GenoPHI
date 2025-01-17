@@ -70,7 +70,7 @@ def plot_custom_shap_beeswarm(shap_values_df, output_dir, prefix=None, binary_da
     del shap_plot, top_20_shap_df, full_shap_values_df_top20
     gc.collect()
 
-def model_testing_select_MCC(input, output_dir, threads, random_state, task_type='classification', set_filter='none', sample_column=None, phenotype_column=None, binary_data=False, max_ram=8):
+def model_testing_select_MCC(input, output_dir, threads, random_state, task_type='classification', set_filter='none', sample_column=None, phenotype_column=None, binary_data=False, max_ram=8, use_shap=False):
     """
     Runs a single experiment for feature table, training a CatBoost model with grid search and saving results.
 
@@ -84,9 +84,10 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
         sample_column (str): Name of the sample column (optional).
         phenotype_column (str): Name of the phenotype column (optional).
         binary_data (bool): If True, plot SHAP jitter plot with binary data.
+        use_shap (bool): If True, calculate and save SHAP values.
     """
     start_time = time.time()
-    
+
     # Load and prepare data
     X, y, full_feature_table = load_and_prepare_data(input, sample_column, phenotype_column, filter_type=set_filter)
     X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(
@@ -137,23 +138,35 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
     # Save feature importances
     feature_importances_path = os.path.join(output_dir, "feature_importances.csv")
     save_feature_importances(best_model, X_train, feature_importances_path)
-    
+
     # Save model
     best_model_path = os.path.join(output_dir, "best_model.pkl")
     with open(best_model_path, 'wb') as f:
         joblib.dump(best_model, f)
     print(f"Best model saved to {best_model_path}")
 
-    # Calculate and save SHAP values
+    # Calculate and save SHAP values if required
+    if use_shap:
+        process_shap_values(best_model, X_train, X_train_sample_ids, output_dir, binary_data)
+
+    end_time = time.time()
+    print(f"Total execution time: {end_time - start_time:.2f} seconds")
+
+def process_shap_values(best_model, X_train, X_train_sample_ids, output_dir, binary_data):
+    """
+    Calculates and saves SHAP values, plots, and related files.
+
+    Args:
+        best_model: Trained CatBoost model.
+        X_train (DataFrame): Training feature set.
+        X_train_sample_ids (DataFrame): Sample IDs for the training set.
+        output_dir (str): Directory to store SHAP results.
+        binary_data (bool): If True, plot SHAP jitter plot with binary data.
+    """
     explainer = shap.TreeExplainer(best_model, approximate=True)
     shap_values = explainer.shap_values(X_train)
 
-    # Save SHAP values as .npy
-    shap_values_npy_path = os.path.join(output_dir, "shap_values.npy")
-    np.save(shap_values_npy_path, shap_values)
-    print(f"SHAP values saved as .npy to {shap_values_npy_path}")
-    
-    # Save SHAP values as CSV for each feature
+    # Save SHAP values as CSV
     X_train_sample_ids = X_train_sample_ids.reset_index(drop=True)
     X_train_sample_ids = X_train_sample_ids.loc[:, ~X_train_sample_ids.columns.duplicated()]
     X_train_df = X_train.copy().reset_index(drop=True)
@@ -184,9 +197,6 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
 
     del explainer, shap_values, shap_values_df, X_train_df
     gc.collect()
-
-    end_time = time.time()
-    print(f"Total execution time: {end_time - start_time:.2f} seconds")
 
 def extract_cutoff_from_filename(filename):
     """
@@ -438,7 +448,7 @@ def plot_regressor_performance(comparison_df, model_performance_dir):
     del regressor_plot
     gc.collect()
 
-def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='classification', set_filter='none', sample_column='strain', phenotype_column='interaction', binary_data=False):
+def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='classification', set_filter='none', sample_column='strain', phenotype_column='interaction', binary_data=False, max_ram=8, use_shap=False):
     """
     Iterates through feature tables in a directory, running the model testing process for each.
 
@@ -452,6 +462,7 @@ def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='cl
         sample_column (str): Name of the sample column (optional).
         phenotype_column (str): Name of the phenotype column (optional).
         binary_data (bool): If True, plot SHAP jitter plot with binary data.
+        use_shap (bool): If True, calculate and save SHAP values.
     """
     start_total_time = time.time()
     if os.path.isdir(input_dir):
@@ -500,7 +511,9 @@ def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='cl
                         set_filter=set_filter,
                         sample_column=sample_column,
                         phenotype_column=phenotype_column,
-                        binary_data=binary_data
+                        binary_data=binary_data,
+                        max_ram=max_ram,
+                        use_shap=use_shap
                     )
                 else:
                     logging.info(f"Model performance already saved to {model_performance_path}")
@@ -515,18 +528,20 @@ def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='cl
                         top_model = run_results.nlargest(1, 'r2')
                     top_models_df = pd.concat([top_models_df, top_model])
 
-                # Load SHAP values for each run if available
-                shap_values_csv_path = os.path.join(output_dir, "shap_importances.csv")
-                if os.path.exists(shap_values_csv_path):
-                    shap_values_temp = pd.read_csv(shap_values_csv_path)
-                    shap_values_temp = shap_values_temp.groupby(['feature', 'value']).agg({'shap_value': 'median'}).reset_index()
-                    top_models_shap_df = pd.concat([top_models_shap_df, shap_values_temp])
+                # Load SHAP values for each run if available and use_shap is True
+                if use_shap:
+                    shap_values_csv_path = os.path.join(output_dir, "shap_importances.csv")
+                    if os.path.exists(shap_values_csv_path):
+                        shap_values_temp = pd.read_csv(shap_values_csv_path)
+                        shap_values_temp = shap_values_temp.groupby(['feature', 'value']).agg({'shap_value': 'median'}).reset_index()
+                        top_models_shap_df = pd.concat([top_models_shap_df, shap_values_temp])
 
-            # Generate SHAP summary plot for the top models
-            model_performance_dir = os.path.join(base_output_dir, 'model_performance')
-            os.makedirs(model_performance_dir, exist_ok=True)
+            # Generate SHAP summary plot for the top models if use_shap is True
+            if use_shap:
+                model_performance_dir = os.path.join(base_output_dir, 'model_performance')
+                os.makedirs(model_performance_dir, exist_ok=True)
 
-            plot_custom_shap_beeswarm(top_models_shap_df, model_performance_dir, prefix=f'cutoff_{cutoff_value}', binary_data=binary_data)
+                plot_custom_shap_beeswarm(top_models_shap_df, model_performance_dir, prefix=f'cutoff_{cutoff_value}', binary_data=binary_data)
 
             # Save top models summary for each cutoff
             top_models_df.to_csv(top_models_summary_path, index=False)
