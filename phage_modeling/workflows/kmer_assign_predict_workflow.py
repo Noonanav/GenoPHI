@@ -2,61 +2,100 @@ import os
 import pandas as pd
 import logging
 import subprocess
+from Bio import SeqIO
 from argparse import ArgumentParser
 from phage_modeling.mmseqs2_clustering import create_mmseqs_database, load_strains, create_contig_to_genome_dict, select_best_hits
 from phage_modeling.workflows.prediction_workflow import generate_full_feature_table, predict_interactions, calculate_mean_predictions, load_model
 
-def map_features(best_hits_tsv, feature_map, output_dir, genome_contig_mapping, genome, genome_type):
-    """
-    Maps the features for each new genome based on cluster assignments.
+def load_sequences(fasta_file, protein_ids):
+    """Load sequences from a FASTA file for given protein IDs."""
+    sequences = {}
+    if not os.path.exists(fasta_file):
+        logging.warning(f"FASTA file not found: {fasta_file}")
+        return sequences
 
+    for record in SeqIO.parse(fasta_file, "fasta"):
+        if record.id in protein_ids:
+            sequences[record.id] = str(record.seq)
+    return sequences
+
+def map_features(best_hits_tsv, kmer_map_path, fasta_file, genome_contig_mapping, genome, genome_type):
+    """
+    Maps features to genomes based on k-mer matches using protein family as an intermediate step.
+    
     Args:
-        best_hits_tsv (str): Path to the best hits TSV file (output of select_best_hits).
-        feature_map (str): Path to the feature mapping CSV file (selected_features.csv).
-        output_dir (str): Directory to save the final feature table.
+        best_hits_tsv (str): Path to the best hits TSV file.
+        kmer_map_path (str): Path to the filtered k-mers CSV file.
+        fasta_file (str): Path to the FASTA file for the genome.
         genome_contig_mapping (dict): Dictionary mapping contigs to genomes.
-        genome (str): Genome name of the current genome.
+        genome (str): Name of the genome being processed.
+        genome_type (str): Type of genome ('strain' or 'phage').
+    
+    Returns:
+        pd.DataFrame: A DataFrame with k-mer feature presence for the genome.
     """
     if not os.path.exists(best_hits_tsv):
-        logging.error("Best hits TSV file does not exist: %s", best_hits_tsv)
-        return
+        logging.error(f"Best hits TSV file does not exist: {best_hits_tsv}")
+        return None
 
     try:
-        # Load the best hits and feature mapping
+        # Load best hits data
         best_hits_df = pd.read_csv(best_hits_tsv, sep='\t', header=None, names=['Query', 'Cluster'])
-        feature_mapping = pd.read_csv(feature_map)
-
-        # Ensure the 'Cluster' columns in both DataFrames are of the same type
-        best_hits_df['Cluster'] = best_hits_df['Cluster'].astype(str)
-        feature_mapping['Cluster_Label'] = feature_mapping['Cluster_Label'].astype(str)
         
+        # Load k-mer data
+        kmer_data = pd.read_csv(kmer_map_path)
+        
+        # Ensure consistent data types
+        best_hits_df['Cluster'] = best_hits_df['Cluster'].astype(str)
+        kmer_data['cluster'] = kmer_data['cluster'].astype(str)
+
     except Exception as e:
-        logging.error("Error reading input files: %s", e)
-        return
+        logging.error(f"Error reading input files: {e}")
+        return None
 
     logging.info(f"Mapping features for {genome_type} '{genome}'")
 
-    # Convert the genome_contig_mapping dictionary to a DataFrame for merging
-    genome_contig_mapping_df = pd.DataFrame(list(genome_contig_mapping.items()), columns=['contig_id', genome_type])
+    # Merge with genome mapping to get genome information
+    genome_contig_mapping_df = pd.DataFrame.from_dict(genome_contig_mapping, orient='index', columns=['contig_id']).reset_index().rename(columns={'index': genome_type})
+    merged_df = best_hits_df.merge(genome_contig_mapping_df, left_on='Query', right_on='contig_id', how='left')
 
-    # Merge best_hits_df with feature_mapping on the 'Cluster' column
-    merged_df = best_hits_df.merge(feature_mapping, left_on='Cluster', right_on='Cluster_Label')
+    # Load sequences for proteins in this genome
+    protein_ids = merged_df['Query'].unique().tolist()
+    sequences = load_sequences(fasta_file, protein_ids)
 
-    # Merge with genome_contig_mapping_df to get genome information
-    merged_df = merged_df.merge(genome_contig_mapping_df, left_on='Query', right_on='contig_id')
+    # Get all genomes from the mapping
+    all_genomes = list(genome_contig_mapping.keys())
 
-    # Create the binary feature presence table using the genome_type as the index
-    feature_presence = merged_df.pivot_table(index=genome_type, columns='Feature', aggfunc='size', fill_value=0)
-    feature_presence = (feature_presence > 0).astype(int)
+    # Assign k-mer features
+    kmer_features = []
+    for _, row in merged_df.iterrows():
+        sequence = sequences.get(row['Query'], "")
+        for _, kmer_row in kmer_data[kmer_data['cluster'] == row['Cluster']].iterrows():
+            kmer_features.append({
+            genome_type: row[genome_type],
+            kmer_row['Feature']: int(kmer_row['kmer'] in sequence)
+        })
 
-    # Ensure all features are represented
-    all_features = feature_mapping['Feature'].unique()
-    for feature in all_features:
-        if feature not in feature_presence.columns:
-            feature_presence[feature] = 0
+    kmer_features_df = pd.DataFrame(kmer_features)
+    logging.info(f"Columns in kmer_features_df: {kmer_features_df.columns}")
+    if genome_type not in kmer_features_df.columns:
+        logging.error(f"Column '{genome_type}' not found in kmer_features_df. Available columns are: {kmer_features_df.columns.tolist()}")
 
-    # Reindex to ensure the presence of all features
-    feature_presence = feature_presence.reindex(columns=all_features, fill_value=0).reset_index()
+    # Create base DataFrame with all genomes and all k-mer features set to 0
+    all_kmer_features = kmer_data['Feature'].unique()
+    base_df = pd.DataFrame({
+        genome_type: all_genomes
+    })
+
+    for feature in all_kmer_features:
+        base_df[feature] = 0
+
+    # Update base_df with actual matches
+    feature_presence = base_df.merge(
+        kmer_features_df.groupby(genome_type).max().reset_index(),
+        on=genome_type,
+        how='left'
+    ).fillna(0).astype(int)
 
     return feature_presence
 
@@ -108,19 +147,23 @@ def assign_sequences_to_existing_clusters(query_db, target_db, output_dir, tmp_d
     select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
 
     return best_hits_tsv
-
-def process_new_genomes(input_dir, mmseqs_db, suffix, tmp_dir, output_dir, feature_map, clusters_tsv, genome_type, genomes=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4):
-    """
-    Processes genomes to assign them to existing clusters and generate feature tables.
-    """
+    
+def process_new_genomes(input_dir, mmseqs_db, suffix, tmp_dir, output_dir, clusters_tsv, genome_type, genomes=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, kmer_map_path=None):
     os.makedirs(output_dir, exist_ok=True)
     feature_table_dir = os.path.join(output_dir, "feature_tables")
     os.makedirs(feature_table_dir, exist_ok=True)
 
     all_genomes_feature_tables = []
 
+    # Create a single query database for all genomes
+    all_genomes_query_db = os.path.join(tmp_dir, 'all_genomes_query_db')
     if genomes is None:
         genomes = ['.'.join(f.split('.')[:-1]) for f in os.listdir(input_dir) if f.endswith(suffix)]
+    
+    fasta_files = create_mmseqs_database(input_dir, all_genomes_query_db, suffix, 'directory', genomes, threads)
+
+    # Single search for all genomes
+    best_hits_tsv = assign_sequences_to_existing_clusters(all_genomes_query_db, mmseqs_db, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv)
 
     for genome in genomes:
         genome_tmp_dir = os.path.join(tmp_dir, genome)
@@ -129,62 +172,48 @@ def process_new_genomes(input_dir, mmseqs_db, suffix, tmp_dir, output_dir, featu
         logging.info(f"Processing {genome_type} {genome}...")
 
         try:
-            query_db = os.path.join(genome_tmp_dir, 'query_db')
-            # Attempt to create MMseqs2 database for the current genome
-            fasta_files = create_mmseqs_database(input_dir, query_db, suffix, 'directory', [genome], threads)
-            
-            if not fasta_files:
-                logging.warning(f"No FASTA files found for {genome_type} '{genome}' with suffix '{suffix}'. Skipping...")
-                continue  # Skip to the next genome if no FASTA files are found
-
-            # Run the assignment and best-hit selection
-            best_hits_tsv = assign_sequences_to_existing_clusters(query_db, mmseqs_db, genome_tmp_dir, genome_tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv)
-
-            genome_contig_mapping, _ = create_contig_to_genome_dict(fasta_files, 'directory')
-
-            # Get the feature presence DataFrame for the current genome
-            feature_presence = map_features(best_hits_tsv, feature_map, output_dir, genome_contig_mapping, genome, genome_type)
+            # Here you would process the results from best_hits_tsv for each genome
+            genome_contig_mapping, _ = create_contig_to_genome_dict([os.path.join(input_dir, f"{genome}.{suffix}")], 'file')
+            genome_fasta_file = os.path.join(input_dir, f"{genome}.{suffix}")
+            feature_presence = map_features(best_hits_tsv, kmer_map_path, genome_fasta_file, genome_contig_mapping, genome, genome_type)
 
             if feature_presence is not None:
-                # Save the feature table for the current genome
                 output_path = os.path.join(feature_table_dir, f'{genome}_feature_table.csv')
                 feature_presence.to_csv(output_path, index=False)
                 logging.info(f"Feature table for {genome_type} '{genome}' saved to {output_path}")
-                
-                # Append the feature table to the list
                 all_genomes_feature_tables.append(feature_presence)
 
         except FileNotFoundError as e:
             logging.error(f"Error processing {genome_type} {genome}: {e}. Skipping...")
-            continue  # Skip to the next genome if an error occurs
-
+            continue  
         except Exception as e:
-            logging.error(f"Unexpected error while processing {genome_type} {genome}: {e}. Skipping...")
-            continue  # Catch any other unexpected errors and continue with the next genome
+            logging.error(f"Unexpected error while processing {genome_type} {genome}: {str(e)}", exc_info=True)
+            continue
 
     logging.info("Genome processing complete.")
 
-    # Combine all genome feature tables into one DataFrame
     if all_genomes_feature_tables:
         combined_feature_table = pd.concat(all_genomes_feature_tables)
         combined_output_path = os.path.join(output_dir, 'combined_feature_table.csv')
         combined_feature_table.to_csv(combined_output_path, index=False)
         logging.info(f"Combined feature table saved to {combined_output_path}")
 
-def run_assign_and_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_map, tmp_dir, suffix, genome_list, genome_type, genome_column, model_dir, phage_feature_table, output_dir, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4):
+def run_assign_and_predict_workflow(input_dir, mmseqs_db, clusters_tsv, tmp_dir, suffix, genome_list, genome_type, genome_column, model_dir, phage_feature_table, output_dir, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, kmer_map_path=None):
     """
-    Combines feature assignment with interaction prediction.
+    Full workflow to assign features to genomes and predict interactions.
     """
-    # Step 1: Feature assignment
+    # Make output and tmp dirs
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(tmp_dir, exist_ok=True)
+    
     if genome_column is None:
         genome_column = genome_type
 
     if genome_list and os.path.exists(genome_list):
         genomes = load_strains(genome_list, genome_column)
     else:
-        genomes = None  # Process all genomes in input_dir if no list is provided
+        genomes = None
 
-    # Process genomes (phages or strains)
     process_new_genomes(
         input_dir=input_dir,
         genomes=genomes,
@@ -192,16 +221,16 @@ def run_assign_and_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_
         suffix=suffix,
         tmp_dir=tmp_dir,
         output_dir=output_dir,
-        feature_map=feature_map,
         clusters_tsv=clusters_tsv,
-        genome_type=genome_type,  # Pass genome_type to the function
+        genome_type=genome_type,
         sensitivity=sensitivity,
         coverage=coverage,
         min_seq_id=min_seq_id,
-        threads=threads
+        threads=threads,
+        kmer_map_path=kmer_map_path
     )
 
-    # Step 2: Prediction
+    # Prediction phase
     full_predictions_df = pd.DataFrame()
     phage_feature_table = pd.read_csv(phage_feature_table)
 
@@ -213,21 +242,21 @@ def run_assign_and_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_
         all_predictions_df = predict_interactions(model_dir, prediction_feature_table)
         full_predictions_df = pd.concat([full_predictions_df, all_predictions_df])
 
-    # Save all predictions
+    # Save predictions
     full_predictions_df.to_csv(os.path.join(output_dir, 'all_predictions.csv'), index=False)
     mean_predictions_df = calculate_mean_predictions(full_predictions_df)
     mean_predictions_df.to_csv(os.path.join(output_dir, 'mean_predictions.csv'), index=False)
 
-# Main function for CLI
+
+# CLI main function
 def main():
-    parser = ArgumentParser(description="Assign new genes to existing clusters and predict interactions.")
-    parser.add_argument('--input_dir', type=str, required=True, help="Directory containing new genome FASTA files.")
+    parser = ArgumentParser(description="Assign genomic features and predict interactions.")
+    parser.add_argument('--input_dir', type=str, required=True, help="Directory containing genome FASTA files.")
     parser.add_argument('--genome_list', type=str, help="CSV file with genome names.")
     parser.add_argument('--genome_type', type=str, choices=['strain', 'phage'], default='strain', help="Type of genome to process.")
-    parser.add_argument('--genome_column', type=str, help="Column name for genome identifiers in genome_list.")
-    parser.add_argument('--mmseqs_db', type=str, required=True, help="Path to the existing MMseqs2 database.")
+    parser.add_argument('--genome_column', type=str, default='strain', help="Column name for genome identifiers in genome_list.")
+    parser.add_argument('--mmseqs_db', type=str, required=True, help="Path to the MMseqs2 database.")
     parser.add_argument('--clusters_tsv', type=str, required=True, help="Path to the clusters TSV file.")
-    parser.add_argument('--feature_map', type=str, required=True, help="Path to the feature map (selected_features.csv).")
     parser.add_argument('--suffix', type=str, default="faa", help="Suffix for FASTA files.")
     parser.add_argument('--model_dir', type=str, required=True, help="Directory with trained models.")
     parser.add_argument('--phage_feature_table', type=str, required=True, help="Path to the phage feature table.")
@@ -235,12 +264,12 @@ def main():
     parser.add_argument('--tmp_dir', type=str, required=True, help="Temporary directory for intermediate files.")
     parser.add_argument('--sensitivity', type=float, default=7.5, help="Sensitivity for MMseqs2 search.")
     parser.add_argument('--coverage', type=float, default=0.8, help="Minimum coverage for assignment.")
-    parser.add_argument('--min_seq_id', type=float, default=0.6, help="Minimum sequence identity for assignment.")
+    parser.add_argument('--min_seq_id', type=float, default=0.4, help="Minimum sequence identity for assignment.")
     parser.add_argument('--threads', type=int, default=4, help="Number of threads for MMseqs2.")
+    parser.add_argument('--kmer_map', type=str, default=None, help="Path to the filtered k-mers CSV file.")
 
     args = parser.parse_args()
 
-    # Call the main workflow function
     run_assign_and_predict_workflow(
         input_dir=args.input_dir,
         genome_list=args.genome_list,
@@ -248,7 +277,6 @@ def main():
         genome_column=args.genome_column,
         mmseqs_db=args.mmseqs_db,
         clusters_tsv=args.clusters_tsv,
-        feature_map=args.feature_map,
         tmp_dir=args.tmp_dir,
         suffix=args.suffix,
         model_dir=args.model_dir,
@@ -257,7 +285,8 @@ def main():
         sensitivity=args.sensitivity,
         coverage=args.coverage,
         min_seq_id=args.min_seq_id,
-        threads=args.threads
+        threads=args.threads,
+        kmer_map_path=args.kmer_map
     )
 
 

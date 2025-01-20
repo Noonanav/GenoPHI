@@ -230,7 +230,7 @@ def run_mmseqs_cluster(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensi
     
     return clusters_tsv
 
-def assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv):
+def assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv, clear_tmp):
     """
     Assigns sequences to existing clusters using MMseqs2 search and creates a best hits TSV file.
 
@@ -267,10 +267,12 @@ def assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq
     select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
 
     # Delete the intermediate clustering files
-    for file in os.listdir(tmp_dir):
-        file_path = os.path.join(tmp_dir, file)
-        if os.path.isfile(file_path):
-            os.remove(file_path)
+    if clear_tmp:
+        logging.info("Clearing temporary files...")
+        for file in os.listdir(tmp_dir):
+            file_path = os.path.join(tmp_dir, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
     
     return best_hits_tsv
 
@@ -505,7 +507,7 @@ def feature_assignment(genome_assignments, selected_features, genome_column_name
     return assignment_df, feature_table
 
 
-def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', strain_column='strain', compare=False):
+def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', strain_column='strain', compare=False, clear_tmp=False):
     """
     Runs a full MMseqs2 clustering workflow including presence-absence matrix generation.
     
@@ -524,6 +526,7 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
         strain_list (str): Path to a strain list file, or 'none' to process all strains.
         strain_column (str): Column name in the strain list file that contains strain names.
         compare (bool): Whether to compare the original clusters with assigned clusters.
+        clear_tmp (bool): Whether to clear the temporary directory after processing.
     
     Raises:
         FileNotFoundError: If no FASTA files are found in the input path.
@@ -556,7 +559,7 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
 
     clusters_tsv = run_mmseqs_cluster(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads)
 
-    best_hits_tsv = assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv)
+    best_hits_tsv = assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv, clear_tmp)
 
     presence_absence_csv = os.path.join(output_dir, "presence_absence_matrix.csv")
     generate_presence_absence_matrix(best_hits_tsv, presence_absence_csv, contig_to_genome, genome_list)

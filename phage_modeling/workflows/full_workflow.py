@@ -123,7 +123,8 @@ def run_full_workflow(args):
                                                      max_features=args.max_features,
                                                      max_ram=args.max_ram,
                                                      threads=args.threads,
-                                                     use_shap=args.use_shap)
+                                                     use_shap=args.use_shap,
+                                                     clear_tmp=args.clear_tmp)
     write_section_report("Protein_Family_Workflow", metrics['protein_family'], args.output)
 
     # Step 2: Run K-mer Workflow
@@ -219,6 +220,7 @@ def main():
     optional_input_group.add_argument('--annotation_table_path', help='Path to annotation table.')
     optional_input_group.add_argument('--protein_id_col', default='protein_ID', help='Protein ID column name.')
     optional_input_group.add_argument('--use_shap', action='store_true', help='Use SHAP values for analysis (default: False).')
+    optional_input_group.add_argument('--clear_tmp', action='store_true', help='Clear temporary files after workflow.')
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -226,7 +228,7 @@ def main():
 
     # Clustering parameters
     clustering_group = parser.add_argument_group('Clustering')
-    clustering_group.add_argument('--min_seq_id', type=float, default=0.6, help='Minimum sequence identity for clustering.')
+    clustering_group.add_argument('--min_seq_id', type=float, default=0.4, help='Minimum sequence identity for clustering.')
     clustering_group.add_argument('--coverage', type=float, default=0.8, help='Minimum coverage for clustering.')
     clustering_group.add_argument('--sensitivity', type=float, default=7.5, help='Sensitivity for clustering.')
     clustering_group.add_argument('--compare', action='store_true', help='Compare clustering results.')

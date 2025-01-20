@@ -40,6 +40,7 @@ setup(
             'run-protein-family-workflow=phage_modeling.workflows.protein_family_workflow:main',
             'run-kmer-table-workflow=phage_modeling.workflows.kmer_table_workflow:main',
             'run-kmer-analysis-workflow=phage_modeling.workflows.kmer_analysis_workflow:main',
+            'run-kmer-assign-and-predict-workflow=phage_modeling.workflows.kmer_assign_predict_workflow:main',
         ],
     },
     classifiers=[

@@ -93,7 +93,8 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
                       filter_type='none', num_runs_fs=10, num_runs_modeling=10, 
                       sample_column='strain', phenotype_column=None, method='rfe',
                       annotation_table_path=None, protein_id_col="protein_ID",
-                      task_type='classification', max_features='none', max_ram=8, use_shap=False):
+                      task_type='classification', max_features='none', max_ram=8, 
+                      use_shap=False, clear_tmp=False):
     """
     Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
     """
@@ -120,7 +121,7 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
         strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
         
         if not os.path.exists(strain_features_path):
-            run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, strain_list, strain_column, compare)
+            run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, strain_list, strain_column, compare, clear_tmp=False)
             run_feature_assignment(
                 os.path.join(strain_output_dir, "presence_absence_matrix.csv"), 
                 os.path.join(strain_output_dir, "features"), 
@@ -147,7 +148,7 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
             phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
 
             if not os.path.exists(phage_features_path):
-                run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, phage_list, phage_column, compare)
+                run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, phage_list, phage_column, compare, clear_tmp=False)
                 run_feature_assignment(
                     os.path.join(phage_output_dir, "presence_absence_matrix.csv"), 
                     os.path.join(phage_output_dir, "features"), 
@@ -355,6 +356,7 @@ def main():
     optional_input_group.add_argument('--annotation_table_path', type=str, help="Path to an optional annotation table (CSV/TSV).")
     optional_input_group.add_argument('--protein_id_col', type=str, default="protein_ID", help="Column name for protein IDs in the predictive_proteins DataFrame.")
     optional_input_group.add_argument('--use_shap', action='store_true', help='Use SHAP values for analysis (default: False).')
+    optional_input_group.add_argument('--clear_tmp', action='store_true', help='Clear temporary files after each step (default: False).')
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -415,7 +417,8 @@ def main():
         task_type=args.task_type,
         max_features=args.max_features,
         max_ram=args.max_ram,
-        use_shap=args.use_shap
+        use_shap=args.use_shap,
+        clear_tmp=args.clear_tmp
     )
 
 if __name__ == "__main__":
