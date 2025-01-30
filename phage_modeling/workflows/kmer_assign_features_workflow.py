@@ -12,6 +12,30 @@ warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 from phage_modeling.mmseqs2_clustering import create_mmseqs_database, load_strains, create_contig_to_genome_dict, select_best_hits
 
+def load_aa_sequences(aa_sequence_file):
+    """
+    Loads amino acid sequences from a FASTA file into a DataFrame.
+
+    Parameters:
+    aa_sequence_file (str): Path to the amino acid sequence file in FASTA format.
+
+    Returns:
+    DataFrame: A DataFrame with 'protein_ID' and 'sequence' columns.
+    """
+    logging.info(f"Loading amino acid sequences from {aa_sequence_file}")
+    
+    # Convert the iterator to a list to prevent re-consumption
+    aa_records = list(SeqIO.parse(aa_sequence_file, 'fasta'))
+    
+    # Create the DataFrame with consistent-length lists
+    aa_sequences_df = pd.DataFrame({
+        'protein_ID': [record.id for record in aa_records],
+        'sequence': [str(record.seq) for record in aa_records]
+    })
+    
+    logging.info(f"Loaded {len(aa_sequences_df)} sequences.")
+    return aa_sequences_df
+
 def detect_and_modify_duplicates(input_dir, output_dir, suffix='faa', strains_to_process=None):
     """
     Detect and resolve duplicate protein IDs by prefixing them with strain names.
@@ -119,44 +143,78 @@ def assign_sequences_to_clusters(db_name, target_db, output_dir, tmp_dir, covera
     
     return best_hits_tsv
 
-def map_features(best_hits_tsv, feature_map, genome_contig_mapping, genome_type):
+def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_kmers, genome_contig_mapping, genome_type, aa_sequence_file, threshold):
     """
-    Maps features for all genomes at once based on cluster assignments.
+    Maps features for all genomes based on cluster assignments and kmer presence in sequences.
 
     Args:
         best_hits_tsv (str): Path to the best hits TSV file.
         feature_map (str): Path to the feature mapping CSV file.
+        filtered_kmers (str): Path to the filtered kmers CSV file.
         genome_contig_mapping (dict): Dictionary mapping contigs to genomes.
         genome_type (str): Type of genome ('strain' or 'phage').
+        aa_sequence_file (str): Path to the FASTA file containing amino acid sequences.
+        threshold (float): Minimum percentage of kmers per feature that need to match.
 
     Returns:
         pd.DataFrame: Combined feature presence table for all genomes.
     """
-    if not os.path.exists(best_hits_tsv):
-        logging.error(f"Best hits TSV file does not exist: {best_hits_tsv}")
+    if not os.path.exists(best_hits_tsv) or not os.path.exists(filtered_kmers):
+        logging.error(f"Required input files do not exist: {best_hits_tsv}, {filtered_kmers}")
         return None
 
     try:
+        # Load necessary files
         best_hits_df = pd.read_csv(best_hits_tsv, sep='\t', header=None, names=['Query', 'Cluster'])
         feature_mapping = pd.read_csv(feature_map)
-        
+        kmer_mapping = pd.read_csv(filtered_kmers)
+
         best_hits_df['Cluster'] = best_hits_df['Cluster'].astype(str)
         feature_mapping['Cluster_Label'] = feature_mapping['Cluster_Label'].astype(str)
-        
+        kmer_mapping['protein_family'] = kmer_mapping['protein_family'].astype(str)
+
+        # Load AA sequences
+        aa_sequences_df = load_aa_sequences(aa_sequence_file)
+
+        # Create a lookup for protein sequences
+        protein_sequences = aa_sequences_df.set_index('protein_ID')['sequence'].to_dict()
+
+        logging.info(f"Mapping features with kmers for {genome_type}s with threshold: {threshold}...")
     except Exception as e:
         logging.error(f"Error reading input files: {e}")
         return None
 
-    logging.info(f"Mapping features for all {genome_type}s...")
-
+    # Merge cluster assignments with feature and genome mappings
     genome_contig_mapping_df = pd.DataFrame(list(genome_contig_mapping.items()), columns=['contig_id', genome_type])
-
     merged_df = best_hits_df.merge(feature_mapping, left_on='Cluster', right_on='Cluster_Label')
     merged_df = merged_df.merge(genome_contig_mapping_df, left_on='Query', right_on='contig_id')
 
-    feature_presence = merged_df.pivot_table(index=genome_type, columns='Feature', aggfunc='size', fill_value=0)
-    feature_presence = (feature_presence > 0).astype(int)
+    # Merge with kmer mapping
+    merged_df = merged_df.merge(kmer_mapping, left_on='Cluster', right_on='protein_family', how='left')
 
+    # Check kmer presence in sequences
+    def count_matching_kmers(row):
+        protein_id = row['Query']
+        sequence = protein_sequences.get(protein_id, "")
+        kmers = kmer_mapping[kmer_mapping['protein_family'] == row['Cluster']]['kmer'].tolist()
+        return sum(kmer in sequence for kmer in kmers)
+
+    merged_df['Matching_Kmers'] = merged_df.apply(count_matching_kmers, axis=1)
+
+    # Group by genome and feature to count total and matching kmers
+    kmer_counts = merged_df.groupby([genome_type, 'Feature']).agg(
+        Total_Kmers=('kmer', 'nunique'),
+        Matching_Kmers=('Matching_Kmers', 'sum')
+    ).reset_index()
+
+    # Apply threshold: check if the percentage of matching kmers meets the threshold
+    kmer_counts['Kmer_Percentage'] = kmer_counts['Matching_Kmers'] / kmer_counts['Total_Kmers']
+    kmer_counts['Meets_Threshold'] = kmer_counts['Kmer_Percentage'] >= threshold if threshold <= 1 else kmer_counts['Matching_Kmers'] >= threshold
+
+    # Pivot to create the feature presence table
+    feature_presence = kmer_counts.pivot(index=genome_type, columns='Feature', values='Meets_Threshold').fillna(0).astype(int)
+
+    # Ensure all features are included
     all_features = feature_mapping['Feature'].unique()
     for feature in all_features:
         if feature not in feature_presence.columns:
@@ -166,7 +224,7 @@ def map_features(best_hits_tsv, feature_map, genome_contig_mapping, genome_type)
 
     return feature_presence
 
-def run_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feature_map, clusters_tsv, genome_type, genome_list=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, suffix='faa'):
+def run_kmer_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feature_map, filtered_kmers, aa_sequence_file, clusters_tsv, genome_type, genome_list=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, suffix='faa', threshold=0.5):
     """
     Process all genomes in the input directory at once, with optional list of genomes to process.
 
@@ -215,7 +273,7 @@ def run_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feat
     genome_contig_mapping, _ = create_contig_to_genome_dict(fasta_files, 'directory')
 
     logging.info(f"Generating feature tables for all {genome_type}s...")
-    feature_presence = map_features(best_hits_tsv, feature_map, genome_contig_mapping, genome_type)
+    feature_presence = map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_kmers, genome_contig_mapping, genome_type, aa_sequence_file, threshold)
 
     if feature_presence is not None:
         combined_feature_table_path = os.path.join(output_dir, f'{genome_type}_combined_feature_table.csv')
@@ -237,15 +295,20 @@ def main():
     parser.add_argument('--min_seq_id', type=float, default=0.6, help="Minimum sequence identity for assignment.")
     parser.add_argument('--threads', type=int, default=4, help="Number of threads for MMseqs2.")
     parser.add_argument('--suffix', type=str, default='faa', help="Suffix for FASTA files.")
+    parser.add_argument('--filtered_kmers', type=str, required=True, help="Path to the filtered kmers CSV file.")
+    parser.add_argument('--aa_sequence_file', type=str, required=True, help="Path to the FASTA file containing amino acid sequences.")
+    parser.add_argument('--threshold', type=float, default=0.5, help="Threshold for kmer matching percentage.")
 
     args = parser.parse_args()
 
-    run_assign_features_workflow(
+    run_kmer_assign_features_workflow(
         input_dir=args.input_dir,
         mmseqs_db=args.mmseqs_db,
         tmp_dir=args.tmp_dir,
         output_dir=args.output_dir,
         feature_map=args.feature_map,
+        filtered_kmers=args.filtered_kmers,
+        aa_sequence_file=args.aa_sequence_file,
         clusters_tsv=args.clusters_tsv,
         genome_type=args.genome_type,
         genome_list=args.genome_list,
@@ -253,8 +316,9 @@ def main():
         coverage=args.coverage,
         min_seq_id=args.min_seq_id,
         threads=args.threads,
-        suffix=args.suffix
+        suffix=args.suffix,
+        threshold=args.threshold
     )
-
+    
 if __name__ == "__main__":
     main()

@@ -82,9 +82,46 @@ def write_section_report(section, metrics, output_dir):
         f.write(f"{section},{metrics['runtime']:.2f},{metrics['avg_cpu']:.2f},{metrics['max_cpu']:.2f},{metrics['max_ram']:.2f}\n")
 
 # Main combined workflow
-def run_full_workflow(args):
-    os.makedirs(args.output, exist_ok=True)
-    setup_logging(args.output)
+def run_full_workflow(
+    input_strain,
+    input_phage,
+    phenotype_matrix,
+    output,
+    min_seq_id=0.4,
+    coverage=0.8,
+    sensitivity=7.5,
+    suffix='faa',
+    strain_list='none',
+    phage_list='none',
+    strain_column='strain',
+    phage_column='phage',
+    source_strain='strain',
+    source_phage='phage',
+    compare=False,
+    num_features='none',
+    filter_type='none',
+    num_runs_fs=10,
+    num_runs_modeling=20,
+    sample_column='strain',
+    phenotype_column='interaction',
+    method='rfe',
+    annotation_table_path=None,
+    protein_id_col='protein_ID',
+    task_type='classification',
+    max_features='none',
+    max_ram=8,
+    threads=4,
+    use_shap=False,
+    clear_tmp=False,
+    k=5,
+    k_range=False,
+    remove_suffix=False,
+    one_gene=False,
+    ignore_families=False,
+    modeling=False
+):
+    os.makedirs(output, exist_ok=True)
+    setup_logging(output)
 
     # Start overall workflow timing
     logging.info("Starting combined workflow...")
@@ -95,53 +132,53 @@ def run_full_workflow(args):
     # Step 1: Run Full Workflow
     logging.info("Running full protein family workflow...")
     _, metrics['protein_family'] = monitor_resources(start_time, run_protein_family_workflow,
-                                                     input_path_strain=args.input_strain,
-                                                     input_path_phage=args.input_phage,
-                                                     phenotype_matrix=args.phenotype_matrix,
-                                                     output_dir=args.output,
-                                                     min_seq_id=args.min_seq_id,
-                                                     coverage=args.coverage,
-                                                     sensitivity=args.sensitivity,
-                                                     suffix=args.suffix,
-                                                     strain_list=args.strain_list,
-                                                     phage_list=args.phage_list,
-                                                     strain_column=args.strain_column,
-                                                     phage_column=args.phage_column,
-                                                     source_strain=args.source_strain,
-                                                     source_phage=args.source_phage,
-                                                     compare=args.compare,
-                                                     num_features=args.num_features,
-                                                     filter_type=args.filter_type,
-                                                     num_runs_fs=args.num_runs_fs,
-                                                     num_runs_modeling=args.num_runs_modeling,
-                                                     sample_column=args.sample_column,
-                                                     phenotype_column=args.phenotype_column,
-                                                     method=args.method,
-                                                     annotation_table_path=args.annotation_table_path,
-                                                     protein_id_col=args.protein_id_col,
-                                                     task_type=args.task_type,
-                                                     max_features=args.max_features,
-                                                     max_ram=args.max_ram,
-                                                     threads=args.threads,
-                                                     use_shap=args.use_shap,
-                                                     clear_tmp=args.clear_tmp)
-    write_section_report("Protein_Family_Workflow", metrics['protein_family'], args.output)
+                                                     input_path_strain=input_strain,
+                                                     input_path_phage=input_phage,
+                                                     phenotype_matrix=phenotype_matrix,
+                                                     output_dir=output,
+                                                     min_seq_id=min_seq_id,
+                                                     coverage=coverage,
+                                                     sensitivity=sensitivity,
+                                                     suffix=suffix,
+                                                     strain_list=strain_list,
+                                                     phage_list=phage_list,
+                                                     strain_column=strain_column,
+                                                     phage_column=phage_column,
+                                                     source_strain=source_strain,
+                                                     source_phage=source_phage,
+                                                     compare=compare,
+                                                     num_features=num_features,
+                                                     filter_type=filter_type,
+                                                     num_runs_fs=num_runs_fs,
+                                                     num_runs_modeling=num_runs_modeling,
+                                                     sample_column=sample_column,
+                                                     phenotype_column=phenotype_column,
+                                                     method=method,
+                                                     annotation_table_path=annotation_table_path,
+                                                     protein_id_col=protein_id_col,
+                                                     task_type=task_type,
+                                                     max_features=max_features,
+                                                     max_ram=max_ram,
+                                                     threads=threads,
+                                                     use_shap=use_shap,
+                                                     clear_tmp=clear_tmp)
+    write_section_report("Protein_Family_Workflow", metrics['protein_family'], output)
 
     # Step 2: Run K-mer Workflow
     logging.info("Running k-mer feature table workflow...")
-    kmer_output_dir = os.path.join(args.output, "kmer_modeling")
+    kmer_output_dir = os.path.join(output, "kmer_modeling")
     os.makedirs(kmer_output_dir, exist_ok=True)
 
     # Hardcoded paths derived from protein family workflow outputs
-    metrics_file = os.path.join(args.output, 'modeling_results', 'model_performance', 'model_performance_metrics.csv')
+    metrics_file = os.path.join(output, 'modeling_results', 'model_performance', 'model_performance_metrics.csv')
     performance_df = pd.read_csv(metrics_file)
     top_cutoff = performance_df.iloc[0]['cut_off'].split('_')[-1]
-    feature_file_path = os.path.join(args.output, 'feature_selection', 'filtered_feature_tables', f'select_feature_table_cutoff_{top_cutoff}.csv')
+    feature_file_path = os.path.join(output, 'feature_selection', 'filtered_feature_tables', f'select_feature_table_cutoff_{top_cutoff}.csv')
 
-    strain_fasta = os.path.join(args.output, "modeling_results", "model_performance", "predictive_proteins", "strain_predictive_AA_seqs.faa")
-    protein_csv = os.path.join(args.output, "modeling_results", "model_performance", "predictive_proteins", "strain_predictive_feature_overview.csv")
-    phage_fasta = os.path.join(args.output, "modeling_results", "model_performance", "predictive_proteins", "phage_predictive_AA_seqs.faa")
-    protein_csv_phage = os.path.join(args.output, "modeling_results", "model_performance", "predictive_proteins", "phage_predictive_feature_overview.csv")
+    strain_fasta = os.path.join(output, "modeling_results", "model_performance", "predictive_proteins", "strain_predictive_AA_seqs.faa")
+    protein_csv = os.path.join(output, "modeling_results", "model_performance", "predictive_proteins", "strain_predictive_feature_overview.csv")
+    phage_fasta = os.path.join(output, "modeling_results", "model_performance", "predictive_proteins", "phage_predictive_AA_seqs.faa")
+    protein_csv_phage = os.path.join(output, "modeling_results", "model_performance", "predictive_proteins", "phage_predictive_feature_overview.csv")
 
     # Validate required files
     required_files = {
@@ -159,37 +196,37 @@ def run_full_workflow(args):
     _, metrics['kmer_workflow'] = monitor_resources(start_time, run_kmer_table_workflow,
                                                     strain_fasta=strain_fasta,
                                                     protein_csv=protein_csv,
-                                                    k=args.k,
+                                                    k=k,
                                                     id_col='strain',
-                                                    one_gene=args.one_gene,
+                                                    one_gene=one_gene,
                                                     output_dir=kmer_output_dir,
-                                                    k_range=args.k_range,
-                                                    phenotype_matrix=args.phenotype_matrix,
+                                                    k_range=k_range,
+                                                    phenotype_matrix=phenotype_matrix,
                                                     phage_fasta=phage_fasta,
                                                     protein_csv_phage=protein_csv_phage,
-                                                    remove_suffix=args.remove_suffix,
-                                                    sample_column=args.sample_column,
-                                                    phenotype_column=args.phenotype_column,
-                                                    modeling=args.modeling,
-                                                    filter_type=args.filter_type,
-                                                    num_features=args.num_features,
-                                                    num_runs_fs=args.num_runs_fs,
-                                                    num_runs_modeling=args.num_runs_modeling,
-                                                    method=args.method,
+                                                    remove_suffix=remove_suffix,
+                                                    sample_column=sample_column,
+                                                    phenotype_column=phenotype_column,
+                                                    modeling=modeling,
+                                                    filter_type=filter_type,
+                                                    num_features=num_features,
+                                                    num_runs_fs=num_runs_fs,
+                                                    num_runs_modeling=num_runs_modeling,
+                                                    method=method,
                                                     strain_list=feature_file_path,
                                                     phage_list=feature_file_path,
-                                                    threads=args.threads,
-                                                    task_type=args.task_type,
-                                                    max_features=args.max_features,
-                                                    ignore_families=args.ignore_families,
-                                                    max_ram=args.max_ram,
-                                                    use_shap=args.use_shap)
-    write_section_report("Kmer_Workflow", metrics['kmer_workflow'], args.output)
+                                                    threads=threads,
+                                                    task_type=task_type,
+                                                    max_features=max_features,
+                                                    ignore_families=ignore_families,
+                                                    max_ram=max_ram,
+                                                    use_shap=use_shap)
+    write_section_report("Kmer_Workflow", metrics['kmer_workflow'], output)
 
     # Final combined report
     total_runtime = time.time() - start_time
     logging.info(f"Combined workflow completed in {total_runtime:.2f} seconds.")
-    with open(os.path.join(args.output, "combined_workflow_summary.txt"), "w") as report:
+    with open(os.path.join(output, "combined_workflow_summary.txt"), "w") as report:
         report.write("Combined Workflow Summary\n")
         report.write("=" * 40 + "\n")
         for section, m in metrics.items():
@@ -238,7 +275,7 @@ def main():
     fs_modeling_group.add_argument('--filter_type', default='none', help='Filter type for feature selection.')
     fs_modeling_group.add_argument('--method', default='rfe', choices=['rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
                                    help='Feature selection method.')
-    fs_modeling_group.add_argument('--num_features', type=int, default=100, help='Number of features for selection.')
+    fs_modeling_group.add_argument('--num_features', default='none', help='Number of features for selection.')
     fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection runs.')
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=20, help='Number of modeling runs.')
     fs_modeling_group.add_argument('--task_type', default='classification', choices=['classification', 'regression'], help='Task type for modeling.')
@@ -257,7 +294,44 @@ def main():
 
     args = parser.parse_args()
 
-    run_full_workflow(args)
+    run_full_workflow(
+        input_strain=args.input_strain,
+        input_phage=args.input_phage,
+        phenotype_matrix=args.phenotype_matrix,
+        output=args.output,
+        min_seq_id=args.min_seq_id,
+        coverage=args.coverage,
+        sensitivity=args.sensitivity,
+        suffix=args.suffix,
+        strain_list=args.strain_list,
+        phage_list=args.phage_list,
+        strain_column=args.strain_column,
+        phage_column=args.phage_column,
+        source_strain=args.source_strain,
+        source_phage=args.source_phage,
+        compare=args.compare,
+        num_features=args.num_features,
+        filter_type=args.filter_type,
+        num_runs_fs=args.num_runs_fs,
+        num_runs_modeling=args.num_runs_modeling,
+        sample_column=args.sample_column,
+        phenotype_column=args.phenotype_column,
+        method=args.method,
+        annotation_table_path=args.annotation_table_path,
+        protein_id_col=args.protein_id_col,
+        task_type=args.task_type,
+        max_features=args.max_features,
+        max_ram=args.max_ram,
+        threads=args.threads,
+        use_shap=args.use_shap,
+        clear_tmp=args.clear_tmp,
+        k=args.k,
+        k_range=args.k_range,
+        remove_suffix=args.remove_suffix,
+        one_gene=args.one_gene,
+        ignore_families=args.ignore_families,
+        modeling=args.modeling
+    )
 
 if __name__ == "__main__":
     main()

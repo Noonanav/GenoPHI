@@ -108,12 +108,9 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         y_train = y[train_idx]
         y_test = y[test_idx]
 
-        if 'phage' in full_feature_table.columns:
-            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, filter_type, 'phage']]
-            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, filter_type, 'phage']]
-        else:
-            X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, filter_type]]
-            X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, filter_type]]
+        # Only select the required columns for sample IDs
+        X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage'] if 'phage' in full_feature_table.columns else [sample_column]]
+        X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, 'phage'] if 'phage' in full_feature_table.columns else [sample_column]]
 
     # Check for multiple unique values in the training set target
     unique_values = y_train.nunique()
