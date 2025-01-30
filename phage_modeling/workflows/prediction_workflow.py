@@ -3,24 +3,39 @@ import os
 import pickle
 from catboost import CatBoostClassifier
 from argparse import ArgumentParser
+import numpy as np
+import logging
 
-def generate_full_feature_table(input_table, phage_feature_table, strain_source='strain', phage_source='phage'):
-    """
-    Concatenates strain feature table with phage feature table for predictions.
-    Each row in the final table is a combination of one strain row and one phage row.
-    The strain and phage features are identified based on the prefixes defined during feature selection.
-    """
-    # strain features (those starting with strain_source prefix, e.g., 'hc_' for strain)
-    strain_features = ['strain'] + [col for col in input_table.columns if col.startswith(f'{strain_source[0]}c_')]
+def generate_full_feature_table(input_table, phage_feature_table=None, strain_source='strain', phage_source='phage', output_dir=None):
+    strain_features = ['strain'] + [col for col in input_table.columns if col not in ['strain', 'phage']]
 
-    # Phage features (those starting with phage_source prefix, e.g., 'pc_' for phage)
-    phage_features_table = phage_feature_table[['phage'] + [col for col in phage_feature_table.columns if col.startswith(f'{phage_source[0]}c_')]]
+    if phage_feature_table is None:
+        logging.info("No phage feature table provided. Using strain features only.")
+        return input_table[strain_features]
 
-    # Create repeated rows of strain features for each phage entry
-    repeated_strain = pd.concat([input_table[strain_features]] * len(phage_features_table), ignore_index=True)
+    # Include all columns from phage_feature_table
+    phage_features_table = phage_feature_table
 
-    # Create the prediction feature table by concatenating strain and phage rows
-    prediction_feature_table = pd.concat([phage_features_table.reset_index(drop=True), repeated_strain], axis=1)
+    # Repeat the phage table for each strain
+    repeated_phage = pd.DataFrame(
+        np.repeat(phage_features_table.values, len(input_table), axis=0),
+        columns=phage_features_table.columns
+    )
+
+    # Repeat the strain table for each phage
+    repeated_strain = pd.DataFrame(
+        np.tile(input_table[strain_features].values, (len(phage_features_table), 1)),
+        columns=strain_features
+    )
+
+    # Combine the repeated data
+    prediction_feature_table = pd.concat([repeated_phage.reset_index(drop=True), repeated_strain.reset_index(drop=True)], axis=1)
+
+    # Save the merged table if an output_dir is provided
+    if output_dir:
+        merged_table_path = os.path.join(output_dir, 'merged_feature_table.csv')
+        prediction_feature_table.to_csv(merged_table_path, index=False)
+        logging.info(f'Merged feature table saved to: {merged_table_path}')
 
     return prediction_feature_table
 
@@ -39,12 +54,26 @@ def load_model(model_file):
         raise ValueError(f"Unsupported model file format: {model_file}")
     return model
 
-def predict_interactions(model_dir, prediction_feature_table):
+from catboost import CatBoostClassifier
+import pandas as pd
+import os
+import logging
+
+def predict_interactions(model_dir, prediction_feature_table, single_strain_mode=False, threads=4):
     """
-    Runs predictions using all models in the model_dir and returns individual predictions
-    as well as the mean confidence score.
+    Runs predictions using all models in the model_dir and returns predictions with confidence scores.
+    Uses multiple threads for prediction to speed up computations.
+
+    Args:
+        model_dir (str): Directory with model subdirectories.
+        prediction_feature_table (pd.DataFrame): Table containing features for prediction.
+        single_strain_mode (bool): If True, only strain features are used.
+        threads (int): Number of threads to use for prediction. Default is 4.
+
+    Returns:
+        pd.DataFrame: DataFrame containing all predictions with confidence scores.
     """
-    all_predictions_df = pd.DataFrame(columns=['Prediction', 'strain', 'phage', 'run', 'Confidence'])
+    all_predictions_df = pd.DataFrame(columns=['Prediction', 'strain', 'phage', 'run', 'Confidence'] if not single_strain_mode else ['Prediction', 'strain', 'run', 'Confidence'])
 
     subdirs = [subdir for subdir in os.listdir(model_dir) if subdir.startswith('run')]
 
@@ -52,125 +81,101 @@ def predict_interactions(model_dir, prediction_feature_table):
         model_subdir_path = os.path.join(model_dir, subdir)
         model_file = os.path.join(model_subdir_path, "best_model.pkl")
 
-        # Check for pkl model, otherwise use cbm
         if not os.path.exists(model_file):
             model_file = os.path.join(model_subdir_path, "best_model.cbm")
             if not os.path.exists(model_file):
-                # Log a warning and skip this model if neither file exists
                 logging.warning(f"Model file not found for run {subdir}: Skipping.")
                 continue
 
-        # Load the model and catch any potential errors
         try:
             model = load_model(model_file)
         except Exception as e:
             logging.error(f"Error loading model for run {subdir}: {e}")
             continue
 
-        # Get strain and phage columns
-        target_features_testing = prediction_feature_table.drop(columns=['strain', 'phage'])
-        target_features = prediction_feature_table[['strain', 'phage']]
+        target_features_testing = prediction_feature_table.drop(columns=['strain', 'phage'] if not single_strain_mode else ['strain'])
+        target_features = prediction_feature_table[['strain', 'phage']] if not single_strain_mode else prediction_feature_table[['strain']]
 
-        # Run predictions
-        predictions = model.predict(target_features_testing)
-        y_proba = model.predict_proba(target_features_testing)[:, 1]  # Confidence score for the positive class
+        # Using thread_count for prediction
+        predictions = model.predict(target_features_testing, thread_count=threads)
+        y_proba = model.predict_proba(target_features_testing, thread_count=threads)[:, 1]
 
-        # Store results
         predictions_df_temp = pd.DataFrame({
             'Prediction': predictions,
             'Confidence': y_proba,
             'strain': target_features['strain'],
-            'phage': target_features['phage'],
             'run': subdir
         })
 
+        if not single_strain_mode:
+            predictions_df_temp['phage'] = target_features['phage']
+
         all_predictions_df = pd.concat([all_predictions_df, predictions_df_temp], ignore_index=True)
 
-    # Return combined predictions even if some models were missing
     return all_predictions_df
 
-def calculate_mean_predictions(all_predictions_df):
+def calculate_median_predictions(all_predictions_df, single_strain_mode=False):
     """
-    Calculate mean confidence score and generate final predictions based on the average confidence.
+    Calculate median confidence score and generate final predictions based on the average confidence.
     """
-    mean_conf_df = all_predictions_df.groupby(['strain', 'phage']).agg({
-        'Confidence': 'mean'
+    group_cols = ['strain', 'phage'] if not single_strain_mode else ['strain']
+    median_conf_df = all_predictions_df.groupby(group_cols).agg({
+        'Confidence': 'median'
     }).reset_index()
 
-    # Final prediction based on mean confidence > 0.5
-    mean_conf_df['Final_Prediction'] = (mean_conf_df['Confidence'] > 0.5).astype(int)
+    median_conf_df['Final_Prediction'] = (median_conf_df['Confidence'] > 0.5).astype(int)
 
-    return mean_conf_df
+    return median_conf_df
 
-def run_prediction_workflow(input_dir, phage_feature_table_path, model_dir, output_dir, strain_source='strain', phage_source='phage'):
+def run_prediction_workflow(input_dir, phage_feature_table_path, model_dir, output_dir, strain_source='strain', phage_source='phage', threads=4):
     """
-    Full workflow for predicting phage-strain interactions using multiple models and strain-specific feature tables.
+    Full workflow for predicting interactions using a combined strain feature table and optionally phage-specific features.
 
     Args:
-        input_dir (str): Directory with strain-specific feature tables.
-        phage_feature_table_path (str): Path to the phage feature table.
+        input_dir (str): Directory containing the combined strain feature table.
+        phage_feature_table_path (str or None): Path to the phage feature table. If None, single-strain mode is used.
         model_dir (str): Directory with model subdirectories.
         output_dir (str): Output directory for saving predictions.
-        strain_source (str): Source used for strain feature naming (prefix).
-        phage_source (str): Source used for phage feature naming (prefix).
+        strain_source (str): Prefix used for strain features.
+        phage_source (str): Prefix used for phage features.
     """
-    # Load phage feature table
-    print('Loading phage feature table...')
-    phage_feature_table = pd.read_csv(phage_feature_table_path)
-
-    # Prepare output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Load strain feature tables and generate full feature table
-    print('Generating full feature table...')
+    phage_feature_table = pd.read_csv(phage_feature_table_path) if phage_feature_table_path else None
+
     input_files = [f for f in os.listdir(input_dir) if f.endswith('_feature_table.csv')]
-    full_predictions_df = pd.DataFrame()
+    if not input_files:
+        logging.error(f"No strain feature table found in {input_dir}")
+        return  # or raise an exception
+    input_file = input_files[0]
 
-    for input_file in input_files:
-        strain_name = input_file.split('_feature_table')[0]
-        print(f'Processing strain: {strain_name}')
+    logging.info(f'Processing file: {input_file}')
 
-        # Load the strain-specific feature table
-        input_table = pd.read_csv(os.path.join(input_dir, input_file))
+    input_table = pd.read_csv(os.path.join(input_dir, input_file))
 
-        # Generate the full prediction table (strain + phage)
-        prediction_feature_table = generate_full_feature_table(input_table, phage_feature_table, strain_source, phage_source)
+    single_strain_mode = phage_feature_table is None
+    prediction_feature_table = generate_full_feature_table(input_table, phage_feature_table, strain_source, phage_source, output_dir=output_dir)
 
-        # Run predictions using all models
-        print('Running predictions using all models...')
-        all_predictions_df = predict_interactions(model_dir, prediction_feature_table)
+    logging.info('Running predictions...')
+    all_predictions_df = predict_interactions(model_dir, prediction_feature_table, single_strain_mode, threads)
 
-        # Save all predictions for this strain
-        all_predictions_df.to_csv(os.path.join(output_dir, f'{strain_name}_all_predictions.csv'), index=False)
+    all_predictions_df.to_csv(os.path.join(output_dir, f'{strain_source}_all_predictions.csv'), index=False)
 
-        # Concatenate predictions for the final output
-        full_predictions_df = pd.concat([full_predictions_df, all_predictions_df], ignore_index=True)
+    logging.info('Calculating median predictions...')
+    median_predictions_df = calculate_median_predictions(all_predictions_df, single_strain_mode)
+    median_predictions_df.to_csv(os.path.join(output_dir, f'{strain_source}_median_predictions.csv'), index=False)
 
-    # Save all predictions in one CSV
-    print('Saving all predictions...')
-    full_predictions_df.to_csv(os.path.join(output_dir, 'all_predictions.csv'), index=False)
-
-    # Calculate mean confidence and final predictions
-    print('Calculating mean predictions...')
-    mean_predictions_df = calculate_mean_predictions(full_predictions_df)
-
-    # Save the mean predictions
-    print('Saving mean predictions...')
-    mean_predictions_df.to_csv(os.path.join(output_dir, 'mean_predictions.csv'), index=False)
-
-    print('Workflow completed successfully.')
+    logging.info('Workflow completed successfully.')
 
 def main():
-    """
-    Command-line interface (CLI) for running the full prediction workflow.
-    """
-    parser = ArgumentParser(description="Predict phage-strain interactions using strain-specific feature tables and multiple models.")
+    parser = ArgumentParser(description="Predict interactions using strain-specific and optionally phage-specific feature tables.")
     parser.add_argument('--input_dir', type=str, required=True, help="Directory with strain-specific feature tables.")
-    parser.add_argument('--phage_feature_table', type=str, required=True, help="Path to the phage feature table.")
+    parser.add_argument('--phage_feature_table', type=str, help="Path to the phage feature table. Optional for single-strain mode.")
     parser.add_argument('--model_dir', type=str, required=True, help="Directory with models (run_* subdirectories).")
     parser.add_argument('--output_dir', type=str, required=True, help="Directory to save predictions.")
     parser.add_argument('--strain_source', type=str, default='strain', help="Prefix used for strain features.")
     parser.add_argument('--phage_source', type=str, default='phage', help="Prefix used for phage features.")
+    parser.add_argument('--threads', type=int, default=4, help="Number of threads to use for prediction.")
 
     args = parser.parse_args()
 
@@ -180,9 +185,9 @@ def main():
         model_dir=args.model_dir,
         output_dir=args.output_dir,
         strain_source=args.strain_source,
-        phage_source=args.phage_source
+        phage_source=args.phage_source,
+        threads=args.threads
     )
 
 if __name__ == '__main__':
     main()
-

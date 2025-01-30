@@ -91,7 +91,7 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
                       strain_column='strain', phage_column='phage', compare=False, 
                       source_strain='strain', source_phage='phage', num_features='none', 
                       filter_type='none', num_runs_fs=10, num_runs_modeling=10, 
-                      sample_column='strain', phenotype_column=None, method='rfe',
+                      sample_column='strain', phenotype_column='interaction', method='rfe',
                       annotation_table_path=None, protein_id_col="protein_ID",
                       task_type='classification', max_features='none', max_ram=8, 
                       use_shap=False, clear_tmp=False):
