@@ -85,16 +85,45 @@ def write_report(output_dir, start_time, end_time, ram_usage, avg_cpu_usage, max
         report.write(f"Features in Final Table: {features}\n")
     logging.info(f"Report saved to: {report_file}")
 
-def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix, tmp_dir="tmp", 
-                      input_path_phage=None, min_seq_id=0.6, coverage=0.8, sensitivity=7.5, 
-                      suffix='faa', threads=4, strain_list='none', phage_list='none', 
-                      strain_column='strain', phage_column='phage', compare=False, 
-                      source_strain='strain', source_phage='phage', num_features='none', 
-                      filter_type='none', num_runs_fs=10, num_runs_modeling=10, 
-                      sample_column='strain', phenotype_column='interaction', method='rfe',
-                      annotation_table_path=None, protein_id_col="protein_ID",
-                      task_type='classification', max_features='none', max_ram=8, 
-                      use_shap=False, clear_tmp=False):
+def run_protein_family_workflow(
+    input_path_strain, 
+    output_dir, 
+    phenotype_matrix, 
+    tmp_dir="tmp", 
+    input_path_phage=None, 
+    clustering_dir=None,
+    min_seq_id=0.6, 
+    coverage=0.8, 
+    sensitivity=7.5, 
+    suffix='faa', 
+    threads=4, 
+    strain_list='none', 
+    phage_list='none', 
+     strain_column='strain', 
+     phage_column='phage', 
+     compare=False, 
+     source_strain='strain', 
+     source_phage='phage', 
+     num_features='none', 
+     filter_type='none', 
+     num_runs_fs=10, 
+     num_runs_modeling=10,
+     sample_column='strain', 
+     phenotype_column='interaction', 
+     method='rfe',
+     annotation_table_path=None, 
+     protein_id_col="protein_ID",
+     task_type='classification', 
+     max_features='none', 
+     max_ram=8, 
+     use_dynamic_weights=False, 
+     weights_method='log10',
+     use_clustering=True,
+     min_cluster_size=5,
+     min_samples=None,
+     cluster_selection_epsilon=0.0,
+     use_shap=False, 
+     clear_tmp=False):
     """
     Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
     """
@@ -116,12 +145,29 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
 
     try:
         logging.info("Step 1: Running feature table generation for strain...")
-        strain_output_dir = os.path.join(output_dir, "strain")
-        strain_tmp_dir = os.path.join(output_dir, "tmp", "strain")
-        strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
+
+        if clustering_dir:
+            old_strain_dir = os.path.join(clustering_dir, "strain")
+            strain_output_dir = os.path.join(output_dir, "strain")
+            os.symlink(old_strain_dir, strain_output_dir, target_is_directory=True)
+
+            old_tmp_dir = os.path.join(clustering_dir, "tmp")
+            tmp_dir = os.path.join(output_dir, "tmp")
+            os.symlink(old_tmp_dir, tmp_dir, target_is_directory=True)
+            strain_tmp_dir = os.path.join(output_dir, "tmp", "strain")
+            strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
+
+        else:
+            # run normal clustering into new_strain_dir
+            strain_output_dir = os.path.join(output_dir, "strain")
+            strain_tmp_dir = os.path.join(output_dir, "tmp", "strain")
+            strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
+
+            run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, 
+                                 min_seq_id, coverage, sensitivity, suffix, threads, 
+                                 strain_list, strain_column, compare, clear_tmp=False)
         
         if not os.path.exists(strain_features_path):
-            run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, strain_list, strain_column, compare, clear_tmp=False)
             run_feature_assignment(
                 os.path.join(strain_output_dir, "presence_absence_matrix.csv"), 
                 os.path.join(strain_output_dir, "features"), 
@@ -141,14 +187,28 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
         del strain_features_df
         gc.collect()
 
+        # Process phage data if provided
         if input_path_phage:
-            logging.info("Step 1 (continued): Running feature table generation for phage...")
-            phage_output_dir = os.path.join(output_dir, "phage")
-            phage_tmp_dir = os.path.join(output_dir, "tmp", "phage")
-            phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
+            logging.info("Processing phage features...")
+
+            if clustering_dir:
+                old_phage_dir = os.path.join(clustering_dir, "phage")
+                phage_output_dir = os.path.join(output_dir, "phage")
+                os.symlink(old_phage_dir, phage_output_dir, target_is_directory=True)
+                phage_tmp_dir = os.path.join(output_dir, "tmp", "phage")
+                phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
+
+                logging.info("Using existing phage clustering results...")
+            else:
+                phage_output_dir = os.path.join(output_dir, "phage")
+                phage_tmp_dir = os.path.join(output_dir, "tmp", "phage")
+                phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
+
+                run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, 
+                                     min_seq_id, coverage, sensitivity, suffix, threads, 
+                                     phage_list, phage_column, compare, clear_tmp=False)
 
             if not os.path.exists(phage_features_path):
-                run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, min_seq_id, coverage, sensitivity, suffix, threads, phage_list, phage_column, compare, clear_tmp=False)
                 run_feature_assignment(
                     os.path.join(phage_output_dir, "presence_absence_matrix.csv"), 
                     os.path.join(phage_output_dir, "features"), 
@@ -212,7 +272,14 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
             method=method,
             sample_column=sample_column,
             phenotype_column=phenotype_column,
+            phage_column=phage_column,
             task_type=task_type,
+            use_dynamic_weights=use_dynamic_weights,
+            weights_method=weights_method,
+            use_clustering=use_clustering,
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            cluster_selection_epsilon=cluster_selection_epsilon,
             max_ram=max_ram
         )
 
@@ -240,9 +307,16 @@ def run_protein_family_workflow(input_path_strain, output_dir, phenotype_matrix,
             set_filter=filter_type,
             sample_column=sample_column,
             phenotype_column=phenotype_column,
+            phage_column=phage_column,
+            use_dynamic_weights=use_dynamic_weights,
+            weights_method=weights_method,
             task_type=task_type,
             binary_data=True,
             max_ram=max_ram,
+            use_clustering=use_clustering,
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            cluster_selection_epsilon=cluster_selection_epsilon,
             use_shap=use_shap
         )
 
@@ -344,6 +418,7 @@ def main():
 
     # Optional input arguments
     optional_input_group = parser.add_argument_group('Optional input arguments')
+    optional_input_group.add_argument('--clustering_dir', type=str, help='Path to an existing strain clustering directory.')
     optional_input_group.add_argument('--suffix', type=str, default='faa', help='Suffix for input FASTA files (default: faa).')
     optional_input_group.add_argument('--strain_list', type=str, default='none', help='Path to a strain list file for filtering (default: none).')
     optional_input_group.add_argument('--phage_list', type=str, default='none', help='Path to a phage list file for filtering (default: none).')
@@ -357,6 +432,12 @@ def main():
     optional_input_group.add_argument('--protein_id_col', type=str, default="protein_ID", help="Column name for protein IDs in the predictive_proteins DataFrame.")
     optional_input_group.add_argument('--use_shap', action='store_true', help='Use SHAP values for analysis (default: False).')
     optional_input_group.add_argument('--clear_tmp', action='store_true', help='Clear temporary files after each step (default: False).')
+    optional_input_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic weights for feature selection (default: False).')
+    optional_input_group.add_argument('--weights_method', type=str, default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method for calculating dynamic weights (default: log10).')
+    optional_input_group.add_argument('--use_clustering', action='store_true', help='Use clustering for feature selection (default: True).')
+    optional_input_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for clustering (default: 5).')
+    optional_input_group.add_argument('--min_samples', type=int, help='Minimum number of samples for clustering (default: None).')
+    optional_input_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering (default: 0.0).')
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -392,6 +473,7 @@ def main():
         input_path_strain=args.input_strain,
         input_path_phage=args.input_phage,  # Optional; may be None if not provided
         phenotype_matrix=args.phenotype_matrix,
+        clustering_dir=args.clustering_dir,
         output_dir=args.output,
         min_seq_id=args.min_seq_id,
         coverage=args.coverage,
@@ -418,6 +500,12 @@ def main():
         max_features=args.max_features,
         max_ram=args.max_ram,
         use_shap=args.use_shap,
+        use_dynamic_weights=args.use_dynamic_weights,
+        weights_method=args.weights_method,
+        use_clustering=args.use_clustering,
+        min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
+        cluster_selection_epsilon=args.cluster_selection_epsilon,
         clear_tmp=args.clear_tmp
     )
 

@@ -70,7 +70,26 @@ def plot_custom_shap_beeswarm(shap_values_df, output_dir, prefix=None, binary_da
     del shap_plot, top_20_shap_df, full_shap_values_df_top20
     gc.collect()
 
-def model_testing_select_MCC(input, output_dir, threads, random_state, task_type='classification', set_filter='none', sample_column=None, phenotype_column=None, binary_data=False, max_ram=8, use_shap=False):
+def model_testing_select_MCC(
+    input, 
+    output_dir, 
+    threads, 
+    random_state, 
+    task_type='classification', 
+    set_filter='none', 
+    sample_column=None, 
+    phenotype_column=None, 
+    phage_column='phage',
+    use_dynamic_weights=False,
+    weights_method='log10',
+    binary_data=False, 
+    max_ram=8, 
+    use_clustering=True,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    use_shap=False
+):
     """
     Runs a single experiment for feature table, training a CatBoost model with grid search and saving results.
 
@@ -91,7 +110,16 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
     # Load and prepare data
     X, y, full_feature_table = load_and_prepare_data(input, sample_column, phenotype_column, filter_type=set_filter)
     X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(
-        X, y, full_feature_table, set_filter, sample_column=sample_column if sample_column else 'strain', random_state=random_state
+        X, y, 
+        full_feature_table, 
+        set_filter, 
+        sample_column=sample_column if sample_column else 'strain', 
+        random_state=random_state,
+        output_dir=output_dir,
+        use_clustering=use_clustering,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon
     )
     print(f"Training data shape: {X_train.shape}, Testing data shape: {X_test.shape}")
 
@@ -109,7 +137,19 @@ def model_testing_select_MCC(input, output_dir, threads, random_state, task_type
             'thread_count': [threads]
         }
         best_model, best_params, best_mcc = grid_search(
-            X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column, max_ram=max_ram
+            X_train, 
+            y_train, 
+            X_test, 
+            y_test, 
+            X_train_sample_ids,
+            X_test_sample_ids, 
+            param_grid, 
+            output_dir, 
+            phenotype_column, 
+            phage_column=phage_column,
+            use_dynamic_weights=use_dynamic_weights,
+            weights_method=weights_method,
+            max_ram=max_ram
         )
         best_metric = best_mcc
 
@@ -448,7 +488,26 @@ def plot_regressor_performance(comparison_df, model_performance_dir):
     del regressor_plot
     gc.collect()
 
-def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='classification', set_filter='none', sample_column='strain', phenotype_column='interaction', binary_data=False, max_ram=8, use_shap=False):
+def run_experiments(
+    input_dir, 
+    base_output_dir, 
+    threads, 
+    num_runs, 
+    task_type='classification', 
+    set_filter='none', 
+    sample_column='strain', 
+    phenotype_column='interaction', 
+    phage_column='phage',
+    use_dynamic_weights=False,
+    weights_method='log10',
+    binary_data=False, 
+    max_ram=8, 
+    use_clustering=True,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    use_shap=False
+):
     """
     Iterates through feature tables in a directory, running the model testing process for each.
 
@@ -511,8 +570,15 @@ def run_experiments(input_dir, base_output_dir, threads, num_runs, task_type='cl
                         set_filter=set_filter,
                         sample_column=sample_column,
                         phenotype_column=phenotype_column,
+                        phage_column=phage_column,
+                        use_dynamic_weights=use_dynamic_weights,
+                        weights_method=weights_method,
                         binary_data=binary_data,
                         max_ram=max_ram,
+                        use_clustering=use_clustering,
+                        min_cluster_size=min_cluster_size,
+                        min_samples=min_samples,
+                        cluster_selection_epsilon=cluster_selection_epsilon,
                         use_shap=use_shap
                     )
                 else:

@@ -300,12 +300,41 @@ def load_genome_list(file_path, genome_column):
         logging.warning(f"Genome list file {file_path} not found or not provided.")
         return None
 
-def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, output_dir, k_range=False,
-                            phenotype_matrix=None, phage_fasta=None, protein_csv_phage=None, remove_suffix=False,
-                            sample_column='strain', phenotype_column='interaction', modeling=False, filter_type='strain',
-                            num_features=100, num_runs_fs=10, num_runs_modeling=20, method='rfe', strain_list=None,
-                            phage_list=None, threads=4, task_type='classification', max_features='none', ignore_families=False, 
-                            max_ram=8, use_shap=False):
+def run_kmer_table_workflow(
+    strain_fasta, 
+    protein_csv, 
+    k, 
+    id_col, 
+    one_gene, 
+    output_dir, 
+    k_range=False,
+    phenotype_matrix=None, 
+    phage_fasta=None, 
+    protein_csv_phage=None, 
+    remove_suffix=False,
+    sample_column='strain', 
+    phenotype_column='interaction', 
+    modeling=False, 
+    filter_type='strain',
+    num_features=100, 
+    num_runs_fs=10, 
+    num_runs_modeling=20, 
+    method='rfe', 
+    strain_list=None,
+    phage_list=None, 
+    threads=4, 
+    task_type='classification', 
+    max_features='none', 
+    ignore_families=False, 
+    max_ram=8, 
+    use_shap=False,
+    use_clustering=False,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    use_dynamic_weights=False,
+    weights_method='log10'
+):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
     feature selection, phenotype merging, and optional modeling.
@@ -335,6 +364,12 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
         ignore_families (bool, optional): If True, ignores protein families when defining k-mer features. Default is False.
         threads (int, optional): Number of threads to use for parallel processing. Default is 4.
         max_ram (float, optional): Maximum allowable RAM usage in GB for feature selection.
+        use_clustering (bool, optional): Whether to use clustering for train-test split. Default is False.
+        min_cluster_size (int, optional): Minimum cluster size for HDBSCAN. Default is 5.
+        min_samples (int, optional): Minimum samples parameter for HDBSCAN. Default is None.
+        cluster_selection_epsilon (float, optional): Cluster selection epsilon for HDBSCAN. Default is 0.0.
+        use_dynamic_weights (bool, optional): Whether to use dynamic class weights. Default is False.
+        weights_method (str, optional): Method to calculate class weights ('log10', 'inverse_frequency', 'balanced'). Default is 'log10'.
 
     Returns:
         None. Saves the final feature tables and optional modeling results to `output_dir`.
@@ -463,7 +498,13 @@ def run_kmer_table_workflow(strain_fasta, protein_csv, k, id_col, one_gene, outp
                 binary_data=True,
                 max_features=max_features,
                 max_ram=max_ram,
-                use_shap=use_shap
+                use_shap=use_shap,
+                use_clustering=use_clustering,
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                cluster_selection_epsilon=cluster_selection_epsilon,
+                use_dynamic_weights=use_dynamic_weights,
+                weights_method=weights_method
             )
     except Exception as e:
         logging.error(f"An error occurred: {e}")
@@ -527,6 +568,12 @@ def main():
     fs_modeling_group.add_argument('--task_type', default='classification', choices=['classification', 'regression'], help="Specify 'classification' or 'regression' task.")
     fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
     fs_modeling_group.add_argument('--use_shap', action='store_true', help='If True, calculates SHAP feature importance values.')
+    fs_modeling_group.add_argument('--use_clustering', action='store_true', help='Use clustering for train-test split')
+    fs_modeling_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for HDBSCAN (default: 5)')
+    fs_modeling_group.add_argument('--min_samples', type=int, default=None, help='Min samples parameter for HDBSCAN (default: None)')
+    fs_modeling_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Cluster selection epsilon for HDBSCAN (default: 0.0)')
+    fs_modeling_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic class weights for imbalanced datasets')
+    fs_modeling_group.add_argument('--weights_method', default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method to calculate class weights (default: log10)')
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -563,7 +610,13 @@ def main():
         max_features=args.max_features,
         ignore_families=args.ignore_families,
         max_ram=args.max_ram,
-        use_shap=args.use_shap
+        use_shap=args.use_shap,
+        use_clustering=args.use_clustering,
+        min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
+        cluster_selection_epsilon=args.cluster_selection_epsilon,
+        use_dynamic_weights=args.use_dynamic_weights,
+        weights_method=args.weights_method
     )
 
 if __name__ == "__main__":

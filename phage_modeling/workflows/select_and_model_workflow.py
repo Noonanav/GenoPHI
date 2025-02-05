@@ -32,13 +32,37 @@ def setup_logging(output_dir, log_filename="protein_family_workflow.log"):
         logging.info("Logging is already configured by the calling workflow.")
 
 def run_modeling_workflow_from_feature_table(
-    full_feature_table, output_dir, threads=4, num_features=100, filter_type='none',
-    num_runs_fs=10, num_runs_modeling=10, sample_column='strain', phenotype_column='interaction',
-    method='rfe', annotation_table_path=None, protein_id_col="protein_ID",
-    feature2cluster_path=None, cluster2protein_path=None, fasta_dir_or_file=None,
-    run_predictive_proteins=False, phage_feature2cluster_path=None, phage_cluster2protein_path=None,
-    phage_fasta_dir_or_file=None, task_type='classification', binary_data=False, max_features='none', 
-    max_ram=8, use_shap=False
+    full_feature_table, 
+    output_dir, 
+    threads=4, 
+    num_features=100, 
+    filter_type='none',
+    num_runs_fs=10, 
+    num_runs_modeling=10, 
+    sample_column='strain', 
+    phage_column='phage',
+    phenotype_column='interaction',
+    method='rfe', 
+    annotation_table_path=None, 
+    protein_id_col="protein_ID",
+    feature2cluster_path=None, 
+    cluster2protein_path=None, 
+    fasta_dir_or_file=None,
+    run_predictive_proteins=False, 
+    phage_feature2cluster_path=None, 
+    phage_cluster2protein_path=None,
+    phage_fasta_dir_or_file=None, 
+    task_type='classification', 
+    binary_data=False, 
+    max_features='none',
+    use_dynamic_weights=False,
+    weights_method='log10',
+    use_clustering=True,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    max_ram=8, 
+    use_shap=False
 ):
     """
     Workflow for feature selection, modeling, and predictive protein extraction starting from a pre-generated full feature table.
@@ -52,6 +76,7 @@ def run_modeling_workflow_from_feature_table(
         num_runs_fs (int): Number of feature selection iterations.
         num_runs_modeling (int): Number of runs per feature table for modeling.
         sample_column (str): Column name for the sample identifier.
+        phage_column (str): Column name for the phage identifier.
         phenotype_column (str): Column name for the phenotype.
         method (str): Feature selection method.
         annotation_table_path (str, optional): Path to an optional annotation table for merging predictive protein annotations.
@@ -66,8 +91,14 @@ def run_modeling_workflow_from_feature_table(
         task_type (str): Either 'classification' or 'regression' (default: classification).
         binary_data (bool): If True, converts feature values to binary (0/1).
         max_features (str): Maximum number of features to include in the feature tables (default: 'none').
+        use_dynamic_weights (bool): If True, use dynamic weights for feature selection.
+        weights_method (str): Method to calculate class weights ('log10', 'inverse_frequency', 'balanced'). Default is 'log10'.
         max_ram (int): Maximum RAM to use for feature selection iterations (default: 8).
         use_shap (bool): If True, calculate and save SHAP values.
+        use_clustering (bool): If True, use clustering for train-test split.
+        min_cluster_size (int): Minimum cluster size for HDBSCAN clustering.
+        min_samples (int): Minimum number of samples for HDBSCAN clustering.
+        cluster_selection_epsilon (float): Epsilon value for HDBSCAN clustering.
     """
     setup_logging(output_dir)
 
@@ -84,8 +115,15 @@ def run_modeling_workflow_from_feature_table(
         method=method,
         sample_column=sample_column,
         phenotype_column=phenotype_column,
+        phage_column=phage_column,
         task_type=task_type,
-        max_ram=max_ram
+        max_ram=max_ram,
+        use_dynamic_weights=use_dynamic_weights,
+        weights_method=weights_method,
+        use_clustering=use_clustering,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon
     )
 
     # Step 2: Generate feature tables from feature selection results
@@ -114,9 +152,16 @@ def run_modeling_workflow_from_feature_table(
         num_runs=num_runs_modeling,
         set_filter=filter_type,
         sample_column=sample_column,
+        phage_column=phage_column,
         phenotype_column=phenotype_column,
         task_type=task_type,
         binary_data=binary_data,
+        use_dynamic_weights=use_dynamic_weights,
+        weights_method=weights_method,
+        use_clustering=use_clustering,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
         max_ram=max_ram,
         use_shap=use_shap
     )
@@ -191,6 +236,12 @@ def main():
     fs_modeling_group.add_argument('--binary_data', action='store_true', help='If set, converts feature values to binary (1/0); otherwise, continuous values are kept.')
     fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
     fs_modeling_group.add_argument('--use_shap', action='store_true', help='If set, calculate and save SHAP values.')
+    fs_modeling_group.add_argument('--use_dynamic_weights', action='store_true', help='If set, use dynamic weights for feature selection.')
+    fs_modeling_group.add_argument('--weights_method', default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method to calculate class weights (default: log10)')
+    fs_modeling_group.add_argument('--use_clustering', action='store_true', help='If set, use clustering for feature selection.')
+    fs_modeling_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for clustering.')
+    fs_modeling_group.add_argument('--min_samples', type=int, help='Minimum number of samples for clustering feature selection.')
+    fs_modeling_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering feature selection.')
 
     # Predictive proteins and annotations
     predictive_proteins_group = parser.add_argument_group('Predictive Proteins and Annotations')
@@ -208,10 +259,12 @@ def main():
     optional_columns_group = parser.add_argument_group('Optional columns')
     optional_columns_group.add_argument('--sample_column', type=str, default='strain', help='Column name for the sample identifier (default: strain).')
     optional_columns_group.add_argument('--phenotype_column', type=str, default='interaction', help='Column name for the phenotype (optional).')
+    optional_columns_group.add_argument('--phage_column', type=str, default='phage', help='Column name for the phage identifier (optional).')
 
     # General parameters
     general_group = parser.add_argument_group('General')
     general_group.add_argument('--threads', type=int, default=4, help='Number of threads to use (default: 4).')
+    general_group.add_argument('--max_ram', type=float, default=8, help='Maximum RAM usage in GB for feature selection (default: 8).')
 
     args = parser.parse_args()
 
@@ -225,6 +278,7 @@ def main():
         num_runs_fs=args.num_runs_fs,
         num_runs_modeling=args.num_runs_modeling,
         sample_column=args.sample_column,
+        phage_column=args.phage_column,
         phenotype_column=args.phenotype_column,
         method=args.method,
         annotation_table_path=args.annotation_table_path,
@@ -239,6 +293,13 @@ def main():
         task_type=args.task_type,
         binary_data=args.binary_data,
         max_features=args.max_features,
+        use_dynamic_weights=args.use_dynamic_weights,
+        weights_method=args.weights_method,
+        use_clustering=args.use_clustering,
+        min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
+        cluster_selection_epsilon=args.cluster_selection_epsilon,
+        max_ram=args.max_ram,
         use_shap=args.use_shap
     )
 

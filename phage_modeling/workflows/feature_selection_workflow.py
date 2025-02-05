@@ -21,9 +21,26 @@ def check_method_task_type_compatibility(method, task_type):
     if method in incompatible_methods.get(task_type, []):
         raise ValueError(f"The feature selection method '{method}' is not compatible with task type '{task_type}'.")
 
-def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_features=500, filter_type='none', 
-                                   num_runs=50, method='rfe', task_type='classification', phenotype_column=None, 
-                                   sample_column='strain', binary_data=False, max_features='none', max_ram=8):
+def run_feature_selection_workflow(
+    input_path, 
+    base_output_dir, 
+    threads=4, 
+    num_features=500, 
+    filter_type='none',
+    num_runs=50, method='rfe', 
+    task_type='classification', 
+    phenotype_column=None,
+    sample_column='strain', 
+    phage_column='phage',
+    binary_data=False, 
+    max_features='none', 
+    use_dynamic_weights=False,
+    weights_method='log10',
+    use_clustering=True,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    max_ram=8):
     """
     Workflow for running feature selection iterations and generating feature tables.
 
@@ -38,6 +55,9 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
         task_type (str): Task type for modeling ('classification' or 'regression').
         phenotype_column (str or None): Column name for the phenotype or target variable.
         sample_column (str or None): Column name for sample identifiers.
+        min_cluster_size (int): Minimum cluster size for filtering.
+        min_samples (int): Minimum number of samples for filtering (default: None for same as min_cluster_size).
+        cluster_selection_epsilon (float): Epsilon value for clustering.
         binary_data (bool): If True, converts feature values to binary (0/1).
     """
     # Check compatibility of method and task type
@@ -59,7 +79,14 @@ def run_feature_selection_workflow(input_path, base_output_dir, threads=4, num_f
         method=method,
         phenotype_column=phenotype_column,
         sample_column=sample_column,
+        phage_column=phage_column,
+        use_dynamic_weights=use_dynamic_weights,
+        weights_method=weights_method,
         task_type=task_type,
+        use_clustering=use_clustering,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
         max_ram=max_ram,
     )
     
@@ -94,8 +121,15 @@ def main():
                         help="Task type for model ('classification' or 'regression').")
     parser.add_argument('--phenotype_column', type=str, help='Optional column name for phenotype/target variable.')
     parser.add_argument('--sample_column', type=str, default='strain', help='Optional column name for sample identifiers.')
+    parser.add_argument('--phage_column', type=str, default='phage', help='Optional column name for phage identifiers.')
     parser.add_argument('--binary_data', action='store_true', help='If set, converts feature values to binary (1/0); otherwise, continuous values are kept.')
     parser.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
+    parser.add_argument('--use_dynamic_weights', action='store_true', help='If set, uses dynamic weights for feature selection.')
+    parser.add_argument('--weights_method', type=str, default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method for calculating dynamic weights.')
+    parser.add_argument('--use_clustering', action='store_true', help='If set, uses clustering for feature selection.')
+    parser.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for clustering')
+    parser.add_argument('--min_samples', help='Minimum number of samples for filtering.')
+    parser.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering.')
     parser.add_argument('--max_ram', type=int, default=8, help='Maximum amount of RAM to use in GB.')
 
     args = parser.parse_args()
@@ -112,8 +146,15 @@ def main():
         task_type=args.task_type,
         phenotype_column=args.phenotype_column,
         sample_column=args.sample_column,
+        phage_column=args.phage_column,
         binary_data=args.binary_data,
         max_features=args.max_features,
+        use_dynamic_weights=args.use_dynamic_weights,
+        weights_method=args.weights_method,
+        use_clustering=args.use_clustering,
+        min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
+        cluster_selection_epsilon=args.cluster_selection_epsilon,
         max_ram=args.max_ram
     )
 

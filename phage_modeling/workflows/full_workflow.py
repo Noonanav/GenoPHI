@@ -111,6 +111,12 @@ def run_full_workflow(
     max_features='none',
     max_ram=8,
     threads=4,
+    use_dynamic_weights=False,
+    weights_method='log10',
+    use_clustering=True,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
     use_shap=False,
     clear_tmp=False,
     k=5,
@@ -161,6 +167,12 @@ def run_full_workflow(
                                                      max_ram=max_ram,
                                                      threads=threads,
                                                      use_shap=use_shap,
+                                                     use_dynamic_weights=use_dynamic_weights,
+                                                     weights_method=weights_method,
+                                                     use_clustering=use_clustering,
+                                                     min_cluster_size=min_cluster_size,
+                                                     min_samples=min_samples,
+                                                     cluster_selection_epsilon=cluster_selection_epsilon,
                                                      clear_tmp=clear_tmp)
     write_section_report("Protein_Family_Workflow", metrics['protein_family'], output)
 
@@ -220,7 +232,13 @@ def run_full_workflow(
                                                     max_features=max_features,
                                                     ignore_families=ignore_families,
                                                     max_ram=max_ram,
-                                                    use_shap=use_shap)
+                                                    use_shap=use_shap,
+                                                    use_dynamic_weights=use_dynamic_weights,
+                                                    weights_method=weights_method,
+                                                    use_clustering=use_clustering,
+                                                    min_cluster_size=min_cluster_size,
+                                                    min_samples=min_samples,
+                                                    cluster_selection_epsilon=cluster_selection_epsilon)
     write_section_report("Kmer_Workflow", metrics['kmer_workflow'], output)
 
     # Final combined report
@@ -280,6 +298,12 @@ def main():
     fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=20, help='Number of modeling runs.')
     fs_modeling_group.add_argument('--task_type', default='classification', choices=['classification', 'regression'], help='Task type for modeling.')
     fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features.')
+    fs_modeling_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic weights for feature selection and modeling.')
+    fs_modeling_group.add_argument('--weights_method', default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method to calculate class weights (default: log10)')
+    fs_modeling_group.add_argument('--use_clustering', action='store_true', help='Use clustering for feature selection.')
+    fs_modeling_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for HDBSCAN clustering (default: 5)')
+    fs_modeling_group.add_argument('--min_samples', type=int, default=None, help='Min samples parameter for HDBSCAN')
+    fs_modeling_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Cluster selection epsilon for HDBSCAN (default: 0.0)')
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -324,6 +348,12 @@ def main():
         max_ram=args.max_ram,
         threads=args.threads,
         use_shap=args.use_shap,
+        use_dynamic_weights=args.use_dynamic_weights,
+        weights_method=args.weights_method,
+        use_clustering=args.use_clustering,
+        min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
+        cluster_selection_epsilon=args.cluster_selection_epsilon,
         clear_tmp=args.clear_tmp,
         k=args.k,
         k_range=args.k_range,

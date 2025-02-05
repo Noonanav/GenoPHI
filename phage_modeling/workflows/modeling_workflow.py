@@ -2,7 +2,24 @@ import os
 import argparse
 from phage_modeling.select_feature_modeling import run_experiments
 
-def run_modeling_workflow(input_dir, base_output_dir, threads=4, num_runs=100, set_filter='none', sample_column=None, phenotype_column=None, task_type='classification', binary_data=False):
+def run_modeling_workflow(
+    input_dir, 
+    base_output_dir, 
+    threads=4, 
+    num_runs=100, 
+    set_filter='none', 
+    sample_column=None, 
+    phenotype_column='interaction', 
+    phage_column='phage',
+    task_type='classification', 
+    use_dynamic_weights=False,
+    weights_method='log10',
+    use_clustering=True,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    binary_data=False
+):
     """
     Workflow to run experiments on selected feature tables using grid search and MCC/R2 optimization.
     
@@ -27,7 +44,14 @@ def run_modeling_workflow(input_dir, base_output_dir, threads=4, num_runs=100, s
         set_filter=set_filter,
         sample_column=sample_column,
         phenotype_column=phenotype_column,
+        phage_column=phage_column,
+        use_dynamic_weights=use_dynamic_weights,
+        weights_method=weights_method,
         task_type=task_type,
+        use_clustering=use_clustering,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
         binary_data=binary_data
     )
 
@@ -41,7 +65,14 @@ def main():
     parser.add_argument('--set_filter', type=str, default='none', help="Filter for dataset ('none', 'strain', 'phage', 'dataset').")
     parser.add_argument('--sample_column', type=str, default='strain', help='Column name for the sample identifier (optional).')
     parser.add_argument('--phenotype_column', type=str, default='interaction', help='Column name for the phenotype (optional).')
+    parser.add_argument('--phage_column', type=str, default='phage', help='Column name for the phage identifier (optional).')
     parser.add_argument('--task_type', type=str, default='classification', choices=['classification', 'regression'], help="Specify 'classification' or 'regression' task.")
+    parser.add_argument('--use_dynamic_weights', action='store_true', help='If True, use dynamic weights for feature selection.')
+    parser.add_argument('--weights_method', type=str, default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method for calculating dynamic weights.')
+    parser.add_argument('--use_clustering', action='store_true', help='If True, use clustering for feature selection')
+    parser.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for clustering feature selection.')
+    parser.add_argument('--min_samples', type=int, help='Minimum number of samples for clustering feature selection.')
+    parser.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering feature selection.')
     parser.add_argument('--binary_data', action='store_true', help='If True, plot SHAP jitter plot with binary data.')
 
     args = parser.parse_args()
@@ -55,7 +86,14 @@ def main():
         set_filter=args.set_filter,
         sample_column=args.sample_column,
         phenotype_column=args.phenotype_column,
+        phage_column=args.phage_column,
         task_type=args.task_type,
+        use_dynamic_weights=args.use_dynamic_weights,
+        weights_method=args.weights_method,
+        use_clustering=args.use_clustering,
+        min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
+        cluster_selection_epsilon=args.cluster_selection_epsilon,
         binary_data=args.binary_data
     )
 

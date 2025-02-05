@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import itertools
 from tqdm import tqdm
+from hdbscan import HDBSCAN
 import time
 
 # Function to load and prepare data
@@ -63,9 +64,20 @@ def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None,
     return X, y, full_feature_table
 
 # Function to filter the data based on strain or phage
-def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_column='strain'):
+def filter_data(
+    X, y, 
+    full_feature_table, 
+    filter_type, 
+    random_state=42, 
+    sample_column='strain', 
+    output_dir=None,
+    use_clustering=False, 
+    cluster_method='hdbscan', 
+    **kwargs
+):
     """
-    Filters the data by strain or phage and splits into training and testing sets.
+    Filters the data by strain or phage and splits into training and testing sets. 
+    If use_clustering=True, it first clusters based on feature content before splitting.
 
     Args:
         X (DataFrame): Features.
@@ -74,45 +86,102 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
         filter_type (str): 'none', 'strain', 'phage' to determine how the data should be filtered.
         random_state (int): Seed for reproducibility.
         sample_column (str): Column to use as the sample identifier (default: 'strain').
+        use_clustering (bool): Whether to apply clustering before splitting. Default is False.
+        cluster_method (str): Clustering method to use when use_clustering=True. Default is 'hdbscan'.
+        **kwargs: Additional parameters for the clustering method.
 
     Returns:
-        X_train (DataFrame or None): Training features, or None if invalid split.
-        X_test (DataFrame or None): Testing features, or None if invalid split.
-        y_train (Series or None): Training target, or None if invalid split.
-        y_test (Series or None): Testing target, or None if invalid split.
-        X_test_sample_ids (DataFrame or None): Metadata of the test set samples, or None if invalid split.
-        X_train_sample_ids (DataFrame or None): Metadata of the training set samples, or None if invalid split.
+        X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
     """
-    if filter_type == 'none':
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=random_state)
+
+    # ---- 1️⃣ Standard Random Split if No Clustering ----
+    if not use_clustering or filter_type == 'none':
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=random_state
+        )
         test_idx = X_test.index
-        X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column]]
         train_idx = X_train.index
-        X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column]]
-    else:
-        if filter_type in full_feature_table.columns:
-            group = filter_type
+
+        # Ensure both 'sample_column' and 'phage' are included if available
+        meta_columns = [sample_column]
+        if 'phage' in full_feature_table.columns:
+            meta_columns.append('phage')
+        X_test_sample_ids = full_feature_table.loc[test_idx, meta_columns]
+        X_train_sample_ids = full_feature_table.loc[train_idx, meta_columns]
+
+        return X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
+
+    # ---- 2️⃣ Validate filter_type Column ----
+    if filter_type not in full_feature_table.columns:
+        raise ValueError(f"Filter type '{filter_type}' must be a column in full_feature_table.")
+
+    # ---- 3️⃣ Prepare Feature Table for Clustering ----
+    feature_columns = [col for col in full_feature_table.columns if col.startswith(f"{filter_type[0]}c_")]
+    filter_type_feature_table = full_feature_table[[filter_type] + feature_columns].drop_duplicates()
+
+    if feature_columns == []:
+        logging.warning(f"No feature columns found for clustering. Falling back to group-based split.")
+        use_clustering = False  # If no features exist, fall back to default method
+
+    # ---- 4️⃣ Apply Clustering if Enabled ----
+    if use_clustering:
+        if cluster_method == 'hdbscan':
+            logging.info(f"Clustering based on {cluster_method} with parameters: {kwargs}")
+            clusterer = HDBSCAN(**kwargs)
+            cluster_labels = clusterer.fit_predict(filter_type_feature_table[feature_columns])
+
+            print(f"Number of clusters: {len(np.unique(cluster_labels))}")
+            print(f"Number of noise points: {np.sum(cluster_labels == -1)}")
+
+            # Handle noise points (label -1) by giving them unique cluster IDs
+            max_cluster_label = cluster_labels.max()
+            for i, label in enumerate(cluster_labels):
+                if label == -1:  # If it's noise
+                    max_cluster_label += 1
+                    cluster_labels[i] = max_cluster_label
         else:
-            raise ValueError("Filter type must be a column in the feature table.")
-        
-        groups = full_feature_table[group].unique()
-        np.random.seed(random_state)
-        train_groups = np.random.choice(groups, size=int(0.8 * len(groups)), replace=False)
-        test_groups = np.setdiff1d(groups, train_groups)
-        
-        train_idx = full_feature_table[group].isin(train_groups)
-        test_idx = full_feature_table[group].isin(test_groups)
-        
-        X_train = X[train_idx]
-        X_test = X[test_idx]
-        y_train = y[train_idx]
-        y_test = y[test_idx]
+            raise ValueError(f"Unsupported clustering method: {cluster_method}")
 
-        # Only select the required columns for sample IDs
-        X_test_sample_ids = full_feature_table.loc[test_idx, [sample_column, 'phage'] if 'phage' in full_feature_table.columns else [sample_column]]
-        X_train_sample_ids = full_feature_table.loc[train_idx, [sample_column, 'phage'] if 'phage' in full_feature_table.columns else [sample_column]]
+        # Assign clusters to samples
+        filter_type_feature_table["cluster"] = cluster_labels
+        print(f"Number of clusters for splitting (cluster and noise): {len(filter_type_feature_table['cluster'].unique())}")
+        full_feature_table = full_feature_table.merge(
+            filter_type_feature_table[[filter_type, "cluster"]], on=filter_type, how="left"
+        )
 
-    # Check for multiple unique values in the training set target
+        if output_dir:
+            cluster_file = os.path.join(output_dir, f"{filter_type}_clusters.csv")
+            cluster_df = filter_type_feature_table[[filter_type, "cluster"]].drop_duplicates()
+            cluster_df.to_csv(cluster_file, index=False)
+            logging.info(f"Saved cluster labels to: {cluster_file}")
+
+        group_col = "cluster"  # Now use cluster labels for splitting
+    else:
+        group_col = filter_type  # Use original filter type column
+
+    # ---- 5️⃣ Perform Group-Based Splitting (Clustering or Normal) ----
+    groups = full_feature_table[group_col].unique()
+    np.random.seed(random_state)
+    train_groups = np.random.choice(groups, size=int(0.8 * len(groups)), replace=False)
+    test_groups = np.setdiff1d(groups, train_groups)
+
+    train_idx = full_feature_table[group_col].isin(train_groups)
+    test_idx = full_feature_table[group_col].isin(test_groups)
+
+    X_train = X[train_idx]
+    X_test = X[test_idx]
+    y_train = y[train_idx]
+    y_test = y[test_idx]
+
+    # ---- 6️⃣ Prepare Metadata for Train/Test Sets ----
+    # Include 'phage' only if it's present
+    meta_columns = [sample_column]
+    if 'phage' in full_feature_table.columns:
+        meta_columns.append('phage')
+    X_test_sample_ids = full_feature_table.loc[test_idx, meta_columns]
+    X_train_sample_ids = full_feature_table.loc[train_idx, meta_columns]
+
+    # ---- 7️⃣ Check for Valid Training Set ----
     unique_values = y_train.nunique()
     if unique_values < 2:
         logging.warning(
@@ -123,8 +192,96 @@ def filter_data(X, y, full_feature_table, filter_type, random_state=42, sample_c
 
     return X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
 
+def compute_phage_weights(X_train_sample_ids, y_train, phage_column, method='log10', smoothing=1.0):
+    """
+    Compute class weights for each phage using only X_train_sample_ids and y_train based on the specified method.
+    Args:
+      - X_train_sample_ids (DataFrame): Contains sample identifiers, including `phage_column`.
+      - y_train (Series): Training target labels (0 or 1).
+      - phage_column (str): Column name representing the phage.
+      - method (str): Method to calculate weights. Options are 'log10' (default), 'inverse_frequency', or 'balanced'.
+      - smoothing (float): Small constant to prevent extreme weight ratios.
+    Returns:
+      Dict[phage] = {0: weight_for_neg, 1: weight_for_pos}
+    """
+    if phage_column not in X_train_sample_ids.columns:
+        raise ValueError(f"Column '{phage_column}' not found in X_train_sample_ids.")
+
+    # Merge y_train with X_train_sample_ids to ensure alignment
+    phage_data = X_train_sample_ids.copy()
+    phage_data["interaction"] = y_train.values  # Ensure y_train aligns with indices
+
+    # Compute positive and negative counts per phage
+    phage_counts = phage_data.groupby(phage_column)["interaction"].agg(["sum", "count"])
+    phage_counts.rename(columns={"sum": "pos_count", "count": "total_count"}, inplace=True)
+    phage_counts["neg_count"] = phage_counts["total_count"] - phage_counts["pos_count"]
+
+    # Compute weights based on the specified method
+    phage_weights = {}
+    for phage, row in phage_counts.iterrows():
+        pos_count = row["pos_count"]
+        neg_count = row["neg_count"]
+        if pos_count == 0:
+            phage_weights[phage] = {0: 1.0, 1: smoothing}  # Avoid infinite scaling
+        else:
+            if method == 'log10':
+                # Log10 method (default, similar to log1p but using base 10)
+                weight_1 = np.log10(neg_count / (pos_count + smoothing)) + 1
+            elif method == 'inverse_frequency':
+                # Inverse frequency method
+                weight_1 = (row["total_count"] / (pos_count + smoothing))
+            elif method == 'balanced':
+                # Balanced method
+                weight_1 = (row["total_count"] - pos_count) / (pos_count + smoothing)
+            else:
+                raise ValueError(f"Unsupported method: {method}. Choose 'log10', 'inverse_frequency', or 'balanced'.")
+            phage_weights[phage] = {0: 1.0, 1: weight_1}
+
+    return phage_weights
+
+def build_row_weights(y_train, X_train_sample_ids, phage_weights, phage_column):
+    """
+    Assign sample weights based on phage weights using X_train_sample_ids.
+
+    Args:
+      - y_train (Series): Training target labels (0 or 1).
+      - X_train_sample_ids (DataFrame): Contains sample identifiers, including `phage_column`.
+      - phage_weights (dict): Precomputed weights per phage.
+      - phage_column (str): Column name representing phage ID.
+
+    Returns:
+      - sample_weights (numpy array): Array of per-row sample weights.
+    """
+    if phage_column not in X_train_sample_ids.columns:
+        raise ValueError(f"Column '{phage_column}' not found in X_train_sample_ids.")
+
+    # Map phage_column from X_train_sample_ids
+    phage_series = X_train_sample_ids[phage_column]
+
+    # Initialize weight array
+    sample_weights = np.zeros(len(y_train), dtype=float)
+
+    for i, idx in enumerate(y_train.index):
+        row_phage = phage_series.loc[idx]  # Get phage ID
+        row_label = y_train.loc[idx]  # Get label
+        sample_weights[i] = phage_weights.get(row_phage, {0: 1.0, 1: 1.0}).get(row_label, 1.0)
+
+    return sample_weights
+
 # Function to perform Recursive Feature Elimination (RFE)
-def perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type='classification', max_ram=8):
+def perform_rfe(
+    X_train, 
+    y_train, 
+    X_train_sample_ids,
+    num_features, 
+    threads, 
+    output_dir, 
+    task_type='classification', 
+    phage_column='phage',
+    use_dynamic_weights=False,
+    weights_method='log10',
+    max_ram=8
+):
     """
     Performs Recursive Feature Elimination (RFE) to select the top features.
 
@@ -169,9 +326,23 @@ def perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type='
 
     print(f"Performing Recursive Feature Elimination (RFE) with step_size: {step_size} for {task_type}...")
 
+    # If requested, build sample weights for each row
+    sample_weight = None
+    if use_dynamic_weights and phage_column and (phage_column in X_train_sample_ids.columns):
+        print('Length X_train_sample_ids: ', len(X_train_sample_ids))
+        print('Length y_train: ', len(y_train))
+        phage_weights = compute_phage_weights(X_train_sample_ids, y_train, phage_column, method=weights_method)
+        sample_weight = build_row_weights(y_train, X_train_sample_ids, phage_weights, phage_column)
+        print(phage_weights)
+        phage_weights_df = pd.DataFrame(phage_weights).T
+        phage_weights_df.to_csv(f"{output_dir}/phage_weights.csv")
+        logging.info("Using dynamic phage-based sample weights during RFE.")
+    else:
+        print("RFE without dynamic sample weights.")
+
     # Set up and fit RFE
     rfe = RFE(estimator=model, n_features_to_select=num_features, step=step_size, verbose=10)
-    rfe.fit(X_train, y_train)
+    rfe.fit(X_train, y_train, sample_weight=sample_weight)
     
     selected_features = X_train.columns[rfe.support_]
     print(f"RFE selected {len(selected_features)} features.")
@@ -393,7 +564,17 @@ def shap_feature_selection(X_train, y_train, num_features, threads, task_type='c
     print(f"SHAP selected {len(selected_features)} features.")
     return X_train[selected_features], selected_features
 
-def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir, max_ram=8):
+def train_and_evaluate(X_train, 
+                       y_train, 
+                       X_test, 
+                       y_test,
+                       X_train_sample_ids,
+                       params, 
+                       output_dir, 
+                       max_ram=8,
+                       phage_column=None,
+                       use_dynamic_weights=False,
+                       weights_method='log10'):
     """
     Train a CatBoost model and evaluate it on the test set.
 
@@ -417,9 +598,31 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir, max
     model = CatBoostClassifier(**params, train_dir=train_dir, used_ram_limit=f"{max_ram}gb")
 
     print(f"Training with parameters: {params}")
+
+    # Build sample weights if requested
+    sample_weight = None
+    if use_dynamic_weights and phage_column and (phage_column in X_train_sample_ids.columns):
+        print('Length X_train_sample_ids: ', len(X_train_sample_ids))
+        print('Length y_train: ', len(y_train))
+        phage_weights = compute_phage_weights(X_train_sample_ids, y_train, phage_column, method=weights_method)
+        sample_weight = build_row_weights(y_train, X_train_sample_ids, phage_weights, phage_column)
+        print(phage_weights)
+        phage_weights_df = pd.DataFrame(phage_weights).T
+        phage_weights_df.to_csv(f"{output_dir}/phage_weights.csv")
+        print("Using dynamic phage-based class weights.")
+    else:
+        print("Training without dynamic class weights.")
     
     # Training the model with early stopping
-    model.fit(X_train, y_train, eval_set=(X_test, y_test), plot=False, verbose=10, early_stopping_rounds=100)
+    model.fit(
+        X_train, 
+        y_train,
+        sample_weight=sample_weight,
+        eval_set=(X_test, y_test), 
+        plot=False, 
+        verbose=10, 
+        early_stopping_rounds=100
+    )
 
     # Make predictions
     y_pred = model.predict(X_test)
@@ -471,7 +674,21 @@ def train_and_evaluate_regressor(X_train, y_train, X_test, y_test, params, outpu
     return model, mse, r2, y_pred
 
 # Function to perform grid search
-def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column='interaction', max_ram=8):
+def grid_search(
+    X_train, 
+    y_train, 
+    X_test, 
+    y_test, 
+    X_train_sample_ids, 
+    X_test_sample_ids,
+    param_grid, 
+    output_dir, 
+    phenotype_column='interaction', 
+    phage_column='phage', 
+    use_dynamic_weights=False,
+    weights_method='log10',
+    max_ram=8
+):
     """
     Performs grid search to find the best hyperparameters for CatBoost.
 
@@ -501,7 +718,19 @@ def grid_search(X_train, y_train, X_test, y_test, X_test_sample_ids, param_grid,
     print("Starting grid search...")
     for idx, params in enumerate(itertools.product(*param_grid.values()), start=1):
         params = dict(zip(param_grid.keys(), params))
-        model, accuracy, f1, mcc, y_pred = train_and_evaluate(X_train, y_train, X_test, y_test, params, output_dir, max_ram=max_ram)
+        model, accuracy, f1, mcc, y_pred = train_and_evaluate(
+            X_train, 
+            y_train, 
+            X_test, 
+            y_test, 
+            X_train_sample_ids,
+            params, 
+            output_dir, 
+            max_ram=max_ram,
+            phage_column=phage_column,
+            use_dynamic_weights=use_dynamic_weights,
+            weights_method=weights_method
+        )
         
         results.append({**params, 'accuracy': accuracy, 'f1_score': f1, 'mcc': mcc})
         
@@ -756,9 +985,25 @@ def save_feature_importances(best_model, selected_features, feature_importances_
     logging.info(f"Feature importances saved to {feature_importances_path}")
 
 def run_feature_selection_iterations(
-    input_path, base_output_dir, threads, num_features, 
-    filter_type, num_runs, select_cols=False, sample_column='strain', 
-    phenotype_column=None, method='rfe', task_type='classification', max_ram=8
+    input_path, 
+    base_output_dir, 
+    threads, 
+    num_features, 
+    filter_type, 
+    num_runs, 
+    select_cols=False, 
+    sample_column='strain', 
+    phage_column='phage', 
+    phenotype_column=None,
+    use_dynamic_weights=False,
+    weights_method='log10',
+    method='rfe', 
+    task_type='classification', 
+    use_clustering=True,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    max_ram=8
 ):
     """
     Runs multiple iterations of feature selection, saves the results in `run_*` directories, and tracks feature occurrences.
@@ -772,9 +1017,14 @@ def run_feature_selection_iterations(
         num_runs (int): Number of runs to perform.
         select_cols (bool): Whether to run with selected columns.
         sample_column (str): Column name for the sample/strain (if using selected columns).
+        use_dynamic_weights: Whether to use dynamic weights for phage-based samples.
         phenotype_column (str): Column name for the phenotype (if using selected columns).
         method (str): Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
         task_type (str): Task type ('classification' or 'regression').
+        use_clustering (bool): Whether to use clustering for filtering.
+        min_cluster_size (int): Minimum cluster size for filtering.
+        min_samples (int): Minimum number of samples for filtering (default: None for same as min_cluster_size).
+        cluster_selection_epsilon (float): Epsilon value for clustering.
         max_ram (int): Maximum RAM to use for CatBoost training.
     """
     
@@ -794,7 +1044,18 @@ def run_feature_selection_iterations(
             random_state = i
 
             X, y, full_feature_table = load_and_prepare_data(input_path, sample_column=sample_column, phenotype_column=phenotype_column, filter_type=filter_type)
-            X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(X, y, full_feature_table, filter_type, random_state=random_state, sample_column=sample_column)
+            X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids = filter_data(
+                X, y, 
+                full_feature_table, 
+                filter_type, 
+                random_state=random_state, 
+                sample_column=sample_column, 
+                output_dir=output_dir,
+                use_clustering=use_clustering, 
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                cluster_selection_epsilon=cluster_selection_epsilon
+            )
 
             if X_train is None:
                 logging.info("Skipping this run due to insufficient training data.")
@@ -802,7 +1063,7 @@ def run_feature_selection_iterations(
 
             # Apply selected feature selection method
             if method == 'rfe':
-                _, selected_features = perform_rfe(X_train, y_train, num_features, threads, output_dir, task_type=task_type, max_ram=max_ram)
+                _, selected_features = perform_rfe(X_train, y_train, X_train_sample_ids, num_features, threads, output_dir, task_type=task_type, phage_column=phage_column, use_dynamic_weights=use_dynamic_weights, max_ram=max_ram)
             elif method == 'shap_rfe':
                 X_train, selected_features = shap_rfe(X_train, y_train, num_features, threads, task_type=task_type, max_ram=max_ram)
             elif method == 'select_k_best':
@@ -828,7 +1089,20 @@ def run_feature_selection_iterations(
 
             if task_type == 'classification':
                 param_grid['loss_function'] = ['Logloss']
-                best_model, best_params, best_mcc = grid_search(X_train_selected, y_train, X_test_selected, y_test, X_test_sample_ids, param_grid, output_dir, phenotype_column=phenotype_column, max_ram=max_ram)
+                best_model, best_params, best_mcc = grid_search(
+                    X_train_selected, 
+                    y_train, 
+                    X_test_selected, 
+                    y_test, 
+                    X_train_sample_ids,
+                    X_test_sample_ids, 
+                    param_grid, 
+                    output_dir, 
+                    phenotype_column=phenotype_column,
+                    phage_column=phage_column,
+                    use_dynamic_weights=use_dynamic_weights,
+                    weights_method=weights_method,
+                    max_ram=max_ram)
                 best_metric = best_mcc
             elif task_type == 'regression':
                 param_grid['loss_function'] = ['RMSE']
