@@ -68,6 +68,8 @@ def run_model_validation(
     use_dynamic_weights,
     weights_method='log10',
     use_clustering=True,
+    cluster_method='hdbscan',
+    n_clusters=20,
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0
@@ -150,6 +152,8 @@ def run_model_validation(
                 use_dynamic_weights=use_dynamic_weights,
                 weights_method=weights_method,
                 use_clustering=use_clustering,
+                cluster_method=cluster_method,
+                n_clusters=n_clusters,
                 min_cluster_size=min_cluster_size,
                 min_samples=min_samples,
                 cluster_selection_epsilon=cluster_selection_epsilon,
@@ -220,6 +224,8 @@ def main():
     parser.add_argument('--use_dynamic_weights', action='store_true', help="Use dynamic weights for feature selection.")
     parser.add_argument('--weights_method', type=str, default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help="Method for calculating dynamic weights.")
     parser.add_argument('--use_clustering', action='store_true', help="Use clustering results for feature selection.")
+    parser.add_argument('--cluster_method', type=str, default='hdbscan', choices=['hdbscan', 'hierarchical'], help="Clustering method to use.")
+    parser.add_argument('--n_clusters', type=int, default=20, help="Number of clusters for clustering feature selection.")
     parser.add_argument('--min_cluster_size', type=int, default=5, help="Minimum cluster size for clustering feature selection.")
     parser.add_argument('--min_samples', type=int, help="Minimum number of samples for clustering feature selection.")
     parser.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help="Epsilon value for clustering feature selection.")
@@ -244,6 +250,8 @@ def main():
         use_dynamic_weights=args.use_dynamic_weights,
         weights_method=args.weights_method,
         use_clustering=args.use_clustering,
+        cluster_method=args.cluster_method,
+        n_clusters=args.n_clusters,
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon

@@ -15,6 +15,8 @@ def run_modeling_workflow(
     use_dynamic_weights=False,
     weights_method='log10',
     use_clustering=True,
+    cluster_method='hdbscan',
+    n_clusters=20,
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
@@ -24,15 +26,28 @@ def run_modeling_workflow(
     Workflow to run experiments on selected feature tables using grid search and MCC/R2 optimization.
     
     Args:
-        input_dir (str): Directory containing the feature tables to model.
-        base_output_dir (str): Directory to save the results of each experiment.
+        input_path (str): Path to the input feature table.
+        base_output_dir (str): Directory to save results.
         threads (int): Number of threads to use.
-        num_runs (int): Number of runs to perform per feature table.
-        set_filter (str): Filter type for dataset ('none', 'strain', 'phage', 'dataset').
-        sample_column (str): Column for sample identification.
-        phenotype_column (str): Column for phenotype data.
-        task_type (str): Specifies if the task is 'classification' or 'regression'.
-        binary_data (bool): If True, plot SHAP jitter plot with binary data.
+        num_features (int): Number of features to select.
+        filter_type (str): Filter type for the input data ('strain', 'phage', 'none').
+        num_runs (int): Number of runs to perform.
+        method (str): Feature selection method ('rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
+        task_type (str): Task type for modeling ('classification' or 'regression').
+        phenotype_column (str or None): Column name for the phenotype or target variable.
+        sample_column (str or None): Column name for sample identifiers.
+        phage_column (str): Name of the phage column (default: 'phage').
+        binary_data (bool): If True, converts feature values to binary (0/1).
+        max_features (str): Maximum number of features to include in feature tables.
+        use_dynamic_weights (bool): Whether to use dynamic weights for feature selection.
+        weights_method (str): Method for calculating weights ('log10', 'inverse_frequency', 'balanced').
+        use_clustering (bool): Whether to use clustering for filtering.
+        cluster_method (str): Clustering method to use ('hdbscan' or 'hierarchical').
+        n_clusters (int): Number of clusters for hierarchical clustering (default: 20).
+        min_cluster_size (int): Minimum cluster size for HDBSCAN clustering.
+        min_samples (int): Minimum number of samples for HDBSCAN (default: None for same as min_cluster_size).
+        cluster_selection_epsilon (float): Epsilon value for HDBSCAN clustering.
+        max_ram (int): Maximum RAM to use in GB.
     """
     # Run the experiments on each feature table in the input directory
     print(f"Running {task_type} modeling experiments on feature tables...")
@@ -49,6 +64,8 @@ def run_modeling_workflow(
         weights_method=weights_method,
         task_type=task_type,
         use_clustering=use_clustering,
+        cluster_method=cluster_method,
+        n_clusters=n_clusters,
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         cluster_selection_epsilon=cluster_selection_epsilon,
@@ -70,6 +87,8 @@ def main():
     parser.add_argument('--use_dynamic_weights', action='store_true', help='If True, use dynamic weights for feature selection.')
     parser.add_argument('--weights_method', type=str, default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method for calculating dynamic weights.')
     parser.add_argument('--use_clustering', action='store_true', help='If True, use clustering for feature selection')
+    parser.add_argument('--cluster_method', type=str, default='hdbscan', choices=['hdbscan', 'hierarchical'], help='Clustering method to use.')
+    parser.add_argument('--n_clusters', type=int, default=20, help='Number of clusters for clustering feature selection.')
     parser.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for clustering feature selection.')
     parser.add_argument('--min_samples', type=int, help='Minimum number of samples for clustering feature selection.')
     parser.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering feature selection.')
@@ -91,6 +110,8 @@ def main():
         use_dynamic_weights=args.use_dynamic_weights,
         weights_method=args.weights_method,
         use_clustering=args.use_clustering,
+        cluster_method=args.cluster_method,
+        n_clusters=args.n_clusters,
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,

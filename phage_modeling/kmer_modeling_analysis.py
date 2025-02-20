@@ -3,7 +3,7 @@ import re
 import numpy as np
 import pandas as pd
 from Bio import SeqIO, AlignIO
-from Bio.Align.Applications import ClustalwCommandline
+from Bio.Align.Applications import MafftCommandline
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from plotnine import *
@@ -134,10 +134,12 @@ def align_sequences(sequences, output_dir, family_name):
     if len(sequences) < 2:
         logging.warning(f"Skipping alignment for {family_name}: Only one sequence provided.")
         return pd.DataFrame()  # Return an empty DataFrame for skipped families
+
+    file_family_name = family_name.replace('|', '_')  # Replace slashes for file handling
     
     # Paths for temporary files
-    temp_fasta_path = os.path.join(output_dir, f"{family_name}_temp_sequences.fasta")
-    temp_aln_path = os.path.join(output_dir, f"{family_name}_temp_sequences.aln")
+    temp_fasta_path = os.path.join(output_dir, f"{file_family_name}_temp_sequences.fasta")
+    temp_aln_path = os.path.join(output_dir, f"{file_family_name}_temp_sequences.aln")
 
     # Validate sequences
     if not sequences:
@@ -163,14 +165,17 @@ def align_sequences(sequences, output_dir, family_name):
     with open(temp_fasta_path, "w") as output_handle:
         SeqIO.write(seq_records, output_handle, "fasta")
 
-    # Run ClustalW for alignment
+    # Run MAFFT for alignment
     try:
-        clustalw_cline = ClustalwCommandline("clustalw2", infile=temp_fasta_path)
-        stdout, stderr = clustalw_cline()
-        logging.info(f"ClustalW output for {family_name}: {stdout}")
-        logging.error(f"ClustalW errors for {family_name}: {stderr}")
+        mafft_cline = MafftCommandline(input=temp_fasta_path)
+        stdout, stderr = mafft_cline()
+
+        with open(temp_aln_path, "w") as handle:
+            handle.write(stdout)
+        logging.info(f"MAFFT output for {family_name}: {stdout}")
+        logging.error(f"MAFFT errors for {family_name}: {stderr}")
     except Exception as e:
-        logging.error(f"ClustalW failed for {family_name}: {e}")
+        logging.error(f"MAFFT failed for {family_name}: {e}")
         return pd.DataFrame()
 
     # Check if alignment file exists and has content
@@ -180,15 +185,13 @@ def align_sequences(sequences, output_dir, family_name):
 
     # Parse the alignment
     try:
-        alignment = AlignIO.read(temp_aln_path, "clustal")
+        # Use "fasta" format since MAFFT outputs in FASTA by default
+        alignment = AlignIO.read(temp_aln_path, "fasta")
     except Exception as e:
         logging.error(f"Failed to parse alignment for {family_name}: {e}")
         os.remove(temp_fasta_path)
         if os.path.exists(temp_aln_path):
             os.remove(temp_aln_path)
-        dnd_path = os.path.join(output_dir, f"{family_name}_temp_sequences.dnd")
-        if os.path.exists(dnd_path):
-            os.remove(dnd_path)
         return pd.DataFrame()
 
     # Remove leading gaps from alignment
@@ -211,7 +214,7 @@ def align_sequences(sequences, output_dir, family_name):
     os.remove(temp_fasta_path)
     if os.path.exists(temp_aln_path):
         os.remove(temp_aln_path)
-    dnd_path = os.path.join(output_dir, f"{family_name}_temp_sequences.dnd")
+    dnd_path = os.path.join(output_dir, f"{file_family_name}_temp_sequences.dnd")
     if os.path.exists(dnd_path):
         os.remove(dnd_path)
 

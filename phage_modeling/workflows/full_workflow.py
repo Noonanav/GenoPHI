@@ -87,6 +87,7 @@ def run_full_workflow(
     input_phage,
     phenotype_matrix,
     output,
+    clustering_dir,
     min_seq_id=0.4,
     coverage=0.8,
     sensitivity=7.5,
@@ -114,9 +115,12 @@ def run_full_workflow(
     use_dynamic_weights=False,
     weights_method='log10',
     use_clustering=True,
+    cluster_method='hdbscan',
+    n_clusters=20,
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
+    check_feature_presence=False,
     use_shap=False,
     clear_tmp=False,
     k=5,
@@ -142,6 +146,7 @@ def run_full_workflow(
                                                      input_path_phage=input_phage,
                                                      phenotype_matrix=phenotype_matrix,
                                                      output_dir=output,
+                                                     clustering_dir=clustering_dir,
                                                      min_seq_id=min_seq_id,
                                                      coverage=coverage,
                                                      sensitivity=sensitivity,
@@ -170,9 +175,12 @@ def run_full_workflow(
                                                      use_dynamic_weights=use_dynamic_weights,
                                                      weights_method=weights_method,
                                                      use_clustering=use_clustering,
+                                                     cluster_method=cluster_method,
+                                                     n_clusters=n_clusters,
                                                      min_cluster_size=min_cluster_size,
                                                      min_samples=min_samples,
                                                      cluster_selection_epsilon=cluster_selection_epsilon,
+                                                     check_feature_presence=check_feature_presence,
                                                      clear_tmp=clear_tmp)
     write_section_report("Protein_Family_Workflow", metrics['protein_family'], output)
 
@@ -236,9 +244,12 @@ def run_full_workflow(
                                                     use_dynamic_weights=use_dynamic_weights,
                                                     weights_method=weights_method,
                                                     use_clustering=use_clustering,
+                                                    cluster_method=cluster_method,
+                                                    n_clusters=n_clusters,
                                                     min_cluster_size=min_cluster_size,
                                                     min_samples=min_samples,
-                                                    cluster_selection_epsilon=cluster_selection_epsilon)
+                                                    cluster_selection_epsilon=cluster_selection_epsilon,
+                                                    check_feature_presence=check_feature_presence)
     write_section_report("Kmer_Workflow", metrics['kmer_workflow'], output)
 
     # Final combined report
@@ -283,6 +294,7 @@ def main():
 
     # Clustering parameters
     clustering_group = parser.add_argument_group('Clustering')
+    clustering_group.add_argument('--clustering_dir', help='Path to an existing strain clustering directory.')
     clustering_group.add_argument('--min_seq_id', type=float, default=0.4, help='Minimum sequence identity for clustering.')
     clustering_group.add_argument('--coverage', type=float, default=0.8, help='Minimum coverage for clustering.')
     clustering_group.add_argument('--sensitivity', type=float, default=7.5, help='Sensitivity for clustering.')
@@ -301,9 +313,12 @@ def main():
     fs_modeling_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic weights for feature selection and modeling.')
     fs_modeling_group.add_argument('--weights_method', default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method to calculate class weights (default: log10)')
     fs_modeling_group.add_argument('--use_clustering', action='store_true', help='Use clustering for feature selection.')
+    fs_modeling_group.add_argument('--cluster_method', default='hdbscan', choices=['hdbscan', 'hierarchical'], help='Clustering method for feature selection.')
+    fs_modeling_group.add_argument('--n_clusters', type=int, default=20, help='Number of clusters for hierarchical clustering (default: 20)')
     fs_modeling_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for HDBSCAN clustering (default: 5)')
     fs_modeling_group.add_argument('--min_samples', type=int, default=None, help='Min samples parameter for HDBSCAN')
     fs_modeling_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Cluster selection epsilon for HDBSCAN (default: 0.0)')
+    fs_modeling_group.add_argument('--check_feature_presence', action='store_true', help='Check for presence of features during train-test split.')
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -323,6 +338,7 @@ def main():
         input_phage=args.input_phage,
         phenotype_matrix=args.phenotype_matrix,
         output=args.output,
+        clustering_dir=args.clustering_dir,
         min_seq_id=args.min_seq_id,
         coverage=args.coverage,
         sensitivity=args.sensitivity,
@@ -351,9 +367,12 @@ def main():
         use_dynamic_weights=args.use_dynamic_weights,
         weights_method=args.weights_method,
         use_clustering=args.use_clustering,
+        cluster_method=args.cluster_method,
+        n_clusters=args.n_clusters,
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
+        check_feature_presence=args.check_feature_presence,
         clear_tmp=args.clear_tmp,
         k=args.k,
         k_range=args.k_range,

@@ -329,11 +329,14 @@ def run_kmer_table_workflow(
     max_ram=8, 
     use_shap=False,
     use_clustering=False,
+    cluster_method='hdbscan',
+    n_clusters=20,
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
     use_dynamic_weights=False,
-    weights_method='log10'
+    weights_method='log10',
+    check_feature_presence=False
 ):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
@@ -365,11 +368,14 @@ def run_kmer_table_workflow(
         threads (int, optional): Number of threads to use for parallel processing. Default is 4.
         max_ram (float, optional): Maximum allowable RAM usage in GB for feature selection.
         use_clustering (bool, optional): Whether to use clustering for train-test split. Default is False.
+        cluster_method (str, optional): Clustering method to use ('hdbscan' or 'hierarchical'). Default is 'hdbscan'.
+        n_clusters (int, optional): Number of clusters for hierarchical clustering. Default is 20.
         min_cluster_size (int, optional): Minimum cluster size for HDBSCAN. Default is 5.
         min_samples (int, optional): Minimum samples parameter for HDBSCAN. Default is None.
         cluster_selection_epsilon (float, optional): Cluster selection epsilon for HDBSCAN. Default is 0.0.
         use_dynamic_weights (bool, optional): Whether to use dynamic class weights. Default is False.
         weights_method (str, optional): Method to calculate class weights ('log10', 'inverse_frequency', 'balanced'). Default is 'log10'.
+        check_feature_presence (bool, optional): If True, only include features present in both train and test sets. Default is False.
 
     Returns:
         None. Saves the final feature tables and optional modeling results to `output_dir`.
@@ -500,11 +506,14 @@ def run_kmer_table_workflow(
                 max_ram=max_ram,
                 use_shap=use_shap,
                 use_clustering=use_clustering,
+                cluster_method=cluster_method,
+                n_clusters=n_clusters,
                 min_cluster_size=min_cluster_size,
                 min_samples=min_samples,
                 cluster_selection_epsilon=cluster_selection_epsilon,
                 use_dynamic_weights=use_dynamic_weights,
-                weights_method=weights_method
+                weights_method=weights_method,
+                check_feature_presence=check_feature_presence
             )
     except Exception as e:
         logging.error(f"An error occurred: {e}")
@@ -569,11 +578,14 @@ def main():
     fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
     fs_modeling_group.add_argument('--use_shap', action='store_true', help='If True, calculates SHAP feature importance values.')
     fs_modeling_group.add_argument('--use_clustering', action='store_true', help='Use clustering for train-test split')
+    fs_modeling_group.add_argument('--cluster_method', default='hdbscan', choices=['hdbscan', 'hierarchical'], help='Clustering method for train-test split')
+    fs_modeling_group.add_argument('--n_clusters', type=int, default=20, help='Number of clusters for hierarchical clustering (default: 20)')
     fs_modeling_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for HDBSCAN (default: 5)')
     fs_modeling_group.add_argument('--min_samples', type=int, default=None, help='Min samples parameter for HDBSCAN (default: None)')
     fs_modeling_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Cluster selection epsilon for HDBSCAN (default: 0.0)')
     fs_modeling_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic class weights for imbalanced datasets')
     fs_modeling_group.add_argument('--weights_method', default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method to calculate class weights (default: log10)')
+    fs_modeling_group.add_argument('--check_feature_presence', action='store_true', help='Only include features present in both train and test sets')
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -612,11 +624,14 @@ def main():
         max_ram=args.max_ram,
         use_shap=args.use_shap,
         use_clustering=args.use_clustering,
+        cluster_method=args.cluster_method,
+        n_clusters=args.n_clusters,
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
         use_dynamic_weights=args.use_dynamic_weights,
-        weights_method=args.weights_method
+        weights_method=args.weights_method,
+        check_feature_presence=args.check_feature_presence
     )
 
 if __name__ == "__main__":

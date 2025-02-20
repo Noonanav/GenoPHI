@@ -119,14 +119,61 @@ def run_protein_family_workflow(
      use_dynamic_weights=False, 
      weights_method='log10',
      use_clustering=True,
+     cluster_method='hdbscan',
+     n_clusters=20,
      min_cluster_size=5,
      min_samples=None,
      cluster_selection_epsilon=0.0,
+     check_feature_presence=False,
      use_shap=False, 
      clear_tmp=False):
     """
     Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
+    
+    Args:
+        input_path_strain (str): Path to the input directory or file for strain clustering.
+        output_dir (str): Directory to save all results.
+        phenotype_matrix (str): Path to the phenotype matrix file.
+        tmp_dir (str): Directory for temporary files (default: "tmp").
+        input_path_phage (str, optional): Path to the input directory or file for phage clustering.
+        clustering_dir (str, optional): Path to existing clustering results to reuse.
+        min_seq_id (float): Minimum sequence identity for clustering (default: 0.6).
+        coverage (float): Minimum coverage for clustering (default: 0.8).
+        sensitivity (float): Sensitivity for clustering (default: 7.5).
+        suffix (str): Suffix for input FASTA files (default: 'faa').
+        threads (int): Number of threads to use (default: 4).
+        strain_list (str): Path to strain list file or 'none' (default: 'none').
+        phage_list (str): Path to phage list file or 'none' (default: 'none').
+        strain_column (str): Column name for strain identifiers (default: 'strain').
+        phage_column (str): Column name for phage identifiers (default: 'phage').
+        compare (bool): Whether to compare original clusters with assigned clusters (default: False).
+        source_strain (str): Prefix for naming strain features (default: 'strain').
+        source_phage (str): Prefix for naming phage features (default: 'phage').
+        num_features (str): Number of features to select or 'none' for automatic (default: 'none').
+        filter_type (str): Filter type for the input data ('none', 'strain', 'phage') (default: 'none').
+        num_runs_fs (int): Number of feature selection iterations (default: 10).
+        num_runs_modeling (int): Number of modeling runs per feature table (default: 10).
+        sample_column (str): Column name for sample identifiers (default: 'strain').
+        phenotype_column (str): Column name for phenotype data (default: 'interaction').
+        method (str): Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap') (default: 'rfe').
+        annotation_table_path (str, optional): Path to annotation table for merging with results.
+        protein_id_col (str): Column name for protein IDs (default: "protein_ID").
+        task_type (str): Type of modeling task ('classification' or 'regression') (default: 'classification').
+        max_features (str): Maximum number of features to include or 'none' (default: 'none').
+        max_ram (int): Maximum RAM to use in GB (default: 8).
+        use_dynamic_weights (bool): Whether to use dynamic weights for feature selection (default: False).
+        weights_method (str): Method for calculating weights ('log10', 'inverse_frequency', 'balanced') (default: 'log10').
+        use_clustering (bool): Whether to use clustering for filtering (default: True).
+        cluster_method (str): Clustering method to use ('hdbscan' or 'hierarchical') (default: 'hdbscan').
+        n_clusters (int): Number of clusters for hierarchical clustering (default: 20).
+        min_cluster_size (int): Minimum cluster size for HDBSCAN clustering (default: 5).
+        min_samples (int, optional): Minimum number of samples for HDBSCAN clustering (default: None).
+        cluster_selection_epsilon (float): Epsilon value for HDBSCAN clustering (default: 0.0).
+        check_feature_presence (bool): If True, only include features present in both train and test sets (default: False).
+        use_shap (bool): Whether to calculate and save SHAP values (default: False).
+        clear_tmp (bool): Whether to clear temporary files after each step (default: False).
     """
+    
     os.makedirs(output_dir, exist_ok=True)
     setup_logging(output_dir)
 
@@ -147,12 +194,21 @@ def run_protein_family_workflow(
         logging.info("Step 1: Running feature table generation for strain...")
 
         if clustering_dir:
-            old_strain_dir = os.path.join(clustering_dir, "strain")
-            strain_output_dir = os.path.join(output_dir, "strain")
+            old_strain_dir = os.path.abspath(os.path.join(clustering_dir, "strain"))
+            strain_output_dir = os.path.abspath(os.path.join(output_dir, "strain"))
+
+             # Debug prints
+            logging.info(f"Checking old strain dir exists: {os.path.exists(old_strain_dir)}")
+            logging.info(f"Checking old strain features exists: {os.path.exists(os.path.join(old_strain_dir, 'features'))}")
+
             os.symlink(old_strain_dir, strain_output_dir, target_is_directory=True)
 
-            old_tmp_dir = os.path.join(clustering_dir, "tmp")
-            tmp_dir = os.path.join(output_dir, "tmp")
+            # Verify symlink was created and is valid
+            logging.info(f"Checking symlink exists: {os.path.exists(strain_output_dir)}")
+            logging.info(f"Checking symlink features exists: {os.path.exists(os.path.join(strain_output_dir, 'features'))}")
+
+            old_tmp_dir = os.path.abspath(os.path.join(clustering_dir, "tmp"))
+            tmp_dir = os.path.abspath(os.path.join(output_dir, "tmp"))
             os.symlink(old_tmp_dir, tmp_dir, target_is_directory=True)
             strain_tmp_dir = os.path.join(output_dir, "tmp", "strain")
             strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
@@ -192,8 +248,8 @@ def run_protein_family_workflow(
             logging.info("Processing phage features...")
 
             if clustering_dir:
-                old_phage_dir = os.path.join(clustering_dir, "phage")
-                phage_output_dir = os.path.join(output_dir, "phage")
+                old_phage_dir = os.path.abspath(os.path.join(clustering_dir, "phage"))
+                phage_output_dir = os.path.abspath(os.path.join(output_dir, "phage"))
                 os.symlink(old_phage_dir, phage_output_dir, target_is_directory=True)
                 phage_tmp_dir = os.path.join(output_dir, "tmp", "phage")
                 phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
@@ -277,9 +333,12 @@ def run_protein_family_workflow(
             use_dynamic_weights=use_dynamic_weights,
             weights_method=weights_method,
             use_clustering=use_clustering,
+            cluster_method=cluster_method,
+            n_clusters=n_clusters,
             min_cluster_size=min_cluster_size,
             min_samples=min_samples,
             cluster_selection_epsilon=cluster_selection_epsilon,
+            check_feature_presence=check_feature_presence,
             max_ram=max_ram
         )
 
@@ -314,6 +373,8 @@ def run_protein_family_workflow(
             binary_data=True,
             max_ram=max_ram,
             use_clustering=use_clustering,
+            cluster_method=cluster_method,
+            n_clusters=n_clusters,
             min_cluster_size=min_cluster_size,
             min_samples=min_samples,
             cluster_selection_epsilon=cluster_selection_epsilon,
@@ -435,9 +496,12 @@ def main():
     optional_input_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic weights for feature selection (default: False).')
     optional_input_group.add_argument('--weights_method', type=str, default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method for calculating dynamic weights (default: log10).')
     optional_input_group.add_argument('--use_clustering', action='store_true', help='Use clustering for feature selection (default: True).')
+    optional_input_group.add_argument('--cluster_method', type=str, default='hdbscan', choices=['hdbscan', 'hierarchical'], help='Clustering method to use (default: hdbscan).')
+    optional_input_group.add_argument('--n_clusters', type=int, default=20, help='Number of clusters for hierarchical clustering (default: 20).')
     optional_input_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for clustering (default: 5).')
     optional_input_group.add_argument('--min_samples', type=int, help='Minimum number of samples for clustering (default: None).')
     optional_input_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering (default: 0.0).')
+    optional_input_group.add_argument('--check_feature_presence', action='store_true', help='Check for presence of features during train-test split (default: False).')
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -503,9 +567,12 @@ def main():
         use_dynamic_weights=args.use_dynamic_weights,
         weights_method=args.weights_method,
         use_clustering=args.use_clustering,
+        cluster_method=args.cluster_method,
+        n_clusters=args.n_clusters,
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
+        check_feature_presence=args.check_feature_presence,
         clear_tmp=args.clear_tmp
     )
 

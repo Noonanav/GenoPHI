@@ -103,7 +103,7 @@ def main():
 
     args = parser.parse_args()
 
-    assign_predict_workflow(
+    kmer_assign_predict_workflow(
         input_dir=args.input_dir,
         mmseqs_db=args.mmseqs_db,
         clusters_tsv=args.clusters_tsv,

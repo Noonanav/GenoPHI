@@ -85,6 +85,8 @@ def model_testing_select_MCC(
     binary_data=False, 
     max_ram=8, 
     use_clustering=True,
+    cluster_method='hdbscan',
+    n_clusters=20,
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
@@ -117,6 +119,8 @@ def model_testing_select_MCC(
         random_state=random_state,
         output_dir=output_dir,
         use_clustering=use_clustering,
+        cluster_method=cluster_method,
+        n_clusters=n_clusters,
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         cluster_selection_epsilon=cluster_selection_epsilon
@@ -503,6 +507,8 @@ def run_experiments(
     binary_data=False, 
     max_ram=8, 
     use_clustering=True,
+    cluster_method='hdbscan',
+    n_clusters=20,
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
@@ -511,7 +517,7 @@ def run_experiments(
     """
     Iterates through feature tables in a directory, running the model testing process for each.
 
-    Args:
+        Args:
         input_dir (str): Directory containing feature tables.
         base_output_dir (str): Base directory to store results.
         threads (int): Number of threads for training.
@@ -520,7 +526,17 @@ def run_experiments(
         set_filter (str): Filter type for the dataset ('none', 'strain', 'phage', 'dataset').
         sample_column (str): Name of the sample column (optional).
         phenotype_column (str): Name of the phenotype column (optional).
+        phage_column (str): Name of the phage column (default: 'phage').
+        use_dynamic_weights (bool): Whether to use dynamic weights for phage-based samples.
+        weights_method (str): Method for calculating weights ('log10', 'inverse_frequency', or 'balanced').
         binary_data (bool): If True, plot SHAP jitter plot with binary data.
+        max_ram (int): Maximum RAM to use for CatBoost training.
+        use_clustering (bool): Whether to use clustering for filtering.
+        cluster_method (str): Clustering method to use ('hdbscan' or 'hierarchical').
+        n_clusters (int): Number of clusters for hierarchical clustering (default: 20).
+        min_cluster_size (int): Minimum cluster size for HDBSCAN.
+        min_samples (int): Minimum number of samples for HDBSCAN (default: None for same as min_cluster_size).
+        cluster_selection_epsilon (float): Epsilon value for HDBSCAN.
         use_shap (bool): If True, calculate and save SHAP values.
     """
     start_total_time = time.time()
@@ -576,6 +592,8 @@ def run_experiments(
                         binary_data=binary_data,
                         max_ram=max_ram,
                         use_clustering=use_clustering,
+                        cluster_method=cluster_method,
+                        n_clusters=n_clusters,
                         min_cluster_size=min_cluster_size,
                         min_samples=min_samples,
                         cluster_selection_epsilon=cluster_selection_epsilon,

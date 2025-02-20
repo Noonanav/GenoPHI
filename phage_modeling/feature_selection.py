@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from sklearn.feature_selection import RFE, SelectKBest, f_classif, f_regression, chi2, SelectFromModel
 from sklearn.linear_model import LogisticRegression, Lasso, LinearRegression
+from sklearn.cluster import AgglomerativeClustering
 import shap
 from sklearn.model_selection import train_test_split
 from catboost import CatBoostClassifier, CatBoostRegressor
@@ -72,7 +73,9 @@ def filter_data(
     sample_column='strain', 
     output_dir=None,
     use_clustering=False, 
-    cluster_method='hdbscan', 
+    cluster_method='hdbscan',
+    n_clusters=20,
+    check_feature_presence=False,  # New parameter
     **kwargs
 ):
     """
@@ -87,13 +90,14 @@ def filter_data(
         random_state (int): Seed for reproducibility.
         sample_column (str): Column to use as the sample identifier (default: 'strain').
         use_clustering (bool): Whether to apply clustering before splitting. Default is False.
-        cluster_method (str): Clustering method to use when use_clustering=True. Default is 'hdbscan'.
+        cluster_method (str): Clustering method to use when use_clustering=True. Options: 'hdbscan' or 'hierarchical'.
+        n_clusters (int): Number of clusters for hierarchical clustering (default: 20).
+        check_feature_presence (bool): If True, only include features present in both train and test sets.
         **kwargs: Additional parameters for the clustering method.
 
     Returns:
         X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
     """
-
     # ---- 1️⃣ Standard Random Split if No Clustering ----
     if not use_clustering or filter_type == 'none':
         X_train, X_test, y_train, y_test = train_test_split(
@@ -102,12 +106,25 @@ def filter_data(
         test_idx = X_test.index
         train_idx = X_train.index
 
-        # Ensure both 'sample_column' and 'phage' are included if available
         meta_columns = [sample_column]
         if 'phage' in full_feature_table.columns:
             meta_columns.append('phage')
         X_test_sample_ids = full_feature_table.loc[test_idx, meta_columns]
         X_train_sample_ids = full_feature_table.loc[train_idx, meta_columns]
+
+        if check_feature_presence:
+            # Find features present in both train and test sets
+            train_features = (X_train > 0).any(axis=0)
+            test_features = (X_test > 0).any(axis=0)
+            common_features = train_features & test_features
+            
+            # Filter features
+            X_train = X_train.loc[:, common_features]
+            X_test = X_test.loc[:, common_features]
+            
+            logging.info(f"Original features: {len(train_features)}")
+            logging.info(f"Features present in both sets: {common_features.sum()}")
+            logging.info(f"Features removed: {len(train_features) - common_features.sum()}")
 
         return X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
 
@@ -121,12 +138,13 @@ def filter_data(
 
     if feature_columns == []:
         logging.warning(f"No feature columns found for clustering. Falling back to group-based split.")
-        use_clustering = False  # If no features exist, fall back to default method
+        use_clustering = False
+        return filter_data(X, y, full_feature_table, filter_type, random_state, sample_column, output_dir, use_clustering=False)
 
-    # ---- 4️⃣ Apply Clustering if Enabled ----
+    # ---- 4️⃣ Apply Clustering Based on Selected Method ----
     if use_clustering:
         if cluster_method == 'hdbscan':
-            logging.info(f"Clustering based on {cluster_method} with parameters: {kwargs}")
+            logging.info(f"Clustering using HDBSCAN with parameters: {kwargs}")
             clusterer = HDBSCAN(**kwargs)
             cluster_labels = clusterer.fit_predict(filter_type_feature_table[feature_columns])
 
@@ -139,12 +157,20 @@ def filter_data(
                 if label == -1:  # If it's noise
                     max_cluster_label += 1
                     cluster_labels[i] = max_cluster_label
+
+        elif cluster_method == 'hierarchical':
+            logging.info(f"Clustering using Hierarchical Clustering with {n_clusters} clusters")
+            clusterer = AgglomerativeClustering(n_clusters=n_clusters)
+            cluster_labels = clusterer.fit_predict(filter_type_feature_table[feature_columns])
+            
+            print(f"Number of clusters: {len(np.unique(cluster_labels))}")
+
         else:
-            raise ValueError(f"Unsupported clustering method: {cluster_method}")
+            raise ValueError(f"Unsupported clustering method: {cluster_method}. Choose 'hdbscan' or 'hierarchical'.")
 
         # Assign clusters to samples
         filter_type_feature_table["cluster"] = cluster_labels
-        print(f"Number of clusters for splitting (cluster and noise): {len(filter_type_feature_table['cluster'].unique())}")
+        print(f"Number of clusters for splitting: {len(filter_type_feature_table['cluster'].unique())}")
         full_feature_table = full_feature_table.merge(
             filter_type_feature_table[[filter_type, "cluster"]], on=filter_type, how="left"
         )
@@ -155,7 +181,7 @@ def filter_data(
             cluster_df.to_csv(cluster_file, index=False)
             logging.info(f"Saved cluster labels to: {cluster_file}")
 
-        group_col = "cluster"  # Now use cluster labels for splitting
+        group_col = "cluster"  # Use cluster labels for splitting
     else:
         group_col = filter_type  # Use original filter type column
 
@@ -173,15 +199,29 @@ def filter_data(
     y_train = y[train_idx]
     y_test = y[test_idx]
 
-    # ---- 6️⃣ Prepare Metadata for Train/Test Sets ----
-    # Include 'phage' only if it's present
+    # ---- 6️⃣ Check Feature Presence if Requested ----
+    if check_feature_presence:
+        # Find features present in both train and test sets
+        train_features = (X_train > 0).any(axis=0)
+        test_features = (X_test > 0).any(axis=0)
+        common_features = train_features & test_features
+        
+        # Filter features
+        X_train = X_train.loc[:, common_features]
+        X_test = X_test.loc[:, common_features]
+        
+        logging.info(f"Original features: {len(train_features)}")
+        logging.info(f"Features present in both sets: {common_features.sum()}")
+        logging.info(f"Features removed: {len(train_features) - common_features.sum()}")
+
+    # ---- 7️⃣ Prepare Metadata for Train/Test Sets ----
     meta_columns = [sample_column]
     if 'phage' in full_feature_table.columns:
         meta_columns.append('phage')
     X_test_sample_ids = full_feature_table.loc[test_idx, meta_columns]
     X_train_sample_ids = full_feature_table.loc[train_idx, meta_columns]
 
-    # ---- 7️⃣ Check for Valid Training Set ----
+    # ---- 8️⃣ Check for Valid Training Set ----
     unique_values = y_train.nunique()
     if unique_values < 2:
         logging.warning(
@@ -1000,9 +1040,12 @@ def run_feature_selection_iterations(
     method='rfe', 
     task_type='classification', 
     use_clustering=True,
+    cluster_method='hdbscan',
+    n_clusters=20,
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
+    check_feature_presence=False,
     max_ram=8
 ):
     """
@@ -1022,6 +1065,8 @@ def run_feature_selection_iterations(
         method (str): Feature selection method ('rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap').
         task_type (str): Task type ('classification' or 'regression').
         use_clustering (bool): Whether to use clustering for filtering.
+        cluster_method (str): Clustering method to use.
+        n_clusters (int): Number of clusters for clustering.
         min_cluster_size (int): Minimum cluster size for filtering.
         min_samples (int): Minimum number of samples for filtering (default: None for same as min_cluster_size).
         cluster_selection_epsilon (float): Epsilon value for clustering.
@@ -1052,10 +1097,18 @@ def run_feature_selection_iterations(
                 sample_column=sample_column, 
                 output_dir=output_dir,
                 use_clustering=use_clustering, 
+                cluster_method=cluster_method,
+                n_clusters=n_clusters,
                 min_cluster_size=min_cluster_size,
                 min_samples=min_samples,
-                cluster_selection_epsilon=cluster_selection_epsilon
+                cluster_selection_epsilon=cluster_selection_epsilon,
+                check_feature_presence=check_feature_presence
             )
+
+            if num_features == 'none':
+                num_features = int(len(X_train) / 10) if len(X_train) < 500 else int(len(X_train) / 20)
+            else:
+                num_features = int(num_features)
 
             if X_train is None:
                 logging.info("Skipping this run due to insufficient training data.")
