@@ -127,7 +127,7 @@ def calculate_median_predictions(all_predictions_df, single_strain_mode=False):
 
     return median_conf_df
 
-def run_prediction_workflow(input_dir, phage_feature_table_path, model_dir, output_dir, strain_source='strain', phage_source='phage', threads=4):
+def run_prediction_workflow(input_dir, phage_feature_table_path, feature_table, model_dir, output_dir, strain_source='strain', phage_source='phage', threads=4):
     """
     Full workflow for predicting interactions using a combined strain feature table and optionally phage-specific features.
 
@@ -154,7 +154,18 @@ def run_prediction_workflow(input_dir, phage_feature_table_path, model_dir, outp
     input_table = pd.read_csv(os.path.join(input_dir, input_file))
 
     single_strain_mode = phage_feature_table is None
+
+    print('Generating full feature table...')
     prediction_feature_table = generate_full_feature_table(input_table, phage_feature_table, strain_source, phage_source, output_dir=output_dir)
+
+    if feature_table:
+        logging.info(f'Loading feature table from {feature_table}')
+        feature_table = pd.read_csv(feature_table)
+
+        select_columns = feature_table.columns
+        select_columns = [col for col in select_columns if col != 'interaction']
+
+        prediction_feature_table = prediction_feature_table[select_columns]
 
     logging.info('Running predictions...')
     all_predictions_df = predict_interactions(model_dir, prediction_feature_table, single_strain_mode, threads)
@@ -171,6 +182,7 @@ def main():
     parser = ArgumentParser(description="Predict interactions using strain-specific and optionally phage-specific feature tables.")
     parser.add_argument('--input_dir', type=str, required=True, help="Directory with strain-specific feature tables.")
     parser.add_argument('--phage_feature_table', type=str, help="Path to the phage feature table. Optional for single-strain mode.")
+    parser.add_argument('--feature_table', type=str, default=None, help="Path to the combined feature table. Optional for single-strain mode.")
     parser.add_argument('--model_dir', type=str, required=True, help="Directory with models (run_* subdirectories).")
     parser.add_argument('--output_dir', type=str, required=True, help="Directory to save predictions.")
     parser.add_argument('--strain_source', type=str, default='strain', help="Prefix used for strain features.")
@@ -182,6 +194,7 @@ def main():
     run_prediction_workflow(
         input_dir=args.input_dir,
         phage_feature_table_path=args.phage_feature_table,
+        feature_table=args.feature_table,
         model_dir=args.model_dir,
         output_dir=args.output_dir,
         strain_source=args.strain_source,

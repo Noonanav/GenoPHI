@@ -142,11 +142,12 @@ def create_mmseqs_database(input_path, db_name, suffix, input_type, strains, thr
     """
     logging.info("Creating MMseqs2 database...")
     fasta_files = []
+    strains = [str(s) for s in strains] if strains else None
     if input_type == 'directory':
         logging.info(f"Searching for FASTA files with suffix '{suffix}' in directory.")
         for fasta in os.listdir(input_path):
             if fasta.endswith(suffix):
-                strain_name = os.path.splitext(fasta)[0]
+                strain_name = fasta.replace(f".{suffix}", "")
                 if strains is None or strain_name in strains:
                     fasta_files.append(os.path.join(input_path, fasta))
     else:
@@ -165,7 +166,7 @@ def create_mmseqs_database(input_path, db_name, suffix, input_type, strains, thr
     
     return fasta_files
 
-def create_contig_to_genome_dict(fasta_files, input_type):
+def create_contig_to_genome_dict(fasta_files, input_type, suffix='faa'):
     """
     Creates a mapping from contigs to genomes based on input FASTA files.
 
@@ -182,7 +183,7 @@ def create_contig_to_genome_dict(fasta_files, input_type):
     
     if input_type == 'directory':
         for fasta in fasta_files:
-            genome_name = os.path.basename(fasta).split(".")[0]
+            genome_name = os.path.basename(fasta).replace(f".{suffix}", "")
             genome_list.append(genome_name)
             for record in SeqIO.parse(fasta, "fasta"):
                 contig_to_genome[record.id] = genome_name
@@ -555,7 +556,7 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
     db_name = os.path.join(tmp_dir, "mmseqs_db")
     fasta_files = create_mmseqs_database(input_path, db_name, suffix, input_type, strains_to_process, threads)
 
-    contig_to_genome, genome_list = create_contig_to_genome_dict(fasta_files, input_type)
+    contig_to_genome, genome_list = create_contig_to_genome_dict(fasta_files, input_type, suffix)
 
     clusters_tsv = run_mmseqs_cluster(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads)
 

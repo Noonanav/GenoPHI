@@ -6,34 +6,53 @@ from argparse import ArgumentParser
 from Bio import SeqIO
 from collections import defaultdict
 import warnings
+from tqdm import tqdm
+from tqdm.auto import tqdm as tqdm_auto
+import multiprocessing
+from functools import partial
 
 # Suppress DataFrame fragmentation warning
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 from phage_modeling.mmseqs2_clustering import create_mmseqs_database, load_strains, create_contig_to_genome_dict, select_best_hits
 
-def load_aa_sequences(aa_sequence_file):
+def load_aa_sequences_from_files(fasta_files):
     """
-    Loads amino acid sequences from a FASTA file into a DataFrame.
+    Loads amino acid sequences from multiple FASTA files into a DataFrame.
 
     Parameters:
-    aa_sequence_file (str): Path to the amino acid sequence file in FASTA format.
+    fasta_files (list): List of paths to FASTA files to load.
 
     Returns:
     DataFrame: A DataFrame with 'protein_ID' and 'sequence' columns.
     """
-    logging.info(f"Loading amino acid sequences from {aa_sequence_file}")
+    logging.info(f"Loading amino acid sequences from {len(fasta_files)} FASTA files")
     
-    # Convert the iterator to a list to prevent re-consumption
-    aa_records = list(SeqIO.parse(aa_sequence_file, 'fasta'))
+    all_records = []
+    loaded_ids = set()  # Track IDs to avoid duplicates
+    
+    # Process each FASTA file
+    for fasta_file in tqdm(fasta_files, desc="Loading FASTA files"):
+        try:
+            # Load records from this file
+            file_records = list(SeqIO.parse(fasta_file, 'fasta'))
+            logging.info(f"Loaded {len(file_records)} records from {fasta_file}")
+            
+            # Add only new records to avoid duplicates
+            for record in file_records:
+                if record.id not in loaded_ids:
+                    all_records.append(record)
+                    loaded_ids.add(record.id)
+        except Exception as e:
+            logging.error(f"Error loading sequences from {fasta_file}: {str(e)}")
     
     # Create the DataFrame with consistent-length lists
     aa_sequences_df = pd.DataFrame({
-        'protein_ID': [record.id for record in aa_records],
-        'sequence': [str(record.seq) for record in aa_records]
+        'protein_ID': [record.id for record in all_records],
+        'sequence': [str(record.seq) for record in all_records]
     })
     
-    logging.info(f"Loaded {len(aa_sequences_df)} sequences.")
+    logging.info(f"Loaded {len(aa_sequences_df)} unique sequences from all files.")
     return aa_sequences_df
 
 def detect_and_modify_duplicates(input_dir, output_dir, suffix='faa', strains_to_process=None):
@@ -100,9 +119,11 @@ def detect_and_modify_duplicates(input_dir, output_dir, suffix='faa', strains_to
 def assign_sequences_to_clusters(db_name, target_db, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv, clear_tmp):
     """
     Assigns sequences to existing clusters using MMseqs2 search and creates a best hits TSV file.
+    Reuses existing output if available to avoid unnecessary recomputation.
 
     Args:
         db_name (str): Path to the MMseqs2 database.
+        target_db (str): Path to the target MMseqs2 database.
         output_dir (str): Directory to save results.
         tmp_dir (str): Temporary directory for intermediate files.
         coverage (float): Minimum coverage for assignment.
@@ -110,28 +131,47 @@ def assign_sequences_to_clusters(db_name, target_db, output_dir, tmp_dir, covera
         sensitivity (float): Sensitivity for assignment.
         threads (int): Number of threads to use.
         clusters_tsv (str): Path to the clusters TSV file.
+        clear_tmp (bool): Whether to clear temporary files.
 
     Returns:
         str: Path to the best hits TSV file.
     """
-    logging.info("Assigning sequences to clusters...")
-    
     result_db = os.path.join(tmp_dir, "result_db")
-    search_command = (
-        f"mmseqs search {db_name} {target_db} {result_db} {tmp_dir} "
-        f"-c {coverage} --min-seq-id {min_seq_id} -s {sensitivity} "
-        f"--threads {threads} -v 3"
-    )
-    subprocess.run(search_command, shell=True, check=True)
-    logging.info("Sequence assignment completed successfully.")
-    
     assigned_tsv = os.path.join(output_dir, "assigned_clusters.tsv")
-    createtsv_command = f"mmseqs createtsv {db_name} {target_db} {result_db} {assigned_tsv} --threads {threads} -v 3"
-    subprocess.run(createtsv_command, shell=True, check=True)
-    logging.info(f"Assigned clusters TSV saved to {assigned_tsv}")
-    
     best_hits_tsv = os.path.join(output_dir, "best_hits.tsv")
+    
+    # Check if best hits TSV already exists
+    if os.path.exists(best_hits_tsv):
+        logging.info(f"Found existing best hits file: {best_hits_tsv}. Reusing it.")
+        return best_hits_tsv
+        
+    # Check if assigned clusters TSV already exists
+    if os.path.exists(assigned_tsv):
+        logging.info(f"Found existing assigned clusters file: {assigned_tsv}. Reusing it.")
+    else:
+        # Check if result database already exists
+        result_db_files_exist = all(os.path.exists(f"{result_db}.{ext}") for ext in ["dbtype", "index"])
+        
+        if result_db_files_exist:
+            logging.info(f"Found existing result database: {result_db}. Reusing it.")
+        else:
+            logging.info("Assigning sequences to clusters...")
+            search_command = (
+                f"mmseqs search {db_name} {target_db} {result_db} {tmp_dir} "
+                f"-c {coverage} --min-seq-id {min_seq_id} -s {sensitivity} "
+                f"--threads {threads} -v 3"
+            )
+            subprocess.run(search_command, shell=True, check=True)
+            logging.info("Sequence assignment completed successfully.")
+        
+        # Create TSV from the result database
+        createtsv_command = f"mmseqs createtsv {db_name} {target_db} {result_db} {assigned_tsv} --threads {threads} -v 3"
+        subprocess.run(createtsv_command, shell=True, check=True)
+        logging.info(f"Assigned clusters TSV saved to {assigned_tsv}")
+    
+    # Generate best hits file if it doesn't exist
     select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
+    logging.info(f"Best hits saved to {best_hits_tsv}")
 
     # Delete the intermediate clustering files
     if clear_tmp:
@@ -143,7 +183,36 @@ def assign_sequences_to_clusters(db_name, target_db, output_dir, tmp_dir, covera
     
     return best_hits_tsv
 
-def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_kmers, genome_contig_mapping, genome_type, aa_sequence_file, threshold):
+def process_row_for_kmer_matching(row_tuple, protein_sequences, kmer_mapping):
+    """Process a single row for kmer matching, suitable for multiprocessing."""
+    try:
+        # Unpack the tuple
+        idx, row = row_tuple
+        
+        protein_id = row['Query']
+        sequence = protein_sequences.get(protein_id, "")
+
+        if protein_id not in protein_sequences:
+            print(f"Sequence not found for {protein_id}")
+        
+        # Check if we have kmers for this cluster
+        cluster = str(row['Cluster'])
+        # Use the protein_family column for filtering
+        kmers_available = kmer_mapping[kmer_mapping['protein_family'] == cluster]['kmer'].tolist()
+        
+        # If no kmers found for this cluster, return 0
+        if not kmers_available:
+            return (idx, 0)
+            
+        matching_count = sum(kmer in sequence for kmer in kmers_available)
+        return (idx, matching_count)
+    except Exception as e:
+        print(f"Error in process_row: {e}")
+        return (idx, 0)
+
+def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_kmers, 
+                                          genome_contig_mapping, genome_type, 
+                                          fasta_files, aa_sequence_file, threshold, threads=None):
     """
     Maps features for all genomes based on cluster assignments and kmer presence in sequences.
 
@@ -153,8 +222,10 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
         filtered_kmers (str): Path to the filtered kmers CSV file.
         genome_contig_mapping (dict): Dictionary mapping contigs to genomes.
         genome_type (str): Type of genome ('strain' or 'phage').
-        aa_sequence_file (str): Path to the FASTA file containing amino acid sequences.
+        fasta_files (list): List of FASTA files containing protein sequences.
+        aa_sequence_file (str): Path to the reference FASTA file (used if fasta_files is empty).
         threshold (float): Minimum percentage of kmers per feature that need to match.
+        threads (int, optional): Number of threads to use for parallel processing.
 
     Returns:
         pd.DataFrame: Combined feature presence table for all genomes.
@@ -166,67 +237,186 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
     try:
         # Load necessary files
         best_hits_df = pd.read_csv(best_hits_tsv, sep='\t', header=None, names=['Query', 'Cluster'])
+        
+        # Filter out rows with NaN clusters before merging
+        best_hits_df = best_hits_df.dropna(subset=['Cluster'])
+        logging.info(f"After filtering NaN clusters: {len(best_hits_df)} rows remain")
+        
         feature_mapping = pd.read_csv(feature_map)
         kmer_mapping = pd.read_csv(filtered_kmers)
 
+        # Print column information for debugging
+        logging.info(f"Feature mapping columns: {feature_mapping.columns}")
+        logging.info(f"Kmer mapping columns: {kmer_mapping.columns}")
+        logging.info(f"Best hits columns: {best_hits_df.columns}")
+
+        # Convert data types explicitly
         best_hits_df['Cluster'] = best_hits_df['Cluster'].astype(str)
         feature_mapping['Cluster_Label'] = feature_mapping['Cluster_Label'].astype(str)
         kmer_mapping['protein_family'] = kmer_mapping['protein_family'].astype(str)
 
-        # Load AA sequences
-        aa_sequences_df = load_aa_sequences(aa_sequence_file)
+        # First try to load sequences from fasta_files, then fall back to aa_sequence_file
+        if fasta_files:
+            # Load sequences from all FASTA files in fasta_files
+            aa_sequences_df = load_aa_sequences_from_files(fasta_files)
+            logging.info(f"Loaded sequences from {len(fasta_files)} FASTA files")
+        else:
+            # Fall back to loading from the reference file if fasta_files is empty
+            aa_sequences_df = load_aa_sequences(aa_sequence_file)
+            logging.info(f"Loaded sequences from reference file: {aa_sequence_file}")
 
-        # Create a lookup for protein sequences
+        print('AA sequences:')
+        print(aa_sequences_df.head(10))
         protein_sequences = aa_sequences_df.set_index('protein_ID')['sequence'].to_dict()
+        print(f"Loaded {len(protein_sequences)} protein sequences")
 
         logging.info(f"Mapping features with kmers for {genome_type}s with threshold: {threshold}...")
+        
+        try:
+            genome_contig_mapping_df = pd.DataFrame(list(genome_contig_mapping.items()), columns=['contig_id', genome_type])
+            print('Genome contig mapping:')
+            print(genome_contig_mapping_df.head(10))
+            merged_df = best_hits_df.merge(genome_contig_mapping_df, left_on='Query', right_on='contig_id')
+            # print('Merged data:')
+            # print(merged_df.head(10))
+            logging.info(f"First merge successful: {len(merged_df)} rows")
+        except Exception as e:
+            logging.error(f"Error in first merge: {e}")
+            return None
+            
+        try:
+            merged_df = merged_df.merge(kmer_mapping, left_on='Cluster', right_on='protein_family', how='inner')
+            # print('Merged data:')
+            # print(merged_df.head(10))
+            logging.info(f"Second merge successful: {len(merged_df)} rows")
+        except Exception as e:
+            logging.error(f"Error in second merge: {e}")
+            return None
+
+        print('Merged data:')
+        print(merged_df.head(10))
+
+        # Starting the post-merge operations with detailed debugging
+        logging.info("Starting kmer matching calculation...")
+        
+        # Debug: Check if 'kmer' column exists in merged_df
+        if 'kmer' not in merged_df.columns:
+            logging.error("'kmer' column not found in merged_df after the third merge!")
+            logging.info(f"Available columns: {merged_df.columns.tolist()}")
+            return None
+        
+        try:
+            # Determine the number of threads to use
+            if threads is None:
+                num_cores = 1
+            else:
+                num_cores = threads
+                
+            total_rows = len(merged_df)
+            
+            # If there are very few rows or only one core, use the non-parallel approach
+            if total_rows < 1000 or num_cores == 1:
+                logging.info(f"Using non-parallel approach for {total_rows} rows")
+                # Add the tqdm progress bar to pandas
+                tqdm_auto.pandas(desc="Matching kmers")
+                # Use progress_apply instead of apply
+                merged_df['Matching_Kmers'] = merged_df.progress_apply(
+                    lambda row: process_row_for_kmer_matching((row.name, row), protein_sequences, kmer_mapping)[1], 
+                    axis=1
+                )
+            else:
+                logging.info(f"Using parallel approach with {num_cores} cores for {total_rows} rows")
+                
+                # Create a partial function with the constant arguments
+                process_func = partial(
+                    process_row_for_kmer_matching,  # Use the module-level function
+                    protein_sequences=protein_sequences,
+                    kmer_mapping=kmer_mapping
+                )
+                
+                # Create a pool of workers
+                with multiprocessing.Pool(processes=num_cores) as pool:
+                    # Calculate chunk size for good parallelism
+                    chunk_size = max(1, min(100, total_rows // (num_cores * 4)))
+                    
+                    # Prepare the data as a list of (index, row) tuples
+                    row_tuples = list(merged_df.iterrows())
+                    
+                    # Execute the parallel processing with a progress bar
+                    results = list(tqdm(
+                        pool.imap(process_func, row_tuples, chunksize=chunk_size),
+                        total=total_rows,
+                        desc="Matching kmers"
+                    ))
+                
+                # Process the results
+                result_dict = dict(results)
+                
+                # Create a Series with the correct indices and assign back to DataFrame
+                merged_df['Matching_Kmers'] = pd.Series(result_dict)
+            
+            logging.info("Successfully calculated Matching_Kmers")
+
+            print(merged_df.head(10))
+            
+            # Check for missing values before groupby
+            missing_genome = merged_df[genome_type].isna().sum()
+            missing_feature = merged_df['Feature'].isna().sum()
+            if missing_genome > 0 or missing_feature > 0:
+                logging.error(f"Found {missing_genome} missing {genome_type} values and {missing_feature} missing Feature values before groupby!")
+                merged_df = merged_df.dropna(subset=[genome_type, 'Feature'])
+                logging.info(f"After filtering NaN values: {len(merged_df)} rows remain")
+            logging.info("Checked for missing values before groupby")
+            
+            # Group by genome and feature
+            logging.info("Starting groupby operation...")
+            try:
+                kmer_counts = merged_df.groupby([genome_type, 'Feature']).agg(
+                    Total_Kmers=('kmer', 'nunique'),
+                    Matching_Kmers=('Matching_Kmers', 'sum')
+                ).reset_index()
+                logging.info(f"Groupby successful, resulting in {len(kmer_counts)} rows")
+                
+                # Apply threshold
+                logging.info("Applying threshold to kmer counts...")
+                kmer_counts['Kmer_Percentage'] = kmer_counts['Matching_Kmers'] / kmer_counts['Total_Kmers']
+                kmer_counts['Meets_Threshold'] = kmer_counts['Kmer_Percentage'] >= threshold if threshold <= 1 else kmer_counts['Matching_Kmers'] >= threshold
+                
+                # Create pivot table
+                logging.info("Creating pivot table...")
+                feature_presence = kmer_counts.pivot(index=genome_type, columns='Feature', values='Meets_Threshold').fillna(0).astype(int)
+                logging.info(f"Pivot successful, resulting in a table with {feature_presence.shape[0]} rows and {feature_presence.shape[1]} columns")
+                
+                # Ensure all features are included
+                all_features = feature_mapping['Feature'].unique()
+                for feature in all_features:
+                    if feature not in feature_presence.columns:
+                        feature_presence[feature] = 0
+                
+                feature_presence = feature_presence.reindex(columns=all_features, fill_value=0).reset_index()
+                logging.info("Successfully created feature presence table")
+                
+                return feature_presence
+            except Exception as e:
+                logging.error(f"Error in groupby/pivot operations: {e}")
+                import traceback
+                logging.error(traceback.format_exc())
+                return None
+        except Exception as e:
+            logging.error(f"Error calculating matching kmers: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            return None
     except Exception as e:
-        logging.error(f"Error reading input files: {e}")
+        logging.error(f"Error in map_features_with_kmers_and_sequences: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
         return None
 
-    # Merge cluster assignments with feature and genome mappings
-    genome_contig_mapping_df = pd.DataFrame(list(genome_contig_mapping.items()), columns=['contig_id', genome_type])
-    merged_df = best_hits_df.merge(feature_mapping, left_on='Cluster', right_on='Cluster_Label')
-    merged_df = merged_df.merge(genome_contig_mapping_df, left_on='Query', right_on='contig_id')
-
-    # Merge with kmer mapping
-    merged_df = merged_df.merge(kmer_mapping, left_on='Cluster', right_on='protein_family', how='left')
-
-    # Check kmer presence in sequences
-    def count_matching_kmers(row):
-        protein_id = row['Query']
-        sequence = protein_sequences.get(protein_id, "")
-        kmers = kmer_mapping[kmer_mapping['protein_family'] == row['Cluster']]['kmer'].tolist()
-        return sum(kmer in sequence for kmer in kmers)
-
-    merged_df['Matching_Kmers'] = merged_df.apply(count_matching_kmers, axis=1)
-
-    # Group by genome and feature to count total and matching kmers
-    kmer_counts = merged_df.groupby([genome_type, 'Feature']).agg(
-        Total_Kmers=('kmer', 'nunique'),
-        Matching_Kmers=('Matching_Kmers', 'sum')
-    ).reset_index()
-
-    # Apply threshold: check if the percentage of matching kmers meets the threshold
-    kmer_counts['Kmer_Percentage'] = kmer_counts['Matching_Kmers'] / kmer_counts['Total_Kmers']
-    kmer_counts['Meets_Threshold'] = kmer_counts['Kmer_Percentage'] >= threshold if threshold <= 1 else kmer_counts['Matching_Kmers'] >= threshold
-
-    # Pivot to create the feature presence table
-    feature_presence = kmer_counts.pivot(index=genome_type, columns='Feature', values='Meets_Threshold').fillna(0).astype(int)
-
-    # Ensure all features are included
-    all_features = feature_mapping['Feature'].unique()
-    for feature in all_features:
-        if feature not in feature_presence.columns:
-            feature_presence[feature] = 0
-
-    feature_presence = feature_presence.reindex(columns=all_features, fill_value=0).reset_index()
-
-    return feature_presence
-
-def run_kmer_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feature_map, filtered_kmers, aa_sequence_file, clusters_tsv, genome_type, genome_list=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, suffix='faa', threshold=0.5):
+def run_kmer_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feature_map, filtered_kmers, aa_sequence_file, clusters_tsv, genome_type, genome_list=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, suffix='faa', threshold=0.5, reuse_existing=True):
     """
     Process all genomes in the input directory at once, with optional list of genomes to process.
+    Can reuse existing output files to avoid redoing computation.
 
     Args:
         input_dir (str): Directory containing genome FASTA files.
@@ -234,6 +424,8 @@ def run_kmer_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir,
         tmp_dir (str): Temporary directory for intermediate files.
         output_dir (str): Directory to save results.
         feature_map (str): Path to the feature mapping CSV file.
+        filtered_kmers (str): Path to the filtered kmers CSV file.
+        aa_sequence_file (str): Path to the FASTA file containing amino acid sequences.
         clusters_tsv (str): Path to the clusters TSV file.
         genome_type (str): Type of genomes ('strain' or 'phage').
         genome_list (str or None): Path to a file with strain names or None for all.
@@ -242,43 +434,100 @@ def run_kmer_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir,
         min_seq_id (float): Minimum sequence identity for assignment.
         threads (int): Number of threads for MMseqs2.
         suffix (str): Suffix for FASTA files.
+        threshold (float): Threshold for kmer matching percentage.
+        reuse_existing (bool): Whether to reuse existing output files.
     """
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(tmp_dir, exist_ok=True)
+    
+    # Check if final output already exists
+    combined_feature_table_path = os.path.join(output_dir, f'{genome_type}_combined_feature_table.csv')
+    
+    if reuse_existing and os.path.exists(combined_feature_table_path):
+        logging.info(f"Found existing feature table: {combined_feature_table_path}. Reusing it.")
+        return
     
     # Load strains if a list is provided
     strains_to_process = None
     if genome_list and os.path.exists(genome_list):
         strains_to_process = load_strains(genome_list, genome_type)
+        if strains_to_process:
+            strains_to_process = [str(s) for s in strains_to_process]
+            logging.info(f"Loaded {len(strains_to_process)} strains from {genome_list}")
 
     # Use detect_and_modify_duplicates with a check for duplicates
     dir_to_use = detect_and_modify_duplicates(input_dir, output_dir, suffix, strains_to_process)
 
-    logging.info(f"Creating a combined MMseqs2 database for all {genome_type}s...")
+    # Check for existing combined database
     combined_db = os.path.join(tmp_dir, "combined_db")
-    fasta_files = create_mmseqs_database(dir_to_use, combined_db, suffix, 'directory', strains_to_process, threads)
+    combined_db_exists = all(os.path.exists(f"{combined_db}.{ext}") for ext in ["dbtype", "index"])
+    
+    if reuse_existing and combined_db_exists:
+        logging.info(f"Found existing combined database: {combined_db}. Reusing it.")
+        # We need to reconstruct fasta_files list to match what create_mmseqs_database would return
+        fasta_files = []
+        
+        logging.info(f"Searching for FASTA files with suffix '{suffix}' in directory {dir_to_use}")
+        for file_name in os.listdir(dir_to_use):
+            if file_name.endswith(suffix):
+                strain_name = file_name.replace(f".{suffix}", "")
+                if strains_to_process is None or strain_name in strains_to_process:
+                    fasta_files.append(os.path.join(dir_to_use, file_name))
+        
+        logging.info(f"Found {len(fasta_files)} FASTA files for processing")
+        
+        # Debug: print some of the FASTA files to verify paths
+        if fasta_files:
+            sample_files = fasta_files[:3] if len(fasta_files) > 3 else fasta_files
+            logging.info(f"Sample FASTA files: {sample_files}")
+    else:
+        logging.info(f"Creating a combined MMseqs2 database for all {genome_type}s...")
+        fasta_files = create_mmseqs_database(dir_to_use, combined_db, suffix, 'directory', strains_to_process, threads)
 
     if not fasta_files:
         logging.error("No FASTA files found for processing.")
         return
 
-    logging.info(f"Assigning {genome_type} sequences to existing clusters...")
-    result_db = os.path.join(tmp_dir, "result_db")
-    assign_sequences_to_clusters(combined_db, mmseqs_db, tmp_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv, clear_tmp=False)
+    # Check for existing best hits file
+    best_hits_tsv = os.path.join(output_dir, 'best_hits.tsv')
+    if not os.path.exists(best_hits_tsv):
+        best_hits_tsv = os.path.join(tmp_dir, 'best_hits.tsv')
+        
+    if reuse_existing and os.path.exists(best_hits_tsv):
+        logging.info(f"Found existing best hits file: {best_hits_tsv}. Reusing it.")
+    else:
+        logging.info(f"Assigning {genome_type} sequences to existing clusters...")
+        result_db = os.path.join(tmp_dir, "result_db")
+        best_hits_tsv = assign_sequences_to_clusters(
+            combined_db, mmseqs_db, output_dir, tmp_dir, 
+            coverage, min_seq_id, sensitivity, threads, 
+            clusters_tsv, clear_tmp=False
+        )
 
-    assigned_tsv = os.path.join(tmp_dir, 'assigned_clusters.tsv')
-    best_hits_tsv = os.path.join(tmp_dir, 'best_hits.tsv')
-    select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
-
-    genome_contig_mapping, _ = create_contig_to_genome_dict(fasta_files, 'directory')
+    # Create genome-to-contig mapping for feature assignment
+    logging.info("Creating contig to genome dictionary...")
+    try:
+        genome_contig_mapping, _ = create_contig_to_genome_dict(fasta_files, 'directory')
+        logging.info(f"Created genome contig mapping with {len(genome_contig_mapping)} entries")
+    except Exception as e:
+        logging.error(f"Error creating contig to genome dictionary: {str(e)}")
+        # Add more detailed error information
+        import traceback
+        logging.error(traceback.format_exc())
+        return
 
     logging.info(f"Generating feature tables for all {genome_type}s...")
-    feature_presence = map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_kmers, genome_contig_mapping, genome_type, aa_sequence_file, threshold)
+    feature_presence = map_features_with_kmers_and_sequences(
+        best_hits_tsv, feature_map, filtered_kmers, 
+        genome_contig_mapping, genome_type, 
+        fasta_files, aa_sequence_file, threshold, threads
+    )
 
     if feature_presence is not None:
-        combined_feature_table_path = os.path.join(output_dir, f'{genome_type}_combined_feature_table.csv')
         feature_presence.to_csv(combined_feature_table_path, index=False)
         logging.info(f"Combined feature table saved to {combined_feature_table_path}")
+    else:
+        logging.error(f"Failed to generate feature presence table for {genome_type}s.")
 
 def main():
     parser = ArgumentParser(description="Process all genomes and generate combined feature tables.")
@@ -297,7 +546,8 @@ def main():
     parser.add_argument('--suffix', type=str, default='faa', help="Suffix for FASTA files.")
     parser.add_argument('--filtered_kmers', type=str, required=True, help="Path to the filtered kmers CSV file.")
     parser.add_argument('--aa_sequence_file', type=str, required=True, help="Path to the FASTA file containing amino acid sequences.")
-    parser.add_argument('--threshold', type=float, default=0.5, help="Threshold for kmer matching percentage.")
+    parser.add_argument('--threshold', type=float, default=0.001, help="Threshold for kmer matching percentage.")
+    parser.add_argument('--reuse_existing', action='store_true', help="Reuse existing output files if available.")
 
     args = parser.parse_args()
 
@@ -317,7 +567,8 @@ def main():
         min_seq_id=args.min_seq_id,
         threads=args.threads,
         suffix=args.suffix,
-        threshold=args.threshold
+        threshold=args.threshold,
+        reuse_existing=args.reuse_existing
     )
     
 if __name__ == "__main__":

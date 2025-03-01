@@ -213,6 +213,12 @@ def run_protein_family_workflow(
             strain_tmp_dir = os.path.join(output_dir, "tmp", "strain")
             strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
 
+        elif os.path.exists(os.path.join(output_dir, "strain", "features", "feature_table.csv")):
+            logging.info("Using existing strain clustering results...")
+            strain_output_dir = os.path.join(output_dir, "strain")
+            strain_tmp_dir = os.path.join(output_dir, "tmp", "strain")
+            strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
+
         else:
             # run normal clustering into new_strain_dir
             strain_output_dir = os.path.join(output_dir, "strain")
@@ -255,6 +261,13 @@ def run_protein_family_workflow(
                 phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
 
                 logging.info("Using existing phage clustering results...")
+
+            elif os.path.exists(os.path.join(output_dir, "phage", "features", "feature_table.csv")):
+                logging.info("Using existing strain clustering results...")
+                phage_output_dir = os.path.join(output_dir, "phage")
+                phage_tmp_dir = os.path.join(output_dir, "tmp", "phage")
+                phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
+
             else:
                 phage_output_dir = os.path.join(output_dir, "phage")
                 phage_tmp_dir = os.path.join(output_dir, "tmp", "phage")

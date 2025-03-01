@@ -266,7 +266,7 @@ def compute_phage_weights(X_train_sample_ids, y_train, phage_column, method='log
         else:
             if method == 'log10':
                 # Log10 method (default, similar to log1p but using base 10)
-                weight_1 = np.log10(neg_count / (pos_count + smoothing)) + 1
+                weight_1 = max(1.0, np.log10(neg_count / (pos_count + smoothing)) + 1)
             elif method == 'inverse_frequency':
                 # Inverse frequency method
                 weight_1 = (row["total_count"] / (pos_count + smoothing))

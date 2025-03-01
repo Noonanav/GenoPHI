@@ -176,6 +176,8 @@ def output_predictive_feature_overview(predictive_proteins, feature_assignments_
 
     # Merge predictive_proteins with genome_protein_df on 'protein_ID'
     predictive_proteins = predictive_proteins.merge(genome_protein_df, on='protein_ID', how='inner')
+    predictive_proteins[strain_column] = predictive_proteins[strain_column].astype(str)
+    feature_assignments_df[strain_column] = feature_assignments_df[strain_column].astype(str)
 
     # Merge predictive_proteins with the feature assignments on 'Feature' and strain
     overview_df = feature_assignments_df.merge(predictive_proteins, on=[strain_column, 'Feature'], how='inner')
@@ -361,7 +363,7 @@ def parse_and_filter_aa_sequences(fasta_dir_or_file, filtered_proteins, output_d
         logging.info(f"Parsing {fasta_file}.")
         filtered_ids = []
         if input_type == 'directory':
-            genome_id = os.path.basename(fasta_file).split('.')[0]
+            genome_id = '.'.join(os.path.basename(fasta_file).split('.')[:-1])
             logging.info(f"Detected genome ID: {genome_id} from {fasta_file}")
         else:
             genome_id = None

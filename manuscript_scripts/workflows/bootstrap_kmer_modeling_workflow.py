@@ -39,8 +39,6 @@ def setup_logging(output_dir):
 
 # Main combined workflow
 def run_kmer_iteration(
-    input_strain,
-    input_phage,
     phenotype_matrix,
     output,
     num_features='none',
@@ -58,6 +56,7 @@ def run_kmer_iteration(
     use_dynamic_weights=False,
     weights_method='log10',
     use_clustering=True,
+    cluster_method='hdbscan',
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
@@ -137,6 +136,7 @@ def run_kmer_iteration(
         use_dynamic_weights=use_dynamic_weights,
         weights_method=weights_method,
         use_clustering=use_clustering,
+        cluster_method=cluster_method,
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         cluster_selection_epsilon=cluster_selection_epsilon
@@ -147,8 +147,6 @@ def run_kmer_iteration(
     logging.info(f"Combined workflow completed in {total_runtime:.2f} seconds.")
 
 def run_kmer_iterations(
-    input_strain,
-    input_phage,
     phenotype_matrix,
     modeling_dir,
     num_features='none',
@@ -166,6 +164,7 @@ def run_kmer_iterations(
     use_dynamic_weights=False,
     weights_method='log10',
     use_clustering=True,
+    cluster_method='hdbscan',
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
@@ -186,8 +185,6 @@ def run_kmer_iterations(
 
         try:
             run_kmer_iteration(
-                input_strain=input_strain,
-                input_phage=input_phage,
                 phenotype_matrix=phenotype_matrix,
                 output=iteration_dir,
                 num_features=num_features,
@@ -205,6 +202,7 @@ def run_kmer_iterations(
                 use_dynamic_weights=use_dynamic_weights,
                 weights_method=weights_method,
                 use_clustering=use_clustering,
+                cluster_method=cluster_method,
                 min_cluster_size=min_cluster_size,
                 min_samples=min_samples,
                 cluster_selection_epsilon=cluster_selection_epsilon,
@@ -227,8 +225,6 @@ def main():
     
     # Input data
     input_group = parser.add_argument_group('Input data')
-    input_group.add_argument('--input_strain', required=True, help='Input strain FASTA path.')
-    input_group.add_argument('--input_phage', required=True, help='Input phage FASTA path.')
     input_group.add_argument('--phenotype_matrix', required=True, help='Phenotype matrix file path.')
 
     # Optional input arguments
@@ -255,6 +251,7 @@ def main():
     fs_modeling_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic weights for feature selection and modeling.')
     fs_modeling_group.add_argument('--weights_method', default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method to calculate class weights (default: log10)')
     fs_modeling_group.add_argument('--use_clustering', action='store_true', help='Use clustering for feature selection.')
+    fs_modeling_group.add_argument('--cluster_method', default='hdbscan', choices=['hdbscan', 'hierarchical'], help='Clustering method for feature selection.')
     fs_modeling_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for HDBSCAN clustering (default: 5)')
     fs_modeling_group.add_argument('--min_samples', type=int, default=None, help='Min samples parameter for HDBSCAN')
     fs_modeling_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Cluster selection epsilon for HDBSCAN (default: 0.0)')
@@ -273,8 +270,6 @@ def main():
     args = parser.parse_args()
 
     run_kmer_iterations(
-        input_strain=args.input_strain,
-        input_phage=args.input_phage,
         phenotype_matrix=args.phenotype_matrix,
         modeling_dir=args.modeling_dir,
         num_features=args.num_features,
@@ -293,6 +288,7 @@ def main():
         use_dynamic_weights=args.use_dynamic_weights,
         weights_method=args.weights_method,
         use_clustering=args.use_clustering,
+        cluster_method=args.cluster_method,
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
