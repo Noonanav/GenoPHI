@@ -127,7 +127,7 @@ def calculate_median_predictions(all_predictions_df, single_strain_mode=False):
 
     return median_conf_df
 
-def run_prediction_workflow(input_dir, phage_feature_table_path, feature_table, model_dir, output_dir, strain_source='strain', phage_source='phage', threads=4):
+def run_prediction_workflow(input_dir, phage_feature_table_path, model_dir, output_dir, feature_table=None, strain_source='strain', phage_source='phage', threads=4):
     """
     Full workflow for predicting interactions using a combined strain feature table and optionally phage-specific features.
 

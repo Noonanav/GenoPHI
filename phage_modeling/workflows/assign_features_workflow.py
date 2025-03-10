@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 from phage_modeling.mmseqs2_clustering import create_mmseqs_database, load_strains, create_contig_to_genome_dict, select_best_hits
 
-def detect_and_modify_duplicates(input_dir, output_dir, suffix='faa', strains_to_process=None):
+def detect_and_modify_duplicates(input_dir, output_dir, suffix='faa', strains_to_process=None, duplicate_all=False):
     """
     Detect and resolve duplicate protein IDs by prefixing them with strain names.
 
@@ -21,6 +21,7 @@ def detect_and_modify_duplicates(input_dir, output_dir, suffix='faa', strains_to
         output_dir (str): Directory to save modified files.
         suffix (str): File suffix for FASTA files (default is 'faa').
         strains_to_process (list or None): List of strains to process; if None, processes all files.
+        duplicate_all (bool): Process all genomes even if duplicates are found.
 
     Returns:
         str: Path to the directory containing modified FASTA files if duplicates found, else the input directory.
@@ -34,7 +35,7 @@ def detect_and_modify_duplicates(input_dir, output_dir, suffix='faa', strains_to
     for file_name in os.listdir(input_dir):
         if file_name.endswith(suffix):
             strain_name = file_name.replace(f".{suffix}", "")
-            if strains_to_process and strain_name not in strains_to_process:
+            if not duplicate_all and strains_to_process and strain_name not in strains_to_process:
                 continue
             
             file_path = os.path.join(input_dir, file_name)
@@ -55,7 +56,7 @@ def detect_and_modify_duplicates(input_dir, output_dir, suffix='faa', strains_to
         for file_name in os.listdir(input_dir):
             if file_name.endswith(suffix):
                 strain_name = file_name.replace(f".{suffix}", "")
-                if strains_to_process and strain_name not in strains_to_process:
+                if not duplicate_all and strains_to_process and strain_name not in strains_to_process:
                     continue
                 
                 file_path = os.path.join(input_dir, file_name)
@@ -166,7 +167,7 @@ def map_features(best_hits_tsv, feature_map, genome_contig_mapping, genome_type)
 
     return feature_presence
 
-def run_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feature_map, clusters_tsv, genome_type, genome_list=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, suffix='faa'):
+def run_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feature_map, clusters_tsv, genome_type, genome_list=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, suffix='faa', duplicate_all=False):
     """
     Process all genomes in the input directory at once, with optional list of genomes to process.
 
@@ -184,6 +185,7 @@ def run_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feat
         min_seq_id (float): Minimum sequence identity for assignment.
         threads (int): Number of threads for MMseqs2.
         suffix (str): Suffix for FASTA files.
+        duplicate_all (bool): Process all genomes even if duplicates are found.
     """
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(tmp_dir, exist_ok=True)
@@ -194,7 +196,7 @@ def run_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir, feat
         strains_to_process = load_strains(genome_list, genome_type)
 
     # Use detect_and_modify_duplicates with a check for duplicates
-    dir_to_use = detect_and_modify_duplicates(input_dir, output_dir, suffix, strains_to_process)
+    dir_to_use = detect_and_modify_duplicates(input_dir, output_dir, suffix, strains_to_process, duplicate_all=duplicate_all)
 
     logging.info(f"Creating a combined MMseqs2 database for all {genome_type}s...")
     combined_db = os.path.join(tmp_dir, "combined_db")
@@ -237,6 +239,7 @@ def main():
     parser.add_argument('--min_seq_id', type=float, default=0.6, help="Minimum sequence identity for assignment.")
     parser.add_argument('--threads', type=int, default=4, help="Number of threads for MMseqs2.")
     parser.add_argument('--suffix', type=str, default='faa', help="Suffix for FASTA files.")
+    parser.add_argument('--duplicate_all', action='store_true', help="Process all genomes even if duplicates are found.")
 
     args = parser.parse_args()
 
@@ -253,7 +256,8 @@ def main():
         coverage=args.coverage,
         min_seq_id=args.min_seq_id,
         threads=args.threads,
-        suffix=args.suffix
+        suffix=args.suffix,
+        duplicate_all=args.duplicate_all
     )
 
 if __name__ == "__main__":
