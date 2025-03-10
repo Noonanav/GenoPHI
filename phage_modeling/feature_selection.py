@@ -75,7 +75,9 @@ def filter_data(
     use_clustering=False, 
     cluster_method='hdbscan',
     n_clusters=20,
-    check_feature_presence=False,  # New parameter
+    check_feature_presence=False,
+    ensure_balanced_split=True,  # New parameter to enable/disable this check
+    max_attempts=10,             # Maximum attempts to find a valid split
     **kwargs
 ):
     """
@@ -89,20 +91,52 @@ def filter_data(
         filter_type (str): 'none', 'strain', 'phage' to determine how the data should be filtered.
         random_state (int): Seed for reproducibility.
         sample_column (str): Column to use as the sample identifier (default: 'strain').
+        output_dir (str): Directory to store intermediate files.
         use_clustering (bool): Whether to apply clustering before splitting. Default is False.
         cluster_method (str): Clustering method to use when use_clustering=True. Options: 'hdbscan' or 'hierarchical'.
         n_clusters (int): Number of clusters for hierarchical clustering (default: 20).
         check_feature_presence (bool): If True, only include features present in both train and test sets.
+        ensure_balanced_split (bool): If True, ensures both train and test sets contain at least one positive sample.
+                                     Only applies when y contains only 0s and 1s.
+        max_attempts (int): Maximum number of attempts to find a valid split when ensure_balanced_split is True.
         **kwargs: Additional parameters for the clustering method.
 
     Returns:
         X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
     """
+    # Check if y is binary (contains only 0s and 1s)
+    is_binary = ((y == 0) | (y == 1)).all()
+    
+    # Only apply balanced split logic if y is binary and ensure_balanced_split is True
+    apply_balanced_split = ensure_balanced_split and is_binary
+    
+    if ensure_balanced_split and not is_binary:
+        logging.warning("ensure_balanced_split is set to True but y is not binary (0s and 1s only). Balanced split logic will be skipped.")
+    
     # ---- 1️⃣ Standard Random Split if No Clustering ----
     if not use_clustering or filter_type == 'none':
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=random_state
-        )
+        # If we need to ensure a valid split with positives in both sets
+        if apply_balanced_split:
+            for attempt in range(max_attempts):
+                # Use a more diverse seed generation strategy
+                current_seed = random_state * 1000 + attempt * 17
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=0.2, random_state=current_seed
+                )
+                
+                # Check if both train and test sets have at least one positive
+                if y_train.sum() > 0 and y_test.sum() > 0:
+                    logging.info(f"Found valid split on attempt {attempt+1} with seed {current_seed}")
+                    break
+                
+                if attempt == max_attempts - 1:
+                    logging.warning(f"Failed to find split with positives in both sets after {max_attempts} attempts. Using last attempt.")
+        else:
+            # Regular splitting without the check
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=random_state
+            )
+            
         test_idx = X_test.index
         train_idx = X_train.index
 
@@ -139,7 +173,8 @@ def filter_data(
     if feature_columns == []:
         logging.warning(f"No feature columns found for clustering. Falling back to group-based split.")
         use_clustering = False
-        return filter_data(X, y, full_feature_table, filter_type, random_state, sample_column, output_dir, use_clustering=False)
+        return filter_data(X, y, full_feature_table, filter_type, random_state, sample_column, output_dir, 
+                          use_clustering=False, ensure_balanced_split=ensure_balanced_split)
 
     # ---- 4️⃣ Apply Clustering Based on Selected Method ----
     if use_clustering:
@@ -187,9 +222,78 @@ def filter_data(
 
     # ---- 5️⃣ Perform Group-Based Splitting (Clustering or Normal) ----
     groups = full_feature_table[group_col].unique()
-    np.random.seed(random_state)
-    train_groups = np.random.choice(groups, size=int(0.8 * len(groups)), replace=False)
-    test_groups = np.setdiff1d(groups, train_groups)
+
+    if apply_balanced_split:
+        # Track which groups contain positive samples
+        group_positive = {}
+        for group in groups:
+            group_mask = full_feature_table[group_col] == group
+            group_indices = full_feature_table.index[group_mask]
+            if len(group_indices) > 0:  # Check if the group has any samples
+                group_y = y.loc[group_indices]
+                group_positive[group] = group_y.sum() > 0
+            else:
+                group_positive[group] = False
+        
+        # Find groups with positives
+        positive_groups = [g for g, has_pos in group_positive.items() if has_pos]
+        
+        if len(positive_groups) < 2:
+            logging.warning(f"Not enough groups with positive samples (found {len(positive_groups)}). Cannot ensure balanced split.")
+            # Fall back to random splitting
+            np.random.seed(random_state)
+            train_groups = np.random.choice(groups, size=int(0.8 * len(groups)), replace=False)
+            test_groups = np.setdiff1d(groups, train_groups)
+        else:
+            # Try multiple random seeds to find a valid split
+            found_valid_split = False
+            for attempt in range(max_attempts):
+                # Use a more diverse seed generation strategy
+                current_seed = random_state * 1000 + attempt * 17
+                np.random.seed(current_seed)
+                
+                # Ensure at least one positive group in train and test
+                np.random.shuffle(positive_groups)
+                pos_train_groups = positive_groups[:max(1, int(0.8 * len(positive_groups)))]
+                pos_test_groups = np.setdiff1d(positive_groups, pos_train_groups)
+                
+                # Fill remaining train groups with other groups
+                remaining_groups = np.setdiff1d(groups, positive_groups)
+                if len(remaining_groups) > 0:
+                    other_train_count = int(0.8 * len(groups)) - len(pos_train_groups)
+                    if other_train_count > 0:
+                        other_train_groups = np.random.choice(
+                            remaining_groups, 
+                            size=min(other_train_count, len(remaining_groups)), 
+                            replace=False
+                        )
+                        train_groups = np.concatenate([pos_train_groups, other_train_groups])
+                    else:
+                        train_groups = pos_train_groups
+                else:
+                    train_groups = pos_train_groups
+                
+                test_groups = np.setdiff1d(groups, train_groups)
+                
+                # Check that both sets will have positive samples
+                train_idx = full_feature_table[group_col].isin(train_groups)
+                test_idx = full_feature_table[group_col].isin(test_groups)
+                
+                train_pos = y[train_idx].sum() > 0
+                test_pos = y[test_idx].sum() > 0
+                
+                if train_pos and test_pos:
+                    found_valid_split = True
+                    logging.info(f"Found valid group-based split on attempt {attempt+1} with seed {current_seed}")
+                    break
+            
+            if not found_valid_split:
+                logging.warning(f"Failed to find a valid group-based split after {max_attempts} attempts. Using last attempt.")
+    else:
+        # Standard group-based split without ensuring positive samples
+        np.random.seed(random_state)
+        train_groups = np.random.choice(groups, size=int(0.8 * len(groups)), replace=False)
+        test_groups = np.setdiff1d(groups, train_groups)
 
     train_idx = full_feature_table[group_col].isin(train_groups)
     test_idx = full_feature_table[group_col].isin(test_groups)
@@ -198,6 +302,15 @@ def filter_data(
     X_test = X[test_idx]
     y_train = y[train_idx]
     y_test = y[test_idx]
+
+    # Print distribution information for debugging
+    if is_binary:
+        logging.info(f"Train set positive samples: {y_train.sum()} out of {len(y_train)}")
+        logging.info(f"Test set positive samples: {y_test.sum()} out of {len(y_test)}")
+    else:
+        logging.info(f"Train set size: {len(y_train)}, Test set size: {len(y_test)}")
+        logging.info(f"Train set distribution: min={y_train.min()}, mean={y_train.mean():.2f}, max={y_train.max()}")
+        logging.info(f"Test set distribution: min={y_test.min()}, mean={y_test.mean():.2f}, max={y_test.max()}")
 
     # ---- 6️⃣ Check Feature Presence if Requested ----
     if check_feature_presence:

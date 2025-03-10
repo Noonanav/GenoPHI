@@ -5,8 +5,9 @@ from phage_modeling.workflows.assign_features_workflow import run_assign_feature
 from phage_modeling.workflows.prediction_workflow import run_prediction_workflow
 
 def assign_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_map, tmp_dir, output_dir, model_dir, 
-                            phage_feature_table_path=None, genome_type='strain', genome_list=None, 
-                            sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, suffix='faa'):
+                            feature_table = None, phage_feature_table_path=None, genome_type='strain', 
+                            genome_list=None, sensitivity=7.5, coverage=0.8, min_seq_id=0.6, threads=4, 
+                            suffix='faa', duplicate_all=False):
     """
     Runs the full assignment and prediction workflow in sequence by calling functions from specific modules.
 
@@ -18,6 +19,7 @@ def assign_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_map, tmp
         tmp_dir (str): Temporary directory for intermediate files.
         output_dir (str): Directory to save results.
         model_dir (str): Directory containing trained models for prediction.
+        feature_table (str, optional): Path to the combined feature table for filtering prediction features.
         phage_feature_table_path (str, optional): Path to the phage feature table for prediction.
         genome_type (str): Type of genomes being processed ('strain' or 'phage').
         genome_list (str, optional): Path to a file with list of genomes to process.
@@ -26,6 +28,7 @@ def assign_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_map, tmp
         min_seq_id (float): Minimum sequence identity for assignment.
         threads (int): Number of threads for MMseqs2.
         suffix (str): Suffix for FASTA files.
+        duplicate_all (bool): Duplicate all genomes in the feature table for prediction.
     """
     logging.info("Starting assignment workflow...")
 
@@ -47,7 +50,8 @@ def assign_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_map, tmp
         coverage=coverage,
         min_seq_id=min_seq_id,
         threads=threads,
-        suffix=suffix
+        suffix=suffix,
+        duplicate_all=duplicate_all
     )
 
     # The output of assignment is the input for prediction - specifically, the feature table
@@ -68,7 +72,8 @@ def assign_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_map, tmp
         input_dir=assign_output_dir,  # The output of assign is now the input for predict
         phage_feature_table_path=phage_feature_table_path,
         model_dir=model_dir,
-        output_dir=predict_output_dir
+        output_dir=predict_output_dir,
+        feature_table=feature_table
     )
 
     logging.info("Combined assignment and prediction workflow completed successfully.")
@@ -82,6 +87,7 @@ def main():
     parser.add_argument('--tmp_dir', type=str, required=True, help="Temporary directory for intermediate files.")
     parser.add_argument('--output_dir', type=str, required=True, help="Directory to save results.")
     parser.add_argument('--model_dir', type=str, required=True, help="Directory with models for prediction.")
+    parser.add_argument('--feature_table', type=str, default=None, help="Path to the top modeling feature table.")
     parser.add_argument('--phage_feature_table', type=str, help="Path to the phage feature table. Optional for single-strain mode.")
     parser.add_argument('--genome_type', type=str, choices=['strain', 'phage'], default='strain', help="Type of genome to process.")
     parser.add_argument('--genome_list', type=str, help="Path to file with list of genomes to process.")
@@ -90,6 +96,7 @@ def main():
     parser.add_argument('--min_seq_id', type=float, default=0.6, help="Minimum sequence identity for assignment.")
     parser.add_argument('--threads', type=int, default=4, help="Number of threads for MMseqs2.")
     parser.add_argument('--suffix', type=str, default='faa', help="Suffix for FASTA files.")
+    parser.add_argument('--duplicate_all', action='store_true', help="Duplicate all genomes in the feature table for prediction.")
 
     args = parser.parse_args()
 
@@ -101,6 +108,7 @@ def main():
         tmp_dir=args.tmp_dir,
         output_dir=args.output_dir,
         model_dir=args.model_dir,
+        feature_table=args.feature_table,
         phage_feature_table_path=args.phage_feature_table,
         genome_type=args.genome_type,
         genome_list=args.genome_list,
@@ -108,7 +116,8 @@ def main():
         coverage=args.coverage,
         min_seq_id=args.min_seq_id,
         threads=args.threads,
-        suffix=args.suffix
+        suffix=args.suffix,
+        duplicate_all=args.duplicate_all
     )
 
 if __name__ == "__main__":
