@@ -144,7 +144,7 @@ def create_mmseqs_database(input_path, db_name, suffix, input_type, strains, thr
     fasta_files = []
     strains = [str(s) for s in strains] if strains else None
     if input_type == 'directory':
-        logging.info(f"Searching for FASTA files with suffix '{suffix}' in directory.")
+        logging.info(f"Searching for FASTA files with suffix '{suffix}' in {input_path}.")
         for fasta in os.listdir(input_path):
             if fasta.endswith(suffix):
                 strain_name = fasta.replace(f".{suffix}", "")

@@ -83,7 +83,7 @@ def perform_pairwise_mannwhitney(df, metric='MCC'):
     
     return pd.DataFrame(results)
 
-def process_dataset(path, output_dir, dataset_name):
+def process_dataset(path, output_dir, dataset_name, metric='MCC'):
     """Process a single dataset and save results."""
     if not os.path.exists(path):
         print(f'Model predictions file not found: {path}')
@@ -108,7 +108,7 @@ def process_dataset(path, output_dir, dataset_name):
     model_predictions_df_calcs['dataset'] = dataset_name
     
     # Calculate metrics to identify top cut_off for each model
-    print('Identifying top cut_off')
+    print('Identifying top cut_off based on MCC')
     metrics_list = []
     roc_list = []
     pr_list = []
@@ -137,7 +137,7 @@ def process_dataset(path, output_dir, dataset_name):
     metrics_df.to_csv(cutoff_metrics_path, index=False)
     print(f"Saved cut_off selection metrics to: {cutoff_metrics_path}")
     
-    # Identify best cut_off for each model
+    # Identify best cut_off for each model based on MCC
     top_model_cutoff = metrics_df.copy()
     top_model_cutoff['max_MCC'] = top_model_cutoff.groupby('model')['MCC'].transform('max')
     top_model_cutoff = top_model_cutoff[top_model_cutoff['MCC'] == top_model_cutoff['max_MCC']]
@@ -197,33 +197,33 @@ def process_dataset(path, output_dir, dataset_name):
             
             # Create plotting dataframe
             metrics_df_plotting = run_metrics_df.copy()
-            metrics_df_plotting['median_MCC'] = metrics_df_plotting.groupby(['cut_off', 'model'])['MCC'].transform('median')
+            metrics_df_plotting[f'median_{metric}'] = metrics_df_plotting.groupby(['cut_off', 'model'])[metric].transform('median')
             
             # Generate boxplot
             try:
-                mcc_plot = (
-                    ggplot(metrics_df_plotting, aes(x='reorder(model,median_MCC)', y='MCC')) +
+                metric_plot = (
+                    ggplot(metrics_df_plotting, aes(x=f'reorder(model,median_{metric})', y=metric)) +
                     geom_boxplot() +
                     geom_jitter() +
-                    labs(x='Feature Selection Method', y='MCC', title=f"{dataset_name} - MCC by Model") +
+                    labs(x='Feature Selection Method', y=metric, title=f"{dataset_name} - {metric} by Model") +
                     theme(figure_size=(8, 6), axis_text_x=element_text(rotation=90))
                 )
                 
                 # Save plot
-                plot_path = os.path.join(dataset_output_dir, f"{dataset_name.replace(' ', '_')}_mcc_boxplot.png")
-                mcc_plot.save(plot_path, dpi=300)
+                plot_path = os.path.join(dataset_output_dir, f"{dataset_name.replace(' ', '_')}_{metric.lower()}_boxplot.png")
+                metric_plot.save(plot_path, dpi=300)
                 print(f"Saved boxplot to: {plot_path}")
             except Exception as e:
                 print(f"Error generating boxplot for {dataset_name}: {e}")
             
             # Perform statistical tests
-            print('Performing Mann-Whitney tests')
+            print(f'Performing Mann-Whitney tests for {metric}')
             try:
-                mw_results = perform_pairwise_mannwhitney(run_metrics_df, 'MCC')
+                mw_results = perform_pairwise_mannwhitney(run_metrics_df, metric)
                 mw_results_sorted = mw_results.sort_values('p_value')
                 
                 # Save statistical test results
-                stats_path = os.path.join(dataset_output_dir, "mannwhitney_test_results.csv")
+                stats_path = os.path.join(dataset_output_dir, f"mannwhitney_test_results_{metric.lower()}.csv")
                 mw_results_sorted.to_csv(stats_path, index=False)
                 print(f"Saved statistical test results to: {stats_path}")
             except Exception as e:
@@ -242,9 +242,12 @@ def main():
     parser.add_argument('--output', '-o', required=True, help='Output directory for tables and figures')
     parser.add_argument('--datasets', '-d', nargs='+', help='Optional: Names for each dataset')
     parser.add_argument('--paths', '-p', nargs='+', help='Optional: Custom paths to prediction files')
+    parser.add_argument('--metric', '-m', default='MCC', choices=['AUC', 'Accuracy', 'Precision', 'Recall', 'F1', 'MCC'],
+                        help='Metric to use for statistical tests and visualizations (default: MCC)')
     
     args = parser.parse_args()
     output_dir = args.output
+    metric = args.metric
     
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
@@ -283,11 +286,12 @@ def main():
     for path, name in zip(prediction_paths, dataset_names):
         print(f"Dataset: {name}, Path: {path}")
     print(f"Results will be saved to: {output_dir}")
+    print(f"Using MCC for cut-off selection and {metric} for statistical tests and visualizations")
     
     # Process each dataset
     all_metrics = []
     for path, name in zip(prediction_paths, dataset_names):
-        metrics_df = process_dataset(path, output_dir, name)
+        metrics_df = process_dataset(path, output_dir, name, metric)
         if metrics_df is not None:
             all_metrics.append(metrics_df)
     
@@ -304,55 +308,55 @@ def main():
         try:
             # Boxplot comparing models across datasets
             plt.figure(figsize=(12, 8))
-            sns.boxplot(data=combined_metrics, x='model', y='MCC', hue='dataset')
-            plt.title('MCC by Model and Dataset')
+            sns.boxplot(data=combined_metrics, x='model', y=metric, hue='dataset')
+            plt.title(f'{metric} by Model and Dataset')
             plt.xlabel('Model')
-            plt.ylabel('MCC')
+            plt.ylabel(metric)
             plt.xticks(rotation=90)
             plt.tight_layout()
             
-            comparison_path = os.path.join(output_dir, "dataset_comparison_boxplot.png")
+            comparison_path = os.path.join(output_dir, f"dataset_comparison_boxplot_{metric.lower()}.png")
             plt.savefig(comparison_path, dpi=300)
             print(f"Saved dataset comparison boxplot to: {comparison_path}")
             plt.close()
             
-            # Create heatmap of median MCC values
-            pivot_data = combined_metrics.groupby(['dataset', 'model'])['MCC'].median().reset_index()
-            pivot_table = pivot_data.pivot(index='dataset', columns='model', values='MCC')
+            # Create heatmap of median metric values
+            pivot_data = combined_metrics.groupby(['dataset', 'model'])[metric].median().reset_index()
+            pivot_table = pivot_data.pivot(index='dataset', columns='model', values=metric)
             
             plt.figure(figsize=(12, 8))
             sns.heatmap(pivot_table, annot=True, cmap='viridis', fmt='.3f')
-            plt.title('Median MCC by Model and Dataset')
+            plt.title(f'Median {metric} by Model and Dataset')
             plt.tight_layout()
             
-            heatmap_path = os.path.join(output_dir, "median_mcc_heatmap.png")
+            heatmap_path = os.path.join(output_dir, f"median_{metric.lower()}_heatmap.png")
             plt.savefig(heatmap_path, dpi=300)
-            print(f"Saved median MCC heatmap to: {heatmap_path}")
+            print(f"Saved median {metric} heatmap to: {heatmap_path}")
             plt.close()
             
-            # Create line plot of median MCC by dataset
+            # Create line plot of median metric by dataset
             plt.figure(figsize=(12, 8))
             
             for dataset in combined_metrics['dataset'].unique():
                 dataset_data = combined_metrics[combined_metrics['dataset'] == dataset]
-                dataset_medians = dataset_data.groupby('model')['MCC'].median().reset_index()
-                dataset_medians = dataset_medians.sort_values('MCC')
+                dataset_medians = dataset_data.groupby('model')[metric].median().reset_index()
+                dataset_medians = dataset_medians.sort_values(metric)
                 
                 plt.plot(
                     dataset_medians['model'], 
-                    dataset_medians['MCC'], 
+                    dataset_medians[metric], 
                     marker='o', 
                     label=dataset
                 )
             
             plt.xlabel('Model')
-            plt.ylabel('Median MCC')
+            plt.ylabel(f'Median {metric}')
             plt.xticks(rotation=90)
             plt.legend(title='Dataset')
             plt.grid(True, linestyle='--', alpha=0.7)
             plt.tight_layout()
             
-            line_plot_path = os.path.join(output_dir, "dataset_model_comparison_line.png")
+            line_plot_path = os.path.join(output_dir, f"dataset_model_comparison_line_{metric.lower()}.png")
             plt.savefig(line_plot_path, dpi=300)
             print(f"Saved dataset comparison line plot to: {line_plot_path}")
             plt.close()
@@ -362,3 +366,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python /usr2/people/anoonan/BRaVE/machine_learning/phage_modeling/manuscript_scripts/results_analysis/model_algorithm_comparison.py --output algorithm_comparison/AUC --metric AUC
