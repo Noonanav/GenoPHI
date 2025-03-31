@@ -201,7 +201,8 @@ def run_protein_family_workflow(
             logging.info(f"Checking old strain dir exists: {os.path.exists(old_strain_dir)}")
             logging.info(f"Checking old strain features exists: {os.path.exists(os.path.join(old_strain_dir, 'features'))}")
 
-            os.symlink(old_strain_dir, strain_output_dir, target_is_directory=True)
+            if not os.path.exists(strain_output_dir):
+                os.symlink(old_strain_dir, strain_output_dir, target_is_directory=True)
 
             # Verify symlink was created and is valid
             logging.info(f"Checking symlink exists: {os.path.exists(strain_output_dir)}")
@@ -209,7 +210,8 @@ def run_protein_family_workflow(
 
             old_tmp_dir = os.path.abspath(os.path.join(clustering_dir, "tmp"))
             tmp_dir = os.path.abspath(os.path.join(output_dir, "tmp"))
-            os.symlink(old_tmp_dir, tmp_dir, target_is_directory=True)
+            if not os.path.exists(tmp_dir):
+                os.symlink(old_tmp_dir, tmp_dir, target_is_directory=True)
             strain_tmp_dir = os.path.join(output_dir, "tmp", "strain")
             strain_features_path = os.path.join(strain_output_dir, "features", "feature_table.csv")
 
@@ -256,7 +258,8 @@ def run_protein_family_workflow(
             if clustering_dir:
                 old_phage_dir = os.path.abspath(os.path.join(clustering_dir, "phage"))
                 phage_output_dir = os.path.abspath(os.path.join(output_dir, "phage"))
-                os.symlink(old_phage_dir, phage_output_dir, target_is_directory=True)
+                if not os.path.exists(phage_output_dir):
+                    os.symlink(old_phage_dir, phage_output_dir, target_is_directory=True)
                 phage_tmp_dir = os.path.join(output_dir, "tmp", "phage")
                 phage_features_path = os.path.join(phage_output_dir, "features", "feature_table.csv")
 
