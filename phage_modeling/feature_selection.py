@@ -78,7 +78,6 @@ def filter_data(
     check_feature_presence=False,
     ensure_balanced_split=True,  # New parameter to enable/disable this check
     max_attempts=10,             # Maximum attempts to find a valid split
-    filter_shared_features=True, # New parameter to enable filtering features shared by at least 2 clusters
     **kwargs
 ):
     """
@@ -100,7 +99,6 @@ def filter_data(
         ensure_balanced_split (bool): If True, ensures both train and test sets contain at least one positive sample.
                                      Only applies when y contains only 0s and 1s.
         max_attempts (int): Maximum number of attempts to find a valid split when ensure_balanced_split is True.
-        filter_shared_features (bool): If True, only keep features that are shared by at least 2 clusters.
         **kwargs: Additional parameters for the clustering method.
 
     Returns:
@@ -211,35 +209,6 @@ def filter_data(
         full_feature_table = full_feature_table.merge(
             filter_type_feature_table[[filter_type, "cluster"]], on=filter_type, how="left"
         )
-
-        # Filtering to features shared by at least 2 clusters
-        if filter_shared_features:
-            # Calculate feature presence in each cluster
-            feature_cluster_presence = {}
-            
-            for feature in feature_columns:
-                # Initialize a set to track which clusters have this feature
-                clusters_with_feature = set()
-                
-                # Group by cluster and check if the feature is present in each cluster
-                for cluster_id in np.unique(cluster_labels):
-                    cluster_mask = filter_type_feature_table["cluster"] == cluster_id
-                    if (filter_type_feature_table.loc[cluster_mask, feature] > 0).any():
-                        clusters_with_feature.add(cluster_id)
-                
-                # Store the count of clusters that have this feature
-                feature_cluster_presence[feature] = len(clusters_with_feature)
-            
-            # Filter features that are present in at least 2 clusters
-            shared_features = [f for f in feature_columns if feature_cluster_presence[f] >= 2]
-            
-            logging.info(f"Original features: {len(feature_columns)}")
-            logging.info(f"Features shared by at least 2 clusters: {len(shared_features)}")
-            logging.info(f"Features removed: {len(feature_columns) - len(shared_features)}")
-            
-            # Filter X to keep only shared features
-            feature_mask = X.columns.isin(shared_features)
-            X = X.loc[:, feature_mask]
 
         if output_dir:
             cluster_file = os.path.join(output_dir, f"{filter_type}_clusters.csv")
