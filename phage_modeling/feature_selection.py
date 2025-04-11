@@ -183,15 +183,27 @@ def filter_data(
             clusterer = HDBSCAN(**kwargs)
             cluster_labels = clusterer.fit_predict(filter_type_feature_table[feature_columns])
 
-            print(f"Number of clusters: {len(np.unique(cluster_labels))}")
+            print(f"Number of clusters: {len(np.unique(cluster_labels[cluster_labels != -1]))}")
             print(f"Number of noise points: {np.sum(cluster_labels == -1)}")
-
-            # Handle noise points (label -1) by giving them unique cluster IDs
-            max_cluster_label = cluster_labels.max()
-            for i, label in enumerate(cluster_labels):
-                if label == -1:  # If it's noise
-                    max_cluster_label += 1
-                    cluster_labels[i] = max_cluster_label
+            
+            # Count the number of clusters INCLUDING noise points labeled as -1
+            num_clusters = len(np.unique(cluster_labels))
+            
+            # If fewer than 5 clusters, switch to hierarchical clustering
+            if num_clusters < 5:
+                logging.info(f"HDBSCAN found only {num_clusters} clusters (including noise). Switching to hierarchical clustering with 5 clusters.")
+                cluster_method = 'hierarchical'
+                n_clusters = 5
+                clusterer = AgglomerativeClustering(n_clusters=n_clusters)
+                cluster_labels = clusterer.fit_predict(filter_type_feature_table[feature_columns])
+                print(f"Number of clusters after switching to hierarchical: {len(np.unique(cluster_labels))}")
+            else:
+                # Handle noise points (label -1) by giving them unique cluster IDs
+                max_cluster_label = cluster_labels.max()
+                for i, label in enumerate(cluster_labels):
+                    if label == -1:  # If it's noise
+                        max_cluster_label += 1
+                        cluster_labels[i] = max_cluster_label
 
         elif cluster_method == 'hierarchical':
             logging.info(f"Clustering using Hierarchical Clustering with {n_clusters} clusters")
