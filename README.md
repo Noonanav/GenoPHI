@@ -558,6 +558,12 @@ run_modeling_workflow(
 )
 ```
 
-## License
+## License and Copyright
 
-This project is licensed under the MIT License. See the LICENSE file for more details.
+This software is available under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+This software is also subject to Lawrence Berkeley National Laboratory copyright. 
+See the [COPYRIGHT](COPYRIGHT) file for details.
+
+This software was developed under funding from the U.S. Department of Energy and 
+the U.S. Government consequently retains certain rights.

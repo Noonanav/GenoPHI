@@ -39,6 +39,30 @@ def generate_full_feature_table(input_table, phage_feature_table=None, strain_so
 
     return prediction_feature_table
 
+def align_feature_names(model, target_features_testing):
+    """
+    Align features in the target_features_testing DataFrame with the features expected by the model.
+    Filters out extra features and raises an error if any required features are missing.
+    """
+    # Get expected feature names from the model
+    model_feature_names = model.feature_names_
+    
+    if model_feature_names is None:
+        logging.warning("Model doesn't have feature names. Cannot align features.")
+        return target_features_testing
+    
+    # Check if all expected features are present
+    missing_features = [f for f in model_feature_names if f not in target_features_testing.columns]
+    
+    if missing_features:
+        error_msg = f"Missing required features: {missing_features}"
+        logging.error(error_msg)
+        raise ValueError(error_msg)
+    
+    # If we got here, all required features exist, so filter to only the needed ones
+    logging.info(f"Filtering input data from {len(target_features_testing.columns)} features to {len(model_feature_names)} features required by the model")
+    return target_features_testing[model_feature_names]
+
 def load_model(model_file):
     """
     Loads a predictive model from a file (CatBoostClassifier).
@@ -93,24 +117,34 @@ def predict_interactions(model_dir, prediction_feature_table, single_strain_mode
             logging.error(f"Error loading model for run {subdir}: {e}")
             continue
 
-        target_features_testing = prediction_feature_table.drop(columns=['strain', 'phage'] if not single_strain_mode else ['strain'])
+        # Extract identifiers before dropping them
         target_features = prediction_feature_table[['strain', 'phage']] if not single_strain_mode else prediction_feature_table[['strain']]
+        
+        # Drop identifiers for prediction
+        target_features_testing = prediction_feature_table.drop(columns=['strain', 'phage'] if not single_strain_mode else ['strain'])
+        
+        try:
+            # Align features with what the model expects
+            aligned_features = align_feature_names(model, target_features_testing)
+            
+            # Using thread_count for prediction
+            predictions = model.predict(aligned_features, thread_count=threads)
+            y_proba = model.predict_proba(aligned_features, thread_count=threads)[:, 1]
 
-        # Using thread_count for prediction
-        predictions = model.predict(target_features_testing, thread_count=threads)
-        y_proba = model.predict_proba(target_features_testing, thread_count=threads)[:, 1]
+            predictions_df_temp = pd.DataFrame({
+                'Prediction': predictions,
+                'Confidence': y_proba,
+                'strain': target_features['strain'],
+                'run': subdir
+            })
 
-        predictions_df_temp = pd.DataFrame({
-            'Prediction': predictions,
-            'Confidence': y_proba,
-            'strain': target_features['strain'],
-            'run': subdir
-        })
+            if not single_strain_mode:
+                predictions_df_temp['phage'] = target_features['phage']
 
-        if not single_strain_mode:
-            predictions_df_temp['phage'] = target_features['phage']
-
-        all_predictions_df = pd.concat([all_predictions_df, predictions_df_temp], ignore_index=True)
+            all_predictions_df = pd.concat([all_predictions_df, predictions_df_temp], ignore_index=True)
+        except Exception as e:
+            logging.error(f"Error making predictions with model from run {subdir}: {e}")
+            continue
 
     return all_predictions_df
 

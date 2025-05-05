@@ -87,7 +87,7 @@ def run_full_workflow(
     input_phage,
     phenotype_matrix,
     output,
-    clustering_dir,
+    clustering_dir=None,
     min_seq_id=0.4,
     coverage=0.8,
     sensitivity=7.5,
@@ -274,17 +274,17 @@ def main():
 
     # Optional input arguments
     optional_input_group = parser.add_argument_group('Optional input arguments')
-    optional_input_group.add_argument('--suffix', default='faa', help='Suffix for input FASTA files.')
-    optional_input_group.add_argument('--strain_list', default='none', help='List of strains for filtering.')
-    optional_input_group.add_argument('--phage_list', default='none', help='List of phages for filtering.')
-    optional_input_group.add_argument('--strain_column', default='strain', help='Column name for strain data.')
-    optional_input_group.add_argument('--phage_column', default='phage', help='Column name for phage data.')
-    optional_input_group.add_argument('--source_strain', default='strain', help='Source prefix for strain.')
-    optional_input_group.add_argument('--source_phage', default='phage', help='Source prefix for phage.')
-    optional_input_group.add_argument('--sample_column', default='strain', help='Sample column name.')
-    optional_input_group.add_argument('--phenotype_column', default='interaction', help='Phenotype column name.')
+    optional_input_group.add_argument('--suffix', default='faa', help='Suffix for input FASTA files (default: faa).')
+    optional_input_group.add_argument('--strain_list', default='none', help='List of strains for filtering (default: none).')
+    optional_input_group.add_argument('--phage_list', default='none', help='List of phages for filtering (default: none).')
+    optional_input_group.add_argument('--strain_column', default='strain', help='Column name for strain data (default: strain).')
+    optional_input_group.add_argument('--phage_column', default='phage', help='Column name for phage data (default: phage).')
+    optional_input_group.add_argument('--source_strain', default='strain', help='Source prefix for strain (default: strain).')
+    optional_input_group.add_argument('--source_phage', default='phage', help='Source prefix for phage (default: phage).')
+    optional_input_group.add_argument('--sample_column', default='strain', help='Sample column name (default: strain).')
+    optional_input_group.add_argument('--phenotype_column', default='interaction', help='Phenotype column name (default: interaction).')
     optional_input_group.add_argument('--annotation_table_path', help='Path to annotation table.')
-    optional_input_group.add_argument('--protein_id_col', default='protein_ID', help='Protein ID column name.')
+    optional_input_group.add_argument('--protein_id_col', default='protein_ID', help='Protein ID column name (default: protein_ID).')
     optional_input_group.add_argument('--use_shap', action='store_true', help='Use SHAP values for analysis (default: False).')
     optional_input_group.add_argument('--clear_tmp', action='store_true', help='Clear temporary files after workflow.')
 
@@ -295,25 +295,25 @@ def main():
     # Clustering parameters
     clustering_group = parser.add_argument_group('Clustering')
     clustering_group.add_argument('--clustering_dir', help='Path to an existing strain clustering directory.')
-    clustering_group.add_argument('--min_seq_id', type=float, default=0.4, help='Minimum sequence identity for clustering.')
-    clustering_group.add_argument('--coverage', type=float, default=0.8, help='Minimum coverage for clustering.')
-    clustering_group.add_argument('--sensitivity', type=float, default=7.5, help='Sensitivity for clustering.')
+    clustering_group.add_argument('--min_seq_id', type=float, default=0.4, help='Minimum sequence identity for clustering (default: 0.4).')
+    clustering_group.add_argument('--coverage', type=float, default=0.8, help='Minimum coverage for clustering (default: 0.8).')
+    clustering_group.add_argument('--sensitivity', type=float, default=7.5, help='Sensitivity for clustering (default: 7.5).')
     clustering_group.add_argument('--compare', action='store_true', help='Compare clustering results.')
 
     # Feature selection and modeling parameters
     fs_modeling_group = parser.add_argument_group('Feature selection and modeling')
-    fs_modeling_group.add_argument('--filter_type', default='none', help='Filter type for feature selection.')
+    fs_modeling_group.add_argument('--filter_type', default='none', choices=['none', 'strain', 'phage'], help='Filter type for feature selection. (default: none)')
     fs_modeling_group.add_argument('--method', default='rfe', choices=['rfe', 'shap_rfe', 'select_k_best', 'chi_squared', 'lasso', 'shap'],
-                                   help='Feature selection method.')
-    fs_modeling_group.add_argument('--num_features', default='none', help='Number of features for selection.')
-    fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection runs.')
-    fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=20, help='Number of modeling runs.')
-    fs_modeling_group.add_argument('--task_type', default='classification', choices=['classification', 'regression'], help='Task type for modeling.')
-    fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features.')
+                                   help='Feature selection method (default: rfe)')
+    fs_modeling_group.add_argument('--num_features', default='none', help='Number of features for selection (default: none).')
+    fs_modeling_group.add_argument('--num_runs_fs', type=int, default=10, help='Number of feature selection runs (default: 10).')
+    fs_modeling_group.add_argument('--num_runs_modeling', type=int, default=20, help='Number of modeling runs (default: 20).')
+    fs_modeling_group.add_argument('--task_type', default='classification', choices=['classification', 'regression'], help='Task type for modeling (default: classification)')
+    fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features for modeling (default: none).')
     fs_modeling_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic weights for feature selection and modeling.')
     fs_modeling_group.add_argument('--weights_method', default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method to calculate class weights (default: log10)')
     fs_modeling_group.add_argument('--use_clustering', action='store_true', help='Use clustering for feature selection.')
-    fs_modeling_group.add_argument('--cluster_method', default='hdbscan', choices=['hdbscan', 'hierarchical'], help='Clustering method for feature selection.')
+    fs_modeling_group.add_argument('--cluster_method', default='hierarchical', choices=['hdbscan', 'hierarchical'], help='Clustering method for feature selection (default: hierarchical)')
     fs_modeling_group.add_argument('--n_clusters', type=int, default=20, help='Number of clusters for hierarchical clustering (default: 20)')
     fs_modeling_group.add_argument('--min_cluster_size', type=int, default=5, help='Minimum cluster size for HDBSCAN clustering (default: 5)')
     fs_modeling_group.add_argument('--min_samples', type=int, default=None, help='Min samples parameter for HDBSCAN')
@@ -322,9 +322,9 @@ def main():
 
     # General parameters
     general_group = parser.add_argument_group('General')
-    general_group.add_argument('--threads', type=int, default=4, help='Number of threads to use.')
-    general_group.add_argument('--max_ram', type=float, default=8, help='Maximum RAM usage in GB.')
-    general_group.add_argument('--k', type=int, default=5, help='K-mer length.')
+    general_group.add_argument('--threads', type=int, default=4, help='Number of threads to use (default: 4).')
+    general_group.add_argument('--max_ram', type=float, default=8, help='Maximum RAM usage in GB (default: 8).')
+    general_group.add_argument('--k', type=int, default=5, help='K-mer length (default: 5).')
     general_group.add_argument('--k_range', action='store_true', help='Use range of k-mer lengths.')
     general_group.add_argument('--remove_suffix', action='store_true', help='Remove suffix from genome names.')
     general_group.add_argument('--one_gene', action='store_true', help='Include features with one gene.')

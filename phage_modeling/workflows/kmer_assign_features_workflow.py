@@ -195,16 +195,11 @@ def process_row_for_kmer_matching(row_tuple, protein_sequences, kmer_mapping):
         if protein_id not in protein_sequences:
             print(f"Sequence not found for {protein_id}")
         
-        # Check if we have kmers for this cluster
-        cluster = str(row['Cluster'])
-        # Use the protein_family column for filtering
-        kmers_available = kmer_mapping[kmer_mapping['protein_family'] == cluster]['kmer'].tolist()
+        # Just check for the specific kmer in this row
+        kmer = row['kmer']
         
-        # If no kmers found for this cluster, return 0
-        if not kmers_available:
-            return (idx, 0)
-            
-        matching_count = sum(kmer in sequence for kmer in kmers_available)
+        # Check if this kmer exists in the sequence
+        matching_count = 1 if kmer in sequence else 0
         return (idx, matching_count)
     except Exception as e:
         print(f"Error in process_row: {e}")
@@ -248,12 +243,19 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
         # Print column information for debugging
         logging.info(f"Feature mapping columns: {feature_mapping.columns}")
         logging.info(f"Kmer mapping columns: {kmer_mapping.columns}")
+        logging.info(f"Kmer mapping unique features: {kmer_mapping['Feature'].nunique()}")
+        logging.info(f"Kmer mapping unique kmers: {kmer_mapping['kmer'].nunique()}")
+        logging.info(f"Kmer mapping:")
+        logging.info(kmer_mapping.head(10))
         logging.info(f"Best hits columns: {best_hits_df.columns}")
 
         # Convert data types explicitly
         best_hits_df['Cluster'] = best_hits_df['Cluster'].astype(str)
         feature_mapping['Cluster_Label'] = feature_mapping['Cluster_Label'].astype(str)
         kmer_mapping['protein_family'] = kmer_mapping['protein_family'].astype(str)
+
+        logging.info(f"Unique protein families in kmer mapping: {kmer_mapping['protein_family'].nunique()}")
+        logging.info(f"Unique kmers in kmer mapping: {kmer_mapping['kmer'].nunique()}")
 
         # First try to load sequences from fasta_files, then fall back to aa_sequence_file
         if fasta_files:
@@ -286,6 +288,8 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
             
         try:
             merged_df = merged_df.merge(kmer_mapping, left_on='Cluster', right_on='protein_family', how='inner')
+            logging.info(f"Unique protein families in merged_df: {merged_df['protein_family'].nunique()}")
+            logging.info(f"Unique kmers in merged_df: {merged_df['kmer'].nunique()}")
             # print('Merged data:')
             # print(merged_df.head(10))
             logging.info(f"Second merge successful: {len(merged_df)} rows")
@@ -356,6 +360,9 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
                 merged_df['Matching_Kmers'] = pd.Series(result_dict)
             
             logging.info("Successfully calculated Matching_Kmers")
+            logging.info(f"Unique protein families in merged_df: {merged_df['protein_family'].nunique()}")
+            logging.info(f"Unique features in merged_df: {merged_df['Feature'].nunique()}")
+            logging.info(f"Unique kmers in merged_df: {merged_df['kmer'].nunique()}")
 
             print(merged_df.head(10))
             
@@ -371,16 +378,44 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
             # Group by genome and feature
             logging.info("Starting groupby operation...")
             try:
-                kmer_counts = merged_df.groupby([genome_type, 'Feature']).agg(
+                kmer_counts = merged_df.groupby([genome_type, 'Feature', 'kmer']).agg(
+                    Matching_Kmers=('Matching_Kmers', 'sum')
+                ).reset_index()
+
+                logging.info(f"Counted identified kmers")
+                logging.info(f"kmer_counts:")
+                logging.info(kmer_counts.head(10))
+
+                kmer_counts['Matching_Kmers'] = [1 if x > 0 else 0 for x in kmer_counts['Matching_Kmers']]
+
+                logging.info(f"kmer_counts:")
+                logging.info(kmer_counts.head(10))
+
+
+                kmer_counts = kmer_counts.groupby([genome_type, 'Feature']).agg(
                     Total_Kmers=('kmer', 'nunique'),
                     Matching_Kmers=('Matching_Kmers', 'sum')
                 ).reset_index()
+                
                 logging.info(f"Groupby successful, resulting in {len(kmer_counts)} rows")
                 
                 # Apply threshold
                 logging.info("Applying threshold to kmer counts...")
                 kmer_counts['Kmer_Percentage'] = kmer_counts['Matching_Kmers'] / kmer_counts['Total_Kmers']
                 kmer_counts['Meets_Threshold'] = kmer_counts['Kmer_Percentage'] >= threshold if threshold <= 1 else kmer_counts['Matching_Kmers'] >= threshold
+
+                print('Kmer counts:')
+                print(kmer_counts.head(10))
+
+                # In map_features_with_kmers_and_sequences function, after calculating Kmer_Percentage
+                kmer_distribution = kmer_counts['Kmer_Percentage'].describe()
+                logging.info(f"Kmer percentage distribution: {kmer_distribution}")
+
+                # Also log counts of features meeting each threshold
+                for test_threshold in [0.001, 0.01, 0.1, 0.2, 0.5, 0.8]:
+                    meets_count = (kmer_counts['Kmer_Percentage'] >= test_threshold).sum()
+                    total_count = len(kmer_counts)
+                    logging.info(f"Threshold {test_threshold}: {meets_count}/{total_count} features meet threshold ({meets_count/total_count:.2%})")
                 
                 # Create pivot table
                 logging.info("Creating pivot table...")
@@ -438,7 +473,8 @@ def run_kmer_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir,
         reuse_existing (bool): Whether to reuse existing output files.
     """
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(tmp_dir, exist_ok=True)
+    if not os.path.islink(tmp_dir):
+        os.makedirs(tmp_dir, exist_ok=True)
     
     # Check if final output already exists
     combined_feature_table_path = os.path.join(output_dir, f'{genome_type}_combined_feature_table.csv')
