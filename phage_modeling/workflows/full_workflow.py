@@ -140,49 +140,54 @@ def run_full_workflow(
     metrics = {}
     
     # Step 1: Run Full Workflow
-    logging.info("Running full protein family workflow...")
-    _, metrics['protein_family'] = monitor_resources(start_time, run_protein_family_workflow,
-                                                     input_path_strain=input_strain,
-                                                     input_path_phage=input_phage,
-                                                     phenotype_matrix=phenotype_matrix,
-                                                     output_dir=output,
-                                                     clustering_dir=clustering_dir,
-                                                     min_seq_id=min_seq_id,
-                                                     coverage=coverage,
-                                                     sensitivity=sensitivity,
-                                                     suffix=suffix,
-                                                     strain_list=strain_list,
-                                                     phage_list=phage_list,
-                                                     strain_column=strain_column,
-                                                     phage_column=phage_column,
-                                                     source_strain=source_strain,
-                                                     source_phage=source_phage,
-                                                     compare=compare,
-                                                     num_features=num_features,
-                                                     filter_type=filter_type,
-                                                     num_runs_fs=num_runs_fs,
-                                                     num_runs_modeling=num_runs_modeling,
-                                                     sample_column=sample_column,
-                                                     phenotype_column=phenotype_column,
-                                                     method=method,
-                                                     annotation_table_path=annotation_table_path,
-                                                     protein_id_col=protein_id_col,
-                                                     task_type=task_type,
-                                                     max_features=max_features,
-                                                     max_ram=max_ram,
-                                                     threads=threads,
-                                                     use_shap=use_shap,
-                                                     use_dynamic_weights=use_dynamic_weights,
-                                                     weights_method=weights_method,
-                                                     use_clustering=use_clustering,
-                                                     cluster_method=cluster_method,
-                                                     n_clusters=n_clusters,
-                                                     min_cluster_size=min_cluster_size,
-                                                     min_samples=min_samples,
-                                                     cluster_selection_epsilon=cluster_selection_epsilon,
-                                                     check_feature_presence=check_feature_presence,
-                                                     clear_tmp=clear_tmp)
-    write_section_report("Protein_Family_Workflow", metrics['protein_family'], output)
+    metrics_file = os.path.join(output, 'modeling_results', 'model_performance', 'model_performance_metrics.csv')
+
+    if not os.path.exists(metrics_file):
+        logging.info("Running full protein family workflow...")
+        _, metrics['protein_family'] = monitor_resources(start_time, run_protein_family_workflow,
+                                                        input_path_strain=input_strain,
+                                                        input_path_phage=input_phage,
+                                                        phenotype_matrix=phenotype_matrix,
+                                                        output_dir=output,
+                                                        clustering_dir=clustering_dir,
+                                                        min_seq_id=min_seq_id,
+                                                        coverage=coverage,
+                                                        sensitivity=sensitivity,
+                                                        suffix=suffix,
+                                                        strain_list=strain_list,
+                                                        phage_list=phage_list,
+                                                        strain_column=strain_column,
+                                                        phage_column=phage_column,
+                                                        source_strain=source_strain,
+                                                        source_phage=source_phage,
+                                                        compare=compare,
+                                                        num_features=num_features,
+                                                        filter_type=filter_type,
+                                                        num_runs_fs=num_runs_fs,
+                                                        num_runs_modeling=num_runs_modeling,
+                                                        sample_column=sample_column,
+                                                        phenotype_column=phenotype_column,
+                                                        method=method,
+                                                        annotation_table_path=annotation_table_path,
+                                                        protein_id_col=protein_id_col,
+                                                        task_type=task_type,
+                                                        max_features=max_features,
+                                                        max_ram=max_ram,
+                                                        threads=threads,
+                                                        use_shap=use_shap,
+                                                        use_dynamic_weights=use_dynamic_weights,
+                                                        weights_method=weights_method,
+                                                        use_clustering=use_clustering,
+                                                        cluster_method=cluster_method,
+                                                        n_clusters=n_clusters,
+                                                        min_cluster_size=min_cluster_size,
+                                                        min_samples=min_samples,
+                                                        cluster_selection_epsilon=cluster_selection_epsilon,
+                                                        check_feature_presence=check_feature_presence,
+                                                        clear_tmp=clear_tmp)
+        write_section_report("Protein_Family_Workflow", metrics['protein_family'], output)
+    else:
+        logging.info(f"Found existing metrics file: {metrics_file}. Skipping protein family workflow.")
 
     # Step 2: Run K-mer Workflow
     logging.info("Running k-mer feature table workflow...")
@@ -190,7 +195,6 @@ def run_full_workflow(
     os.makedirs(kmer_output_dir, exist_ok=True)
 
     # Hardcoded paths derived from protein family workflow outputs
-    metrics_file = os.path.join(output, 'modeling_results', 'model_performance', 'model_performance_metrics.csv')
     performance_df = pd.read_csv(metrics_file)
     top_cutoff = performance_df.iloc[0]['cut_off'].split('_')[-1]
     feature_file_path = os.path.join(output, 'feature_selection', 'filtered_feature_tables', f'select_feature_table_cutoff_{top_cutoff}.csv')

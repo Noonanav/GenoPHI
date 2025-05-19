@@ -78,16 +78,39 @@ def kmer_analysis_workflow(
     # Step 2: Get predictive kmers
     logging.info("Extracting predictive kmers...")
     filtered_kmers = get_predictive_kmers(feature_file_path, feature2cluster_path, feature_type)
+    
+    # Check if any predictive kmers were found
+    if filtered_kmers.empty:
+        logging.warning(f"No predictive {feature_type} kmers found. Saving empty kmers file and exiting workflow.")
+        # Create an empty file to indicate the workflow was run but no kmers were found
+        filtered_kmers.to_csv(os.path.join(type_output_dir, 'filtered_kmers.csv'), index=False)
+        return
+    
     filtered_kmers.to_csv(os.path.join(type_output_dir, 'filtered_kmers.csv'), index=False)
     logging.info("Predictive kmers extracted and saved.")
 
     # Step 3: Merge with protein families
     logging.info("Merging kmers with protein families...")
     protein_families_df = merge_kmers_with_families(protein_families_file, aa_sequences_df, feature_type)
+    
+    # Check if any protein families were found
+    if protein_families_df.empty:
+        logging.warning(f"No protein families found for {feature_type} kmers. Exiting workflow.")
+        protein_families_df.to_csv(os.path.join(type_output_dir, 'protein_families_df.csv'), index=False)
+        return
+    
     protein_families_df.to_csv(os.path.join(type_output_dir, 'protein_families_df.csv'), index=False)
     logging.info("Protein families merged and saved.")
 
     kmer_full_df = filtered_kmers.merge(protein_families_df, on='protein_family', how='inner')
+    
+    # Check if kmer_full_df is empty after merging
+    if kmer_full_df.empty:
+        logging.warning(f"No matching kmers found after merging with protein families. Exiting workflow.")
+        # Save an empty FASTA file as a placeholder
+        with open(os.path.join(type_output_dir, f'{feature_type}_protein_sequences.faa'), 'w') as f:
+            f.write('')
+        return
 
     logging.info("Saving proteins sequences as fasta file...")
     protein_seqs_df = kmer_full_df[['protein_ID', 'sequence']].drop_duplicates()

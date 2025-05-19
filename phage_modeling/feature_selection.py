@@ -206,8 +206,16 @@ def filter_data(
                         cluster_labels[i] = max_cluster_label
 
         elif cluster_method == 'hierarchical':
-            logging.info(f"Clustering using Hierarchical Clustering with {n_clusters} clusters")
-            clusterer = AgglomerativeClustering(n_clusters=n_clusters)
+            logging.info(f"Clustering using Hierarchical Clustering")
+            
+            # Ensure n_clusters doesn't exceed the number of samples
+            num_samples = len(filter_type_feature_table)
+            adjusted_n_clusters = min(n_clusters, num_samples - 1)
+            
+            if adjusted_n_clusters != n_clusters:
+                logging.warning(f"Reduced number of clusters from {n_clusters} to {adjusted_n_clusters} because we only have {num_samples} samples")
+            
+            clusterer = AgglomerativeClustering(n_clusters=adjusted_n_clusters)
             cluster_labels = clusterer.fit_predict(filter_type_feature_table[feature_columns])
             
             print(f"Number of clusters: {len(np.unique(cluster_labels))}")

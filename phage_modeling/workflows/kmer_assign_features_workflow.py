@@ -248,6 +248,7 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
         logging.info(f"Kmer mapping:")
         logging.info(kmer_mapping.head(10))
         logging.info(f"Best hits columns: {best_hits_df.columns}")
+        logging.info(kmer_mapping.head(10))
 
         # Convert data types explicitly
         best_hits_df['Cluster'] = best_hits_df['Cluster'].astype(str)
@@ -378,7 +379,7 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
             # Group by genome and feature
             logging.info("Starting groupby operation...")
             try:
-                kmer_counts = merged_df.groupby([genome_type, 'Feature', 'kmer']).agg(
+                kmer_counts = merged_df.groupby([genome_type, 'Feature', 'cluster', 'kmer']).agg(
                     Matching_Kmers=('Matching_Kmers', 'sum')
                 ).reset_index()
 
@@ -393,7 +394,7 @@ def map_features_with_kmers_and_sequences(best_hits_tsv, feature_map, filtered_k
 
 
                 kmer_counts = kmer_counts.groupby([genome_type, 'Feature']).agg(
-                    Total_Kmers=('kmer', 'nunique'),
+                    Total_Kmers=('cluster', 'nunique'),
                     Matching_Kmers=('Matching_Kmers', 'sum')
                 ).reset_index()
                 
@@ -500,6 +501,9 @@ def run_kmer_assign_features_workflow(input_dir, mmseqs_db, tmp_dir, output_dir,
     
     if reuse_existing and combined_db_exists:
         logging.info(f"Found existing combined database: {combined_db}. Reusing it.")
+        if os.path.exists(os.path.join(dir_to_use, 'strain')):
+            dir_to_use = os.path.join(dir_to_use, 'strain')
+            logging.info(f"Using modified FASTA files from {dir_to_use} due to duplicate protein IDs.")
         # We need to reconstruct fasta_files list to match what create_mmseqs_database would return
         fasta_files = []
         

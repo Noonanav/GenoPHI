@@ -665,6 +665,9 @@ def merge_feature_tables(strain_features, phenotype_matrix, output_dir, sample_c
         strain_features_df[sample_column] = strain_features_df[sample_column].str.split('.').str[0]
     strain_features_df[sample_column] = strain_features_df[sample_column].astype(str)
     
+    # Check if strain features table has actual features
+    strain_has_features = len(strain_features_df.columns) > 1 and len(strain_features_df) > 0
+    
     # Load phenotype matrix
     phenotype_matrix_df = read_csv_with_check(phenotype_matrix)
     phenotype_matrix_df[sample_column] = phenotype_matrix_df[sample_column].astype(str)
@@ -672,6 +675,9 @@ def merge_feature_tables(strain_features, phenotype_matrix, output_dir, sample_c
     if phage_features:
         # If phage features are provided, merge strain, phage, and phenotype matrices
         phage_features_df = read_csv_with_check(phage_features, rename_col='Genome', new_col='phage')
+        
+        # Check if phage features table has actual features
+        phage_has_features = len(phage_features_df.columns) > 1 and len(phage_features_df) > 0
 
         if sample_column not in phenotype_matrix_df.columns:
             logging.error(f'The phenotype matrix does not contain the "{sample_column}" column.')
@@ -682,8 +688,17 @@ def merge_feature_tables(strain_features, phenotype_matrix, output_dir, sample_c
             raise KeyError('Missing "phage" column in phenotype matrix.')
 
         try:
-            feature_table = phenotype_matrix_df.merge(strain_features_df, on=sample_column, how='inner')
-            feature_table = feature_table.merge(phage_features_df, on='phage', how='inner')
+            # Start with phenotype matrix
+            feature_table = phenotype_matrix_df
+            
+            # Only merge strain features if they exist
+            if strain_has_features:
+                feature_table = feature_table.merge(strain_features_df, on=sample_column, how='inner')
+            
+            # Only merge phage features if they exist
+            if phage_has_features:
+                feature_table = feature_table.merge(phage_features_df, on='phage', how='inner')
+                
         except Exception as e:
             logging.error(f'Error merging strain and phage tables with phenotype matrix: {e}')
             raise
@@ -694,7 +709,13 @@ def merge_feature_tables(strain_features, phenotype_matrix, output_dir, sample_c
             raise KeyError(f'Missing "{sample_column}" column in phenotype matrix.')
 
         try:
-            feature_table = phenotype_matrix_df.merge(strain_features_df, on=sample_column, how='inner')
+            # Start with phenotype matrix
+            feature_table = phenotype_matrix_df
+            
+            # Only merge strain features if they exist
+            if strain_has_features:
+                feature_table = feature_table.merge(strain_features_df, on=sample_column, how='inner')
+                
         except Exception as e:
             logging.error(f'Error merging strain features with phenotype matrix: {e}')
             raise

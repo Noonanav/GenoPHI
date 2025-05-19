@@ -57,13 +57,16 @@ def get_predictive_kmers(feature_file_path, feature2cluster_path, feature_type):
     select_features = [col for col in feature_df.columns if feature_prefix in col]
     print(select_features)
 
+    # Return empty DataFrame with the expected structure if no features found
+    if not select_features:
+        logging.warning(f"No predictive {feature_type} features found in the feature file.")
+        return pd.DataFrame(columns=['cluster', 'kmer', 'protein_family', 'Feature'])
+
     feature2cluster_df = pd.read_csv(feature2cluster_path)
     feature2cluster_df.rename(columns={'Cluster_Label': 'cluster'}, inplace=True)
     filtered_kmers = feature2cluster_df[feature2cluster_df['Feature'].isin(select_features)]
     filtered_kmers['kmer'] = filtered_kmers['cluster'].str.split('_').str[-1]
     filtered_kmers['protein_family'] = filtered_kmers['cluster'].str.split('_').str[:-1].str.join('_')
-    # filtered_kmers['protein_ID'] = ['_'.join(x.split('_')[:-1]) for x in filtered_kmers['cluster']]
-    # print(filtered_kmers.head())
     
     logging.info(f"Filtered down to {len(filtered_kmers)} predictive k-mers.")
     return filtered_kmers

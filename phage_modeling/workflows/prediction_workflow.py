@@ -7,7 +7,7 @@ import numpy as np
 import logging
 
 def generate_full_feature_table(input_table, phage_feature_table=None, strain_source='strain', phage_source='phage', output_dir=None):
-    strain_features = ['strain'] + [col for col in input_table.columns if col not in ['strain', 'phage']]
+    strain_features = [strain_source] + [col for col in input_table.columns if col not in [strain_source, phage_source]]
 
     if phage_feature_table is None:
         logging.info("No phage feature table provided. Using strain features only.")
@@ -78,12 +78,7 @@ def load_model(model_file):
         raise ValueError(f"Unsupported model file format: {model_file}")
     return model
 
-from catboost import CatBoostClassifier
-import pandas as pd
-import os
-import logging
-
-def predict_interactions(model_dir, prediction_feature_table, single_strain_mode=False, threads=4):
+def predict_interactions(model_dir, prediction_feature_table, single_strain_mode=False, strain_source='strain', phage_source='phage', threads=4):
     """
     Runs predictions using all models in the model_dir and returns predictions with confidence scores.
     Uses multiple threads for prediction to speed up computations.
@@ -97,7 +92,7 @@ def predict_interactions(model_dir, prediction_feature_table, single_strain_mode
     Returns:
         pd.DataFrame: DataFrame containing all predictions with confidence scores.
     """
-    all_predictions_df = pd.DataFrame(columns=['Prediction', 'strain', 'phage', 'run', 'Confidence'] if not single_strain_mode else ['Prediction', 'strain', 'run', 'Confidence'])
+    all_predictions_df = pd.DataFrame(columns=['Prediction', strain_source, phage_source, 'run', 'Confidence'] if not single_strain_mode else ['Prediction', strain_source, 'run', 'Confidence'])
 
     subdirs = [subdir for subdir in os.listdir(model_dir) if subdir.startswith('run')]
 
@@ -118,10 +113,10 @@ def predict_interactions(model_dir, prediction_feature_table, single_strain_mode
             continue
 
         # Extract identifiers before dropping them
-        target_features = prediction_feature_table[['strain', 'phage']] if not single_strain_mode else prediction_feature_table[['strain']]
+        target_features = prediction_feature_table[[strain_source, phage_source]] if not single_strain_mode else prediction_feature_table[[strain_source]]
         
         # Drop identifiers for prediction
-        target_features_testing = prediction_feature_table.drop(columns=['strain', 'phage'] if not single_strain_mode else ['strain'])
+        target_features_testing = prediction_feature_table.drop(columns=[strain_source, phage_source] if not single_strain_mode else [strain_source])
         
         try:
             # Align features with what the model expects
@@ -134,12 +129,12 @@ def predict_interactions(model_dir, prediction_feature_table, single_strain_mode
             predictions_df_temp = pd.DataFrame({
                 'Prediction': predictions,
                 'Confidence': y_proba,
-                'strain': target_features['strain'],
+                strain_source: target_features[strain_source],
                 'run': subdir
             })
 
             if not single_strain_mode:
-                predictions_df_temp['phage'] = target_features['phage']
+                predictions_df_temp[phage_source] = target_features[phage_source]
 
             all_predictions_df = pd.concat([all_predictions_df, predictions_df_temp], ignore_index=True)
         except Exception as e:
@@ -148,11 +143,11 @@ def predict_interactions(model_dir, prediction_feature_table, single_strain_mode
 
     return all_predictions_df
 
-def calculate_median_predictions(all_predictions_df, single_strain_mode=False):
+def calculate_median_predictions(all_predictions_df, single_strain_mode=False, strain_source='strain', phage_source='phage'):
     """
     Calculate median confidence score and generate final predictions based on the average confidence.
     """
-    group_cols = ['strain', 'phage'] if not single_strain_mode else ['strain']
+    group_cols = [strain_source, phage_source] if not single_strain_mode else [strain_source]
     median_conf_df = all_predictions_df.groupby(group_cols).agg({
         'Confidence': 'median'
     }).reset_index()
@@ -190,7 +185,13 @@ def run_prediction_workflow(input_dir, phage_feature_table_path, model_dir, outp
     single_strain_mode = phage_feature_table is None
 
     print('Generating full feature table...')
-    prediction_feature_table = generate_full_feature_table(input_table, phage_feature_table, strain_source, phage_source, output_dir=output_dir)
+    prediction_feature_table = generate_full_feature_table(
+        input_table, 
+        phage_feature_table, 
+        strain_source, 
+        phage_source, 
+        output_dir=output_dir
+    )
 
     if feature_table:
         logging.info(f'Loading feature table from {feature_table}')
@@ -202,12 +203,25 @@ def run_prediction_workflow(input_dir, phage_feature_table_path, model_dir, outp
         prediction_feature_table = prediction_feature_table[select_columns]
 
     logging.info('Running predictions...')
-    all_predictions_df = predict_interactions(model_dir, prediction_feature_table, single_strain_mode, threads)
+    all_predictions_df = predict_interactions(
+        model_dir, 
+        prediction_feature_table, 
+        single_strain_mode=single_strain_mode, 
+        strain_source=strain_source,
+        phage_source=phage_source,
+        threads=threads
+    )
 
     all_predictions_df.to_csv(os.path.join(output_dir, f'{strain_source}_all_predictions.csv'), index=False)
 
     logging.info('Calculating median predictions...')
-    median_predictions_df = calculate_median_predictions(all_predictions_df, single_strain_mode)
+    median_predictions_df = calculate_median_predictions(
+        all_predictions_df, 
+        single_strain_mode,
+        strain_source=strain_source,
+        phage_source=phage_source
+    )
+    
     median_predictions_df.to_csv(os.path.join(output_dir, f'{strain_source}_median_predictions.csv'), index=False)
 
     logging.info('Workflow completed successfully.')

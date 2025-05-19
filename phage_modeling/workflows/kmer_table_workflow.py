@@ -300,6 +300,33 @@ def load_genome_list(file_path, genome_column):
         logging.warning(f"Genome list file {file_path} not found or not provided.")
         return None
 
+def is_fasta_empty(fasta_file):
+    """
+    Checks if a FASTA file is empty or contains no valid sequences.
+    
+    Args:
+        fasta_file (str): Path to the FASTA file.
+        
+    Returns:
+        bool: True if the file is empty or contains no valid sequences, False otherwise.
+    """
+    if not os.path.exists(fasta_file):
+        logging.error(f"FASTA file not found: {fasta_file}")
+        return True
+        
+    try:
+        with open(fasta_file, 'r') as f:
+            for record in SeqIO.parse(f, 'fasta'):
+                # If we find at least one valid sequence, the file is not empty
+                return False
+    except Exception as e:
+        logging.error(f"Error reading FASTA file {fasta_file}: {e}")
+        return True
+        
+    # If we get here, no valid sequences were found
+    logging.warning(f"No valid sequences found in FASTA file: {fasta_file}")
+    return True
+
 def run_kmer_table_workflow(
     strain_fasta, 
     protein_csv, 
@@ -409,59 +436,82 @@ def run_kmer_table_workflow(
         cpu_monitor_thread = Thread(target=monitor_cpu)
         cpu_monitor_thread.start()
 
-        # Step 1: Construct strain feature table
-        strain_feature_table_path = construct_feature_table(strain_fasta, protein_csv, k, id_col, one_gene,
-                                                            feature_output_dir, "strain", k_range, ignore_families=ignore_families)
-        strain_feature_table = pd.read_csv(strain_feature_table_path)
-        input_genomes += strain_feature_table[id_col].nunique()
+        # Process strain FASTA if not empty
+        strain_empty = False
+        if is_fasta_empty(strain_fasta):
+            logging.warning(f"Strain FASTA file is empty: {strain_fasta}")
+            strain_empty = True
 
-        # Step 2: Get genome assignments for strain
-        genome_assignments = get_genome_assignments_tables(strain_feature_table, id_col, feature_output_dir)
+        if not strain_empty:
+            # Step 1: Construct strain feature table
+            strain_feature_table_path = construct_feature_table(strain_fasta, protein_csv, k, id_col, one_gene,
+                                                                feature_output_dir, "strain", k_range, ignore_families=ignore_families)
+            strain_feature_table = pd.read_csv(strain_feature_table_path)
+            input_genomes += strain_feature_table[id_col].nunique()
 
-        # Step 3: Optimize feature selection for strain
-        selected_features = feature_selection_optimized(
-            strain_feature_table, "selected", id_col, feature_output_dir
-        )
+            # Step 2: Get genome assignments for strain
+            genome_assignments = get_genome_assignments_tables(strain_feature_table, id_col, feature_output_dir)
 
-        del strain_feature_table  # Clear strain feature table
-        gc.collect()
+            # Step 3: Optimize feature selection for strain
+            selected_features = feature_selection_optimized(
+                strain_feature_table, "selected", id_col, feature_output_dir
+            )
 
-        # Step 4: Assign features to genomes
-        assignment_df, final_feature_table, final_feature_table_output = feature_assignment(
-            genome_assignments, selected_features, id_col, feature_output_dir
-        )
+            del strain_feature_table  # Clear strain feature table
+            gc.collect()
 
-        select_kmers += len(final_feature_table.columns) - 1  # Exclude genome ID column
+            # Step 4: Assign features to genomes
+            assignment_df, final_feature_table, final_feature_table_output = feature_assignment(
+                genome_assignments, selected_features, id_col, feature_output_dir
+            )
 
-        del selected_features, genome_assignments, assignment_df, final_feature_table  # Clear selected features
-        gc.collect()
+            select_kmers += len(final_feature_table.columns) - 1  # Exclude genome ID column
+
+            del selected_features, genome_assignments, assignment_df, final_feature_table  # Clear selected features
+            gc.collect()
 
         # Step 5: Optionally, construct phage feature table
         phage_final_feature_table_output = None
+        phage_empty = True
         if phage_fasta:
-            phage_protein_csv = protein_csv_phage if protein_csv_phage else protein_csv
-            phage_feature_table_path = construct_feature_table(phage_fasta, phage_protein_csv, k, 'phage', one_gene,
-                                                               feature_output_dir, "phage", k_range, ignore_families=ignore_families)
-            phage_feature_table = pd.read_csv(phage_feature_table_path)
+            phage_empty = is_fasta_empty(phage_fasta)
+            if phage_empty:
+                logging.warning(f"Phage FASTA file is empty: {phage_fasta}")
+            else:
+                phage_protein_csv = protein_csv_phage if protein_csv_phage else protein_csv
+                phage_feature_table_path = construct_feature_table(phage_fasta, phage_protein_csv, k, 'phage', one_gene,
+                                                                feature_output_dir, "phage", k_range, ignore_families=ignore_families)
+                phage_feature_table = pd.read_csv(phage_feature_table_path)
 
-            phage_genome_assignments = get_genome_assignments_tables(phage_feature_table, 'phage', feature_output_dir, prefix='phage')
+                phage_genome_assignments = get_genome_assignments_tables(phage_feature_table, 'phage', feature_output_dir, prefix='phage')
 
-            phage_selected_features = feature_selection_optimized(
-                phage_feature_table, "phage_selected", 'phage', feature_output_dir, prefix='phage'
-            )
+                phage_selected_features = feature_selection_optimized(
+                    phage_feature_table, "phage_selected", 'phage', feature_output_dir, prefix='phage'
+                )
 
-            del phage_feature_table
-            gc.collect()
+                del phage_feature_table
+                gc.collect()
 
-            phage_assignment_df, phage_final_feature_table, phage_final_feature_table_output = feature_assignment(
-                phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage'
-            )
+                phage_assignment_df, phage_final_feature_table, phage_final_feature_table_output = feature_assignment(
+                    phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage'
+                )
 
-            del phage_selected_features, phage_genome_assignments, phage_assignment_df, phage_final_feature_table  # Clear phage selected features
-            gc.collect()
+                del phage_selected_features, phage_genome_assignments, phage_assignment_df, phage_final_feature_table  # Clear phage selected features
+                gc.collect()
 
         # Step 6: Merge feature tables
-        if phenotype_matrix:
+        if strain_empty and phage_empty:
+            logging.error("Both strain and phage FASTA files are empty or invalid. Cannot proceed with workflow.")
+        elif phenotype_matrix:
+            # Create dummy strain feature table if needed for merge_feature_tables
+            if strain_empty and not phage_empty:
+                logging.info("Creating empty strain feature table for merging")
+                # Create a minimal empty strain feature table
+                empty_strain_df = pd.DataFrame({id_col: []})
+                empty_strain_path = os.path.join(feature_output_dir, "empty_strain_features.csv")
+                empty_strain_df.to_csv(empty_strain_path, index=False)
+                final_feature_table_output = empty_strain_path
+
             merged_table_path = merge_feature_tables(
                 strain_features=final_feature_table_output,
                 phenotype_matrix=phenotype_matrix,
@@ -470,6 +520,7 @@ def run_kmer_table_workflow(
                 phage_features=phage_final_feature_table_output,
                 remove_suffix=remove_suffix
             )
+
             logging.info(f"Merged feature table saved to: {merged_table_path}")
             final_df = pd.read_csv(merged_table_path)
             features = len(final_df.columns) - 1
@@ -482,11 +533,21 @@ def run_kmer_table_workflow(
                 num_features = int(num_rows * 0.05)
 
             max_features = num_features
+        elif not strain_empty:
+            # Use strain features if no phenotype matrix but strain data exists
+            merged_table_path = final_feature_table_output
+            features = len(pd.read_csv(merged_table_path).columns) - 1
+        elif not phage_empty:
+            # Use phage features if no phenotype matrix but phage data exists
+            merged_table_path = phage_final_feature_table_output
+            features = len(pd.read_csv(merged_table_path).columns) - 1
         else:
-            features = len(final_feature_table.columns) - 1
+            # Both empty (shouldn't reach here due to earlier check)
+            logging.warning("No feature tables available for modeling")
+            features = 0
 
         # Optional: Run modeling
-        if modeling:
+        if modeling and merged_table_path:
             modeling_output_dir = os.path.join(output_dir, "modeling")
             os.makedirs(modeling_output_dir, exist_ok=True)
             run_modeling_workflow_from_feature_table(
