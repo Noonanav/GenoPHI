@@ -1,0 +1,306 @@
+Feature,impact,final_desc
+sc_1003,Positive,DNA binding
+sc_10030,Negative,"cell division, negative regulation of cell division"
+sc_1006,Positive,sequence-specific DNA binding
+sc_1007,Negative,DNA integration
+sc_10076,Positive,xenobiotic detoxification by transmembrane export across the plasma membrane
+sc_1008,Positive,DNA transposition
+sc_1010,Positive,signal transduction
+sc_10135,Negative,endonuclease activity
+sc_1014,Negative,protein folding
+sc_1015,Negative,"ATP binding, DNA replication"
+sc_10166,Positive,RNA-templated DNA biosynthetic process
+sc_1017,Negative,DNA integration
+sc_10188,Negative,"ATP binding, secretion by the type IV secretion system"
+sc_1019,Positive,"L-lysine catabolic process, gamma-aminobutyric acid catabolic process"
+sc_10190,Negative,DNA transposition
+sc_10197,Positive,"DNA integration, acyltransferase activity, transferring groups other than amino-acyl groups"
+sc_1020,Positive,L-lysine catabolic process
+sc_10200,Negative,histone H4S1 kinase activity
+sc_1021,Positive,gamma-aminobutyric acid transport
+sc_10213,Negative,DNA binding
+sc_10217,Negative,viral capsid
+sc_1022,Negative,DNA transposition
+sc_1023,Positive,regulation of DNA-templated transcription
+sc_10232,Negative,chorismate biosynthetic process
+sc_1024,Positive,cellular oxidant detoxification
+sc_1025,Negative,regulation of DNA-templated transcription
+sc_10254,Negative,DNA integration
+sc_1026,Negative,ligase activity
+sc_1028,Negative,"sugar-phosphatase activity, transition metal ion binding, iron ion transmembrane transport"
+sc_103,Negative,spermidine biosynthetic process
+sc_10309,Positive,"cell wall organization, RNA-templated DNA biosynthetic process"
+sc_1031,Negative,"peptidoglycan turnover, proteolysis"
+sc_10310,Positive,RNA-templated DNA biosynthetic process
+sc_1032,Positive,NAD binding
+sc_1033,Positive,carbohydrate derivative metabolic process
+sc_1034,Positive,"pyridoxal phosphate binding, lyase activity"
+sc_1036,Positive,regulation of DNA-templated transcription
+sc_1037,Positive,phosphoenolpyruvate-dependent sugar phosphotransferase system
+sc_1038,Positive,metalloendopeptidase activity
+sc_1039,Positive,"xanthine dehydrogenase activity, 2 iron, 2 sulfur cluster binding"
+sc_104,Negative,"copper ion binding, response to stress, regulation of DNA-templated transcription"
+sc_1047,Positive,regulation of DNA-templated transcription
+sc_10481,Positive,DNA restriction-modification system
+sc_105,Negative,"guanine salvage, cobalamin transport, protein stabilization, 5-oxoprolinase (ATP-hydrolyzing) activity, tRNA 4-thiouridine biosynthesis, protein binding, NAD salvage, outer membrane-bounded periplasmic space, nucleotide-excision repair, protein repair, tyrosyl-tRNA aminoacylation, heme transport, regulation of DNA-templated transcription, regulation of glutamine family amino acid metabolic process, intracellular calcium ion homeostasis, base-excision repair, transmembrane transporter activity, guanosine pentaphosphate catabolic process, polysaccharide biosynthetic process, enterobacterial common antigen metabolic process, CDP-diacylglycerol biosynthetic process, translation, tRNA nucleoside ribose methylation"
+sc_1052,Positive,fumarate hydratase activity
+sc_1053,Positive,"L-iditol 2-dehydrogenase (NAD+) activity, oxidoreductase activity"
+sc_1054,Positive,regulation of DNA-templated transcription
+sc_1055,Positive,"mannitol transmembrane transport, phosphoenolpyruvate-dependent sugar phosphotransferase system"
+sc_10571,Positive,exonuclease activity
+sc_1058,Positive,molybdate ion transport
+sc_1060,Positive,asparagine metabolic process
+sc_1062,Negative,"regulation of DNA-templated transcription, kinase activity"
+sc_10621,Positive,"helicase activity, ATP hydrolysis activity, secretion by the type IV secretion system, protein binding, protein secretion by the type IV secretion system, ATP binding"
+sc_1063,Negative,organic acid catabolic process
+sc_1064,Negative,pentose catabolic process
+sc_1065,Negative,gluconate transmembrane transport
+sc_1066,Positive,lyase activity
+sc_1067,Positive,ubiquinone biosynthetic process
+sc_1068,Positive,regulation of DNA-templated transcription
+sc_1069,Positive,regulation of DNA-templated transcription initiation
+sc_107,Positive,cell adhesion involved in single-species biofilm formation
+sc_10715,Negative,"proteolysis, defense response to virus, cyclic threonylcarbamoyladenosine biosynthetic process, regulation of DNA-templated transcription"
+sc_1072,Positive,proteolysis
+sc_1073,Positive,regulation of DNA-templated transcription
+sc_1074,Positive,iron ion binding
+sc_1075,Positive,"glycerol metabolic process, electron transfer activity"
+sc_10756,Negative,methylation
+sc_10758,Negative,outer membrane
+sc_10759,Negative,outer membrane
+sc_1076,Positive,fatty acid beta-oxidation using acyl-CoA dehydrogenase
+sc_1077,Negative,endonuclease activity
+sc_10773,Positive,cell outer membrane
+sc_10779,Positive,defense response to virus
+sc_1078,Positive,transmembrane transporter activity
+sc_10781,Positive,outer membrane
+sc_1079,Positive,lipid biosynthetic process
+sc_10794,Negative,"defense response to virus, ATP hydrolysis activity"
+sc_108,Negative,pilus assembly
+sc_1080,Positive,transmembrane transporter activity
+sc_1081,Positive,carbohydrate metabolic process
+sc_1082,Negative,"polysaccharide transport, trehalose transport, sucrose metabolic process, response to fructose"
+sc_10823,Negative,cellular response to oxygen levels
+sc_10825,Negative,ubiquinone-6 biosynthetic process
+sc_10826,Positive,amino acid activation for nonribosomal peptide biosynthetic process
+sc_10829,Positive,modulation of process of another organism
+sc_1084,Positive,"rRNA catabolic process, toxin sequestering activity"
+sc_10841,Positive,'de novo' pyrimidine nucleobase biosynthetic process
+sc_10847,Negative,transmembrane transporter activity
+sc_1085,Negative,phosphorelay signal transduction system
+sc_1086,Negative,fucose transmembrane transport
+sc_1087,Negative,"DNA integration, RNA-templated DNA biosynthetic process, proteolysis"
+sc_1088,Negative,host outer membrane
+sc_1089,Negative,DNA transposition
+sc_1090,Negative,DNA integration
+sc_1091,Positive,transposition
+sc_1093,Negative,ribose phosphate metabolic process
+sc_1094,Positive,"arylsulfate sulfotransferase activity, protein-disulfide reductase activity, protein folding"
+sc_1097,Positive,L(+)-tartrate dehydratase activity
+sc_1098,Positive,protein secretion by the type II secretion system
+sc_11,Positive,endonuclease activity
+sc_110,Negative,cell wall organization
+sc_1100,Negative,chemotaxis
+sc_1101,Negative,protein secretion by the type II secretion system
+sc_1102,Positive,transmembrane transporter activity
+sc_1104,Positive,trehalose catabolic process
+sc_1105,Negative,protein secretion
+sc_1106,Positive,rRNA methylation
+sc_1109,Positive,"1,5-anhydro-D-fructose reductase (1,5-anhydro-D-mannitol-forming) activity, oxidoreductase activity"
+sc_1111,Negative,protein secretion by the type II secretion system
+sc_1112,Negative,protein secretion by the type II secretion system
+sc_1113,Positive,protein secretion by the type II secretion system
+sc_1114,Positive,protein secretion by the type II secretion system
+sc_1115,Positive,protein secretion by the type II secretion system
+sc_1116,Positive,protein secretion by the type II secretion system
+sc_1117,Positive,cell outer membrane
+sc_1118,Positive,signal peptide processing
+sc_1119,Positive,metallopeptidase activity
+sc_112,Negative,cell adhesion involved in single-species biofilm formation
+sc_1120,Positive,"glyoxylate catabolic process, FAD binding"
+sc_1121,Positive,"glycolate dehydrogenase activity, 4 iron, 4 sulfur cluster binding"
+sc_1122,Positive,(S)-2-hydroxy-acid oxidase activity
+sc_1123,Positive,regulation of DNA-templated transcription
+sc_1125,Positive,fatty acid biosynthetic process
+sc_1126,Positive,ubiquinone-6 biosynthetic process
+sc_1128,Positive,pyridoxal phosphate binding
+sc_1129,Positive,lipopolysaccharide transport
+sc_113,Negative,cell adhesion involved in single-species biofilm formation
+sc_1130,Positive,lipopolysaccharide transport
+sc_1131,Positive,"periplasmic space, stringent response, flavin adenine dinucleotide binding, cellular response to oxidative stress"
+sc_1134,Positive,kinase activity
+sc_1135,Positive,dUDP biosynthetic process
+sc_1136,Positive,glutathione transferase activity
+sc_1137,Positive,carboxymethylenebutenolidase activity
+sc_1138,Negative,methylglyoxal catabolic process
+sc_1139,Positive,DNA integration
+sc_114,Negative,siderophore transmembrane transport
+sc_1141,Positive,iron ion binding
+sc_1142,Positive,regulation of DNA-templated transcription
+sc_1143,Positive,"oxidoreductase activity, acting on the CH-OH group of donors, NAD or NADP as acceptor"
+sc_1144,Negative,carbohydrate binding
+sc_1145,Positive,C4-dicarboxylate transport
+sc_1146,Negative,transmembrane transporter activity
+sc_1148,Positive,"carbohydrate derivative metabolic process, iron coordination entity transport, siderophore-dependent iron import into cell, siderophore transmembrane transport"
+sc_1149,Positive,siderophore-dependent iron import into cell
+sc_115,Negative,dGTP catabolic process
+sc_1151,Negative,lyase activity
+sc_1152,Negative,methylation
+sc_1154,Positive,DNA binding
+sc_1156,Positive,amino acid transport
+sc_1157,Negative,amino acid transport
+sc_116,Positive,"DNA binding, carbohydrate phosphorylation, regulation of DNA-templated transcription, lactose catabolic process, single-species biofilm formation, cellulose catabolic process"
+sc_1160,Positive,DNA binding
+sc_1161,Positive,galactarate catabolic process
+sc_1162,Positive,regulation of DNA-templated transcription
+sc_1163,Positive,phosphoenolpyruvate-dependent sugar phosphotransferase system
+sc_1164,Positive,phosphoenolpyruvate-dependent sugar phosphotransferase system
+sc_1165,Positive,phosphoenolpyruvate-dependent sugar phosphotransferase system
+sc_1167,Positive,phosphoenolpyruvate-dependent sugar phosphotransferase system
+sc_1168,Positive,phosphoenolpyruvate-dependent sugar phosphotransferase system
+sc_1169,Positive,glucosamine catabolic process
+sc_1170,Negative,"oxidoreductase activity, acting on the aldehyde or oxo group of donors, NAD or NADP as acceptor"
+sc_1171,Negative,lipopolysaccharide core region metabolic process
+sc_1173,Positive,signal peptide processing
+sc_1174,Positive,intracellular sequestering of iron ion
+sc_1175,Negative,translational elongation
+sc_1176,Positive,DNA-mediated transformation
+sc_1177,Negative,co-translational protein modification
+sc_1178,Negative,translational elongation
+sc_1179,Negative,"acyltransferase activity, transferring groups other than amino-acyl groups"
+sc_118,Positive,"rescue of stalled ribosome, phosphorelay signal transduction system, bacterial-type flagellum-dependent cell motility, methylation, respiratory electron transport chain"
+sc_1181,Positive,L-homocysteine biosynthetic process
+sc_1184,Positive,catabolic process
+sc_1185,Positive,cellular metabolic compound salvage
+sc_1187,Positive,regulation of DNA-templated transcription
+sc_1189,Positive,chorismate biosynthetic process
+sc_1191,Positive,DNA binding
+sc_1193,Positive,"glycosyltransferase activity, carbon utilization"
+sc_1194,Positive,RNA processing
+sc_1195,Positive,RNA repair
+sc_1196,Negative,regulation of DNA-templated transcription
+sc_1204,Negative,enterobacterial common antigen metabolic process
+sc_1206,Negative,DNA damage response
+sc_1207,Positive,D-xylose transmembrane transport
+sc_1210,Negative,cytosol
+sc_1218,Positive,protein transport
+sc_1219,Negative,ABC-type transporter activity
+sc_122,Negative,carnitine metabolic process
+sc_1220,Negative,ligase activity
+sc_1221,Negative,lipopolysaccharide biosynthetic process
+sc_1222,Positive,Kdo transferase activity
+sc_1223,Negative,kinase activity
+sc_123,Negative,"4-(trimethylammonio)butanoate transport, chemotaxis, tRNA 3'-end processing, isomerase activity"
+sc_1231,Positive,regulation of DNA-templated transcription
+sc_1236,Positive,cellulose biosynthetic process
+sc_1237,Positive,cellulose biosynthetic process
+sc_124,Positive,transmembrane transporter activity
+sc_1251,Negative,outer membrane
+sc_1273,Negative,lipopolysaccharide core region metabolic process
+sc_1284,Negative,dioxygenase activity
+sc_1291,Positive,FAD binding
+sc_1293,Negative,"2-dehydro-3-deoxy-6-phosphogalactonate aldolase activity, regulation of DNA-templated transcription"
+sc_1308,Negative,cAMP biosynthetic process
+sc_1323,Negative,"DNA integration, transposition"
+sc_1328,Positive,transmembrane transporter activity
+sc_135,Negative,protein secretion by the type II secretion system
+sc_136,Negative,lactose transport
+sc_1380,Negative,DNA binding
+sc_1387,Negative,"DNA replication, synthesis of primer, DNA replication"
+sc_1408,Positive,"DNA binding, protein binding"
+sc_1412,Negative,cellular response to acidic pH
+sc_1413,Positive,DNA transposition
+sc_1415,Positive,"negative regulation of DNA-templated transcription, siderophore transmembrane transport, iron coordination entity transport"
+sc_143,Negative,regulation of DNA-templated transcription
+sc_1437,Negative,dioxygenase activity
+sc_1502,Positive,regulation of DNA-templated transcription
+sc_1527,Negative,DNA restriction-modification system
+sc_1541,Negative,DNA integration
+sc_1554,Negative,DNA transposition
+sc_1559,Positive,lipopolysaccharide biosynthetic process
+sc_1589,Positive,DNA integration
+sc_1691,Positive,symbiont entry into host cell
+sc_1694,Negative,symbiont entry into host cell
+sc_171,Positive,pilus
+sc_1730,Negative,"carbohydrate metabolic process, intramolecular phosphotransferase activity"
+sc_1770,Negative,protein secretion
+sc_1786,Negative,acid phosphatase activity
+sc_1853,Positive,helicase activity
+sc_1891,Negative,regulation of DNA-templated transcription
+sc_1897,Positive,endonuclease activity
+sc_2020,Positive,cell adhesion involved in biofilm formation
+sc_2027,Negative,pilus assembly
+sc_2041,Positive,"cellular response to magnesium ion, host cell plasma membrane"
+sc_2088,Negative,serine-type endopeptidase activity
+sc_2101,Positive,cellular response to heat
+sc_217,Positive,symbiont entry into host cell
+sc_218,Positive,proteolysis
+sc_2193,Positive,kinase activity
+sc_2239,Negative,disruption of cell in another organism
+sc_2286,Positive,chromosome segregation
+sc_2376,Negative,negative regulation of DNA-templated transcription
+sc_2495,Negative,DNA binding
+sc_255,Positive,methylation
+sc_2611,Positive,outer membrane
+sc_2694,Positive,proteolysis
+sc_2817,Negative,signal transduction
+sc_2926,Negative,cell division
+sc_3027,Positive,DNA integration
+sc_3050,Positive,symbiont-mediated suppression of host inflammatory response
+sc_311,Negative,copper ion transmembrane transport
+sc_3173,Negative,DNA transposition
+sc_3176,Positive,DNA transposition
+sc_3284,Positive,"tRNA splicing, via endonucleolytic cleavage and ligation, tRNA processing"
+sc_3287,Positive,"ligase activity, glycosyltransferase activity"
+sc_3313,Positive,DNA transposition
+sc_3464,Positive,ATP hydrolysis activity
+sc_3784,Positive,DNA replication
+sc_3884,Negative,extracellular polysaccharide biosynthetic process
+sc_3989,Positive,polysaccharide transport
+sc_411,Positive,DNA transposition
+sc_428,Negative,dipeptide transport
+sc_4385,Positive,lipopolysaccharide transport
+sc_4386,Positive,ABC-type transporter activity
+sc_4465,Negative,folic acid biosynthetic process
+sc_4532,Positive,beta-lactam antibiotic catabolic process
+sc_4656,Positive,cell outer membrane
+sc_4666,Positive,regulation of DNA-templated transcription
+sc_4694,Positive,glycosyltransferase activity
+sc_4731,Negative,"ligase activity, lipopolysaccharide core region metabolic process"
+sc_4738,Positive,transposition
+sc_474,Negative,'de novo' pyrimidine nucleobase biosynthetic process
+sc_4835,Positive,protein serine/threonine kinase activity
+sc_4969,Positive,glycosyltransferase activity
+sc_4971,Positive,"UDP-N-acetylglucosamine metabolic process, N-acylneuraminate cytidylyltransferase activity, glycosylation, acyltransferase activity, transferring groups other than amino-acyl groups"
+sc_51,Negative,DNA replication initiation
+sc_5126,Negative,teichoic acid metabolic process
+sc_5127,Negative,lyase activity
+sc_518,Positive,blue light signaling pathway
+sc_5460,Negative,regulation of DNA-templated transcription
+sc_5619,Positive,cell outer membrane
+sc_5856,Negative,metallopeptidase activity
+sc_619,Negative,putrescine catabolic process
+sc_6290,Positive,DNA integration
+sc_6328,Positive,host outer membrane
+sc_710,Negative,methylation
+sc_7157,Negative,DNA transposition
+sc_726,Negative,phosphorelay signal transduction system
+sc_729,Negative,regulation of DNA-templated transcription initiation
+sc_7349,Negative,DNA integration
+sc_745,Negative,regulation of DNA-templated transcription
+sc_7544,Positive,"glycosyltransferase activity, extracellular polysaccharide biosynthetic process"
+sc_7559,Negative,"negative regulation of transcription by RNA polymerase II, virion attachment to host cell"
+sc_7632,Negative,DNA replication initiation
+sc_7648,Negative,glycosyltransferase activity
+sc_785,Positive,virus tail
+sc_790,Positive,virion assembly
+sc_822,Negative,UDP-glucuronate biosynthetic process
+sc_833,Negative,carbohydrate metabolic process
+sc_8332,Negative,DNA binding
+sc_857,Negative,response to cobalt ion
+sc_858,Negative,response to cobalt ion
+sc_876,Negative,zinc ion binding
+sc_920,Negative,cell adhesion involved in single-species biofilm formation
+sc_929,Negative,phosphorelay signal transduction system
+sc_930,Negative,phosphorelay signal transduction system
+sc_934,Negative,cell wall organization

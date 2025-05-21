@@ -1,0 +1,469 @@
+,Feature,protein_family,protein_ID,Preferred_name,Description,GOs
+41761,sc_1180,QOXI01000009_162,QOXI01000009_162,yhfL,Protein of unknown function (DUF4223),-
+41762,sc_1180,QOXI01000009_162,CAMPQQ010000545.1_32,yhfL,Protein of unknown function (DUF4223),-
+41763,sc_1180,QOXI01000009_162,QOXZ01000004_124,yhfL,Protein of unknown function (DUF4223),-
+41764,sc_1180,QOXI01000009_162,QOZC01000014_61,yhfL,Protein of unknown function (DUF4223),-
+41765,sc_1180,QOXI01000009_162,CAMPTF010000001.1_228,yhfL,Protein of unknown function (DUF4223),-
+41766,sc_1180,QOXI01000009_162,CAMPRE010000008.1_152,yhfL,Protein of unknown function (DUF4223),-
+41767,sc_1180,QOXI01000009_162,QOXB01000008_114,yhfL,Protein of unknown function (DUF4223),-
+41768,sc_1180,QOXI01000009_162,QOXE01000003_32,yhfL,Protein of unknown function (DUF4223),-
+41769,sc_1180,QOXI01000009_162,QOYM01000008_164,yhfL,Protein of unknown function (DUF4223),-
+41770,sc_1180,QOXI01000009_162,CU928162.2_3820,yhfL,Protein of unknown function (DUF4223),-
+41771,sc_1180,QOXI01000009_162,CAMPSN010000005.1_110,yhfL,Protein of unknown function (DUF4223),-
+41772,sc_1180,QOXI01000009_162,CAMPRY010000008.1_32,yhfL,Protein of unknown function (DUF4223),-
+41773,sc_1180,QOXI01000009_162,CP053601.1_3155,yhfL,Protein of unknown function (DUF4223),-
+41774,sc_1180,QOXI01000009_162,QOXN01000007_32,yhfL,Protein of unknown function (DUF4223),-
+41775,sc_1180,QOXI01000009_162,CAMPTB010000010.1_32,yhfL,Protein of unknown function (DUF4223),-
+41776,sc_1180,QOXI01000009_162,QOXD01000007_110,yhfL,Protein of unknown function (DUF4223),-
+41777,sc_1180,QOXI01000009_162,QOYD01000006_184,yhfL,Protein of unknown function (DUF4223),-
+41778,sc_1180,QOXI01000009_162,LN874954.1_3280,yhfL,Protein of unknown function (DUF4223),-
+41779,sc_1180,QOXI01000009_162,CAMPQX010000235.1_182,yhfL,Protein of unknown function (DUF4223),-
+41780,sc_1180,QOXI01000009_162,CAMPSO010000010.1_32,yhfL,Protein of unknown function (DUF4223),-
+41781,sc_1180,QOXI01000009_162,CAMPQS010000356.1_32,yhfL,Protein of unknown function (DUF4223),-
+41782,sc_1180,QOXI01000009_162,CAMPTL010000007.1_165,yhfL,Protein of unknown function (DUF4223),-
+41783,sc_1180,QOXI01000009_162,CAMPRO010000332.1_32,yhfL,Protein of unknown function (DUF4223),-
+41784,sc_1180,QOXI01000009_162,CAJVBZ010000006.1_32,yhfL,Protein of unknown function (DUF4223),-
+41785,sc_1180,QOXI01000009_162,QOXO01000007_32,yhfL,Protein of unknown function (DUF4223),-
+41786,sc_1180,QOXI01000009_162,QOYF01000016_32,yhfL,Protein of unknown function (DUF4223),-
+41787,sc_1180,QOXI01000009_162,QOYS01000010_32,yhfL,Protein of unknown function (DUF4223),-
+41788,sc_1180,QOXI01000009_162,QOZE01000010_32,yhfL,Protein of unknown function (DUF4223),-
+41789,sc_1180,QOXI01000009_162,CAMPST010000002.1_86,yhfL,Protein of unknown function (DUF4223),-
+41790,sc_1180,QOXI01000009_162,CAMPSH010000007.1_32,yhfL,Protein of unknown function (DUF4223),-
+41791,sc_1180,QOXI01000009_162,CAMPTK010000002.1_176,yhfL,Protein of unknown function (DUF4223),-
+41792,sc_1180,QOXI01000009_162,CAMPQK010000091.1_32,yhfL,Protein of unknown function (DUF4223),-
+41793,sc_1180,QOXI01000009_162,CAMPSM010000008.1_155,yhfL,Protein of unknown function (DUF4223),-
+41794,sc_1180,QOXI01000009_162,CAJVAE010000010.1_32,yhfL,Protein of unknown function (DUF4223),-
+41795,sc_1180,QOXI01000009_162,QOXA01000008_114,yhfL,Protein of unknown function (DUF4223),-
+41796,sc_1180,QOXI01000009_162,QOXT01000004_237,yhfL,Protein of unknown function (DUF4223),-
+41797,sc_1180,QOXI01000009_162,QOYQ01000008_32,yhfL,Protein of unknown function (DUF4223),-
+41798,sc_1180,QOXI01000009_162,CAMPTC010000005.1_32,yhfL,Protein of unknown function (DUF4223),-
+41799,sc_1180,QOXI01000009_162,CAMPQT010000824.1_3,yhfL,Protein of unknown function (DUF4223),-
+41800,sc_1180,QOXI01000009_162,CAMPRT010000176.1_124,yhfL,Protein of unknown function (DUF4223),-
+41801,sc_1180,QOXI01000009_162,QOWW01000011_111,yhfL,Protein of unknown function (DUF4223),-
+41802,sc_1180,QOXI01000009_162,QOYH01000017_73,yhfL,Protein of unknown function (DUF4223),-
+41803,sc_1180,QOXI01000009_162,QOYO01000010_162,yhfL,Protein of unknown function (DUF4223),-
+41804,sc_1180,QOXI01000009_162,JARVEL010000007.1_147,yhfL,Protein of unknown function (DUF4223),-
+41805,sc_1180,QOXI01000009_162,QOWV01000010_110,yhfL,Protein of unknown function (DUF4223),-
+41806,sc_1180,QOXI01000009_162,CAMPSF010000009.1_158,yhfL,Protein of unknown function (DUF4223),-
+41807,sc_1180,QOXI01000009_162,QOYB01000008_32,yhfL,Protein of unknown function (DUF4223),-
+41808,sc_1180,QOXI01000009_162,QOZD01000020_32,yhfL,Protein of unknown function (DUF4223),-
+41809,sc_1180,QOXI01000009_162,CP028714.1_1047,yhfL,Protein of unknown function (DUF4223),-
+41810,sc_1180,QOXI01000009_162,CAMPSK010000019.1_73,yhfL,Protein of unknown function (DUF4223),-
+41811,sc_1180,QOXI01000009_162,CAJVAB010000008.1_32,yhfL,Protein of unknown function (DUF4223),-
+41812,sc_1180,QOXI01000009_162,UIKK01000006.1_116,yhfL,Protein of unknown function (DUF4223),-
+41813,sc_1180,QOXI01000009_162,AIFA01000060.1_33,yhfL,Protein of unknown function (DUF4223),-
+41814,sc_1180,QOXI01000009_162,CP124740.1_2970,yhfL,Protein of unknown function (DUF4223),-
+41815,sc_1180,QOXI01000009_162,CP010177.1_1572,yhfL,Protein of unknown function (DUF4223),-
+41816,sc_1180,QOXI01000009_162,CAMPSZ010000003.1_32,yhfL,Protein of unknown function (DUF4223),-
+41817,sc_1180,QOXI01000009_162,CAMPTJ010000007.1_146,yhfL,Protein of unknown function (DUF4223),-
+41818,sc_1180,QOXI01000009_162,CANUFP010000011.1_131,yhfL,Protein of unknown function (DUF4223),-
+41819,sc_1180,QOXI01000009_162,GL872206.1_466,yhfL,Protein of unknown function (DUF4223),-
+41820,sc_1180,QOXI01000009_162,CAMPQW010000516.1_113,yhfL,Protein of unknown function (DUF4223),-
+41821,sc_1180,QOXI01000009_162,CAMPTM010000013.1_112,yhfL,Protein of unknown function (DUF4223),-
+41822,sc_1180,QOXI01000009_162,CAMPRW010000006.1_158,yhfL,Protein of unknown function (DUF4223),-
+41823,sc_1180,QOXI01000009_162,CAMPRV010000010.1_32,yhfL,Protein of unknown function (DUF4223),-
+41824,sc_1180,QOXI01000009_162,CANUGL010000005.1_153,yhfL,Protein of unknown function (DUF4223),-
+41825,sc_1180,QOXI01000009_162,QOYP01000008_162,yhfL,Protein of unknown function (DUF4223),-
+41826,sc_1180,QOXI01000009_162,CAMPSV010000008.1_32,yhfL,Protein of unknown function (DUF4223),-
+41827,sc_1180,QOXI01000009_162,CAMPRF010000210.1_32,yhfL,Protein of unknown function (DUF4223),-
+41828,sc_1180,QOXI01000009_162,CAMPRQ010000882.1_33,yhfL,Protein of unknown function (DUF4223),-
+41829,sc_1180,QOXI01000009_162,CAMPRI010000005.1_32,yhfL,Protein of unknown function (DUF4223),-
+41830,sc_1180,QOXI01000009_162,CVTE01000100.1_166,yhfL,Protein of unknown function (DUF4223),-
+41831,sc_1180,QOXI01000009_162,CAJUZT010000009.1_32,yhfL,Protein of unknown function (DUF4223),-
+41832,sc_1180,QOXI01000009_162,AIEV01000049.1_32,yhfL,Protein of unknown function (DUF4223),-
+41833,sc_1180,QOXI01000009_162,QOYW01000008_32,yhfL,Protein of unknown function (DUF4223),-
+41834,sc_1180,QOXI01000009_162,CAMPQI010000002.1_396,yhfL,Protein of unknown function (DUF4223),-
+41835,sc_1180,QOXI01000009_162,CAMPSS010000012.1_133,yhfL,Protein of unknown function (DUF4223),-
+41836,sc_1180,QOXI01000009_162,CAMPQN010000365.1_56,yhfL,Protein of unknown function (DUF4223),-
+41837,sc_1180,QOXI01000009_162,CAMPSX010000011.1_112,yhfL,Protein of unknown function (DUF4223),-
+41838,sc_1180,QOXI01000009_162,QOXH01000011_59,yhfL,Protein of unknown function (DUF4223),-
+41839,sc_1180,QOXI01000009_162,CU928164.2_3803,yhfL,Protein of unknown function (DUF4223),-
+41840,sc_1180,QOXI01000009_162,QLJZ01000006.1_32,yhfL,Protein of unknown function (DUF4223),-
+41841,sc_1180,QOXI01000009_162,CAMPRC010000047.1_32,yhfL,Protein of unknown function (DUF4223),-
+41842,sc_1180,QOXI01000009_162,CAMPRD010000158.1_3,yhfL,Protein of unknown function (DUF4223),-
+41843,sc_1180,QOXI01000009_162,CAMPRG010000018.1_32,yhfL,Protein of unknown function (DUF4223),-
+41844,sc_1180,QOXI01000009_162,CAMPSD010000006.1_155,yhfL,Protein of unknown function (DUF4223),-
+41845,sc_1180,QOXI01000009_162,CAJVCB010000013.1_32,yhfL,Protein of unknown function (DUF4223),-
+41846,sc_1180,QOXI01000009_162,QOXV01000002_150,yhfL,Protein of unknown function (DUF4223),-
+41847,sc_1180,QOXI01000009_162,QOYK01000010_162,yhfL,Protein of unknown function (DUF4223),-
+41848,sc_1180,QOXI01000009_162,QOYZ01000001_32,yhfL,Protein of unknown function (DUF4223),-
+41849,sc_1180,QOXI01000009_162,GL872044.1_79,yhfL,Protein of unknown function (DUF4223),-
+41850,sc_1180,QOXI01000009_162,CAMPQO010000143.1_32,yhfL,Protein of unknown function (DUF4223),-
+41851,sc_1180,QOXI01000009_162,CAMPSC010000009.1_32,yhfL,Protein of unknown function (DUF4223),-
+41852,sc_1180,QOXI01000009_162,CAMPRZ010000413.1_32,yhfL,Protein of unknown function (DUF4223),-
+41853,sc_1180,QOXI01000009_162,UIIM01000026.1_54,yhfL,Protein of unknown function (DUF4223),-
+41854,sc_1180,QOXI01000009_162,QOXR01000008_32,yhfL,Protein of unknown function (DUF4223),-
+41855,sc_1180,QOXI01000009_162,QOXS01000008_32,yhfL,Protein of unknown function (DUF4223),-
+41856,sc_1180,QOXI01000009_162,CAMPTG010000019.1_48,yhfL,Protein of unknown function (DUF4223),-
+41857,sc_1180,QOXI01000009_162,CAJUZZ010000012.1_107,yhfL,Protein of unknown function (DUF4223),-
+41858,sc_1180,QOXI01000009_162,CAJVCC010000012.1_111,yhfL,Protein of unknown function (DUF4223),-
+41859,sc_1180,QOXI01000009_162,UIII01000005.1_116,yhfL,Protein of unknown function (DUF4223),-
+41860,sc_1180,QOXI01000009_162,QOWZ01000026_34,yhfL,Protein of unknown function (DUF4223),-
+41861,sc_1180,QOXI01000009_162,CAMPSA010000411.1_32,yhfL,Protein of unknown function (DUF4223),-
+41862,sc_1180,QOXI01000009_162,CP000247.1_3331,yhfL,Protein of unknown function (DUF4223),-
+41863,sc_1180,QOXI01000009_162,QOXL01000009_32,yhfL,Protein of unknown function (DUF4223),-
+41864,sc_1180,QOXI01000009_162,QOXU01000003_150,yhfL,Protein of unknown function (DUF4223),-
+41865,sc_1180,QOXI01000009_162,QOYN01000011_32,yhfL,Protein of unknown function (DUF4223),-
+41866,sc_1180,QOXI01000009_162,CAMPQR010000018.1_32,yhfL,Protein of unknown function (DUF4223),-
+41867,sc_1180,QOXI01000009_162,QOZF01000019_53,yhfL,Protein of unknown function (DUF4223),-
+41868,sc_1180,QOXI01000009_162,CAMPSR010000003.1_79,yhfL,Protein of unknown function (DUF4223),-
+41869,sc_1180,QOXI01000009_162,CAMPSJ010000009.1_110,yhfL,Protein of unknown function (DUF4223),-
+41870,sc_1180,QOXI01000009_162,CAMPSW010000004.1_93,yhfL,Protein of unknown function (DUF4223),-
+41871,sc_1180,QOXI01000009_162,CAMPTI010000005.1_32,yhfL,Protein of unknown function (DUF4223),-
+41872,sc_1180,QOXI01000009_162,CAMPRS010000837.1_32,yhfL,Protein of unknown function (DUF4223),-
+41873,sc_1180,QOXI01000009_162,CAMPRB010000008.1_33,yhfL,Protein of unknown function (DUF4223),-
+41874,sc_1180,QOXI01000009_162,CAMPQU010000291.1_32,yhfL,Protein of unknown function (DUF4223),-
+41875,sc_1180,QOXI01000009_162,JAECMV010000015.1_32,yhfL,Protein of unknown function (DUF4223),-
+41876,sc_1180,QOXI01000009_162,QOYR01000024_32,yhfL,Protein of unknown function (DUF4223),-
+41877,sc_1180,QOXI01000009_162,CP082771.1_4034,yhfL,Protein of unknown function (DUF4223),-
+41878,sc_1180,QOXI01000009_162,CAMPRJ010000437.1_32,yhfL,Protein of unknown function (DUF4223),-
+41879,sc_1180,QOXI01000009_162,CAMPQJ010000015.1_78,yhfL,Protein of unknown function (DUF4223),-
+41880,sc_1180,QOXI01000009_162,CAMPQP010000008.1_110,yhfL,Protein of unknown function (DUF4223),-
+41881,sc_1180,QOXI01000009_162,QOWY01000013_57,yhfL,Protein of unknown function (DUF4223),-
+41882,sc_1180,QOXI01000009_162,QOYE01000009_32,yhfL,Protein of unknown function (DUF4223),-
+41883,sc_1180,QOXI01000009_162,QOYI01000020_81,yhfL,Protein of unknown function (DUF4223),-
+41884,sc_1180,QOXI01000009_162,QOYL01000009_162,yhfL,Protein of unknown function (DUF4223),-
+41885,sc_1180,QOXI01000009_162,QOYX01000010_156,yhfL,Protein of unknown function (DUF4223),-
+41886,sc_1180,QOXI01000009_162,CAMPTA010000006.1_110,yhfL,Protein of unknown function (DUF4223),-
+41887,sc_1180,QOXI01000009_162,CAMPSY010000006.1_147,yhfL,Protein of unknown function (DUF4223),-
+41888,sc_1180,QOXI01000009_162,CAMPRU010000009.1_114,yhfL,Protein of unknown function (DUF4223),-
+41889,sc_1180,QOXI01000009_162,JAANKZ010000009.1_111,yhfL,Protein of unknown function (DUF4223),-
+41890,sc_1180,QOXI01000009_162,CAMPTH010000008.1_146,yhfL,Protein of unknown function (DUF4223),-
+41891,sc_1180,QOXI01000009_162,CAMPRM010000221.1_32,yhfL,Protein of unknown function (DUF4223),-
+41892,sc_1180,QOXI01000009_162,CAMPRR010000143.1_32,yhfL,Protein of unknown function (DUF4223),-
+41893,sc_1180,QOXI01000009_162,CAMPRK010000455.1_32,yhfL,Protein of unknown function (DUF4223),-
+41894,sc_1180,QOXI01000009_162,CAMPQZ010000108.1_32,yhfL,Protein of unknown function (DUF4223),-
+41895,sc_1180,QOXI01000009_162,CAMPQM010000125.1_32,yhfL,Protein of unknown function (DUF4223),-
+41896,sc_1180,QOXI01000009_162,QOWX01000009_110,yhfL,Protein of unknown function (DUF4223),-
+41897,sc_1180,QOXI01000009_162,QOZB01000006_32,yhfL,Protein of unknown function (DUF4223),-
+41898,sc_1180,QOXI01000009_162,CAMPQY010000672.1_32,yhfL,Protein of unknown function (DUF4223),-
+41899,sc_1180,QOXI01000009_162,CAMPSE010000007.1_140,yhfL,Protein of unknown function (DUF4223),-
+41900,sc_1180,QOXI01000009_162,CAMPSG010000009.1_167,yhfL,Protein of unknown function (DUF4223),-
+41901,sc_1180,QOXI01000009_162,QOXK01000011_110,yhfL,Protein of unknown function (DUF4223),-
+41902,sc_1180,QOXI01000009_162,QOXP01000009_32,yhfL,Protein of unknown function (DUF4223),-
+41903,sc_1180,QOXI01000009_162,QOXY01000004_124,yhfL,Protein of unknown function (DUF4223),-
+41904,sc_1180,QOXI01000009_162,QOYG01000005_32,yhfL,Protein of unknown function (DUF4223),-
+41905,sc_1180,QOXI01000009_162,QOYT01000009_32,yhfL,Protein of unknown function (DUF4223),-
+41906,sc_1180,QOXI01000009_162,QOYU01000032_165,yhfL,Protein of unknown function (DUF4223),-
+41907,sc_1180,QOXI01000009_162,CAMPSL010000052.1_32,yhfL,Protein of unknown function (DUF4223),-
+41908,sc_1180,QOXI01000009_162,CAMPSP010000018.1_32,yhfL,Protein of unknown function (DUF4223),-
+41909,sc_1180,QOXI01000009_162,CAMPTE010000007.1_110,yhfL,Protein of unknown function (DUF4223),-
+41910,sc_1180,QOXI01000009_162,CP028304.1_3626,yhfL,Protein of unknown function (DUF4223),-
+41911,sc_1180,QOXI01000009_162,QOYJ01000006_32,yhfL,Protein of unknown function (DUF4223),-
+41912,sc_1180,QOXI01000009_162,CAMPTD010000007.1_32,yhfL,Protein of unknown function (DUF4223),-
+41913,sc_1180,QOXI01000009_162,QOYV01000076_54,yhfL,Protein of unknown function (DUF4223),-
+41914,sc_1180,QOXI01000009_162,CAMPSI010000003.1_32,yhfL,Protein of unknown function (DUF4223),-
+41915,sc_1180,QOXI01000009_162,CAMPQV010000009.1_32,yhfL,Protein of unknown function (DUF4223),-
+41916,sc_1180,QOXI01000009_162,UIKI01000009.1_32,yhfL,Protein of unknown function (DUF4223),-
+41917,sc_1180,QOXI01000009_162,QOXX01000004_124,yhfL,Protein of unknown function (DUF4223),-
+41918,sc_1180,QOXI01000009_162,WHLT01000010.1_32,yhfL,Protein of unknown function (DUF4223),-
+41919,sc_1180,QOXI01000009_162,CAMPSU010000020.1_32,yhfL,Protein of unknown function (DUF4223),-
+41920,sc_1180,QOXI01000009_162,CAMPRN010000305.1_188,yhfL,Protein of unknown function (DUF4223),-
+41921,sc_1180,QOXI01000009_162,CAMPRL010000261.1_182,yhfL,Protein of unknown function (DUF4223),-
+41922,sc_1180,QOXI01000009_162,QLKJ01000004.1_252,yhfL,Protein of unknown function (DUF4223),-
+41923,sc_1180,QOXI01000009_162,QOXJ01000010_113,yhfL,Protein of unknown function (DUF4223),-
+41924,sc_1180,QOXI01000009_162,CAMPRH010000008.1_152,yhfL,Protein of unknown function (DUF4223),-
+41925,sc_1180,QOXI01000009_162,CAMPRP010000517.1_32,yhfL,Protein of unknown function (DUF4223),-
+41926,sc_1180,QOXI01000009_162,QOXM01000008_32,yhfL,Protein of unknown function (DUF4223),-
+41927,sc_1180,QOXI01000009_162,QOXQ01000024_50,yhfL,Protein of unknown function (DUF4223),-
+41928,sc_1180,QOXI01000009_162,QOXW01000004_182,yhfL,Protein of unknown function (DUF4223),-
+41929,sc_1180,QOXI01000009_162,QOYA01000004_123,yhfL,Protein of unknown function (DUF4223),-
+41930,sc_1180,QOXI01000009_162,QOYY01000019_55,yhfL,Protein of unknown function (DUF4223),-
+41931,sc_1180,QOXI01000009_162,CAMPRX010000010.1_110,yhfL,Protein of unknown function (DUF4223),-
+41932,sc_1180,QOXI01000009_162,CAMPQL010000280.1_32,yhfL,Protein of unknown function (DUF4223),-
+41933,sc_1180,QOXI01000009_162,CAMPRA010000293.1_32,yhfL,Protein of unknown function (DUF4223),-
+48645,sc_1387,AIFA01000052.1_401,AIFA01000052.1_401,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48646,sc_1387,AIFA01000052.1_401,CAMPSU010000084.1_1,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48647,sc_1387,AIFA01000052.1_401,CAMPQY010000425.1_1,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48648,sc_1387,AIFA01000052.1_401,AIFA01000054.1_11,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48649,sc_1387,AIFA01000052.1_401,CAMPRC010000118.1_1,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48650,sc_1387,AIFA01000052.1_401,CAMPRV010000087.1_1,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48651,sc_1387,AIFA01000052.1_401,AIFA01000025.1_4,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48652,sc_1387,AIFA01000052.1_401,QOXT01000042_9,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48653,sc_1387,AIFA01000052.1_401,AIEV01000061.1_67,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48654,sc_1387,AIFA01000052.1_401,AIFA01000036.1_359,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48655,sc_1387,AIFA01000052.1_401,UIKI01000084.1_2,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+48656,sc_1387,AIFA01000052.1_401,CP028304.1_4705,-,"ATP-binding protein, IstB SW ISTB_ECOLI (P15026) (265 aa) fasta scores E() 0, 47.4 id in 249 aa. Also almost identical to Yersinia pestis and Escherichia coli",-
+50754,sc_1730,QOXZ01000047_1,QOXZ01000047_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50755,sc_1730,QOXZ01000047_1,QOXX01000047_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50756,sc_1730,QOXZ01000047_1,QOYA01000025_65,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50757,sc_1730,QOXZ01000047_1,CAMPRG010000309.1_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50758,sc_1730,QOXZ01000047_1,QOXZ01000054_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50759,sc_1730,QOXZ01000047_1,CAMPRQ010000908.1_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50760,sc_1730,QOXZ01000047_1,CAMPRQ010000792.1_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50761,sc_1730,QOXZ01000047_1,QOYA01000059_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50762,sc_1730,QOXZ01000047_1,QOXX01000057_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50763,sc_1730,QOXZ01000047_1,CAMPRG010000159.1_1,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50764,sc_1730,QOXZ01000047_1,AIFA01000051.1_15,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+50765,sc_1730,QOXZ01000047_1,CAJVAB010000014.1_109,manB,Involved in GDP-mannose biosynthesis which serves as the activated sugar nucleotide precursor for mannose residues in cell surface polysaccharides. This enzyme participates in synthesis of the LPS,-
+53168,sc_2376,CAMPRW010000006.1_73,CAMPRW010000006.1_73,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+53169,sc_2376,CAMPRW010000006.1_73,CANUFP010000011.1_45,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+53170,sc_2376,CAMPRW010000006.1_73,CAMPQL010000013.1_481,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53171,sc_2376,CAMPRW010000006.1_73,CAMPTD010000030.1_34,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53172,sc_2376,CAMPRW010000006.1_73,QOXF01000081_11,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53173,sc_2376,CAMPRW010000006.1_73,CAMPTC010000069.1_12,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53174,sc_2376,CAMPRW010000006.1_73,QLKJ01000024.1_62,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53175,sc_2376,CAMPRW010000006.1_73,QOXC01000016_97,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53176,sc_2376,CAMPRW010000006.1_73,CAMPTG010000060.1_8,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53177,sc_2376,CAMPRW010000006.1_73,QOXQ01000032_4,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53178,sc_2376,CAMPRW010000006.1_73,CAMPSR010000089.1_2,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53179,sc_2376,CAMPRW010000006.1_73,CAMPQJ010000042.1_16,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53180,sc_2376,CAMPRW010000006.1_73,CAMPQW010000733.1_6,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53181,sc_2376,CAMPRW010000006.1_73,CAJUZT010000017.1_33,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53182,sc_2376,CAMPRW010000006.1_73,QOXW01000021_97,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53183,sc_2376,CAMPRW010000006.1_73,CAMPQR010000069.1_70,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53184,sc_2376,CAMPRW010000006.1_73,CAMPSQ010000051.1_14,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53185,sc_2376,CAMPRW010000006.1_73,CAMPSI010000019.1_41,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53186,sc_2376,CAMPRW010000006.1_73,QOXG01000055_11,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53187,sc_2376,CAMPRW010000006.1_73,QOYB01000034_4,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53188,sc_2376,CAMPRW010000006.1_73,CAMPQN010000197.1_32,-,"AAA domain, putative AbiEii toxin, Type IV TA system",-
+53189,sc_2376,CAMPRW010000006.1_73,CAMPSP010000062.1_1,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+53190,sc_2376,CAMPRW010000006.1_73,CAMPTA010000066.1_13,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+53191,sc_2376,CAMPRW010000006.1_73,UIII01000052.1_12,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+53192,sc_2376,CAMPRW010000006.1_73,CAMPSW010000051.1_26,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+53193,sc_2376,CAMPRW010000006.1_73,CAMPST010000080.1_2,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+53194,sc_2376,CAMPRW010000006.1_73,CAMPSZ010000091.1_14,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+53195,sc_2376,CAMPRW010000006.1_73,UIKK01000056.1_12,-,Antitoxin component of a toxin-antitoxin (TA) module,-
+54374,sc_3574,CAMPSR010000006.1_165,CAMPSR010000006.1_165,-,Phosphoadenosine phosphosulfate reductase family,-
+54375,sc_3574,CAMPSR010000006.1_165,CAMPQR010000069.1_55,-,Phosphoadenosine phosphosulfate reductase family,-
+54376,sc_3574,CAMPSR010000006.1_165,CAMPQI010000029.1_9,-,Phosphoadenosine phosphosulfate reductase family,-
+54377,sc_3574,CAMPSR010000006.1_165,CAMPTD010000022.1_52,-,Phosphoadenosine phosphosulfate reductase family,-
+54378,sc_3574,CAMPSR010000006.1_165,JAECMV010000018.1_11,-,Phosphoadenosine phosphosulfate reductase family,-
+54379,sc_3574,CAMPSR010000006.1_165,CAJVCB010000001.1_127,-,Phosphoadenosine phosphosulfate reductase family,-
+54380,sc_3574,CAMPSR010000006.1_165,CANUFP010000007.1_173,-,Phosphoadenosine phosphosulfate reductase family,-
+54381,sc_3574,CAMPSR010000006.1_165,QOYG01000016_48,-,Phosphoadenosine phosphosulfate reductase family,-
+54382,sc_3574,CAMPSR010000006.1_165,GL872204.1_2711,-,Phosphoadenosine phosphosulfate reductase family,-
+54383,sc_3574,CAMPSR010000006.1_165,QOYD01000040_27,-,Phosphoadenosine phosphosulfate reductase family,-
+54384,sc_3574,CAMPSR010000006.1_165,CU928164.2_4776,-,Phosphoadenosine phosphosulfate reductase family,-
+54385,sc_3574,CAMPSR010000006.1_165,CAMPSE010000008.1_5,-,Phosphoadenosine phosphosulfate reductase family,-
+54386,sc_3574,CAMPSR010000006.1_165,JARVEL010000022.1_89,-,Phosphoadenosine phosphosulfate reductase family,-
+54572,sc_4345,CAMPQN010000201.1_217,CAMPQN010000201.1_217,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54573,sc_4345,CAMPQN010000201.1_217,CAMPQT010000647.1_68,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54574,sc_4345,CAMPQN010000201.1_217,CAMPQR010000004.1_70,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54575,sc_4345,CAMPQN010000201.1_217,QOWZ01000009_74,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54576,sc_4345,CAMPQN010000201.1_217,QOYD01000016_3,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54577,sc_4345,CAMPQN010000201.1_217,QOYI01000004_261,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54578,sc_4345,CAMPQN010000201.1_217,GL872041.1_518,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54579,sc_4345,CAMPQN010000201.1_217,CU928162.2_2290,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54580,sc_4345,CAMPQN010000201.1_217,CAMPSN010000015.1_3,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54581,sc_4345,CAMPQN010000201.1_217,CAMPRN010000422.1_172,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54582,sc_4345,CAMPQN010000201.1_217,QOXA01000007_86,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54583,sc_4345,CAMPQN010000201.1_217,CAMPQY010000675.1_30,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54584,sc_4345,CAMPQN010000201.1_217,QOXH01000010_44,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54585,sc_4345,CAMPQN010000201.1_217,CAMPTA010000019.1_21,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54586,sc_4345,CAMPQN010000201.1_217,CAMPTF010000049.1_3,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54587,sc_4345,CAMPQN010000201.1_217,UIIM01000021.1_8,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54588,sc_4345,CAMPQN010000201.1_217,CAMPTE010000024.1_38,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54589,sc_4345,CAMPQN010000201.1_217,CAMPTL010000003.1_270,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54590,sc_4345,CAMPQN010000201.1_217,CAMPSE010000001.1_175,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54591,sc_4345,CAMPQN010000201.1_217,QOWV01000002_527,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54592,sc_4345,CAMPQN010000201.1_217,CAMPTD010000002.1_271,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54593,sc_4345,CAMPQN010000201.1_217,GL872204.1_1301,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54594,sc_4345,CAMPQN010000201.1_217,CAMPSV010000001.1_503,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54595,sc_4345,CAMPQN010000201.1_217,CAMPSQ010000026.1_38,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54596,sc_4345,CAMPQN010000201.1_217,CAMPSS010000014.1_99,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54597,sc_4345,CAMPQN010000201.1_217,CAMPSL010000034.1_5,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54598,sc_4345,CAMPQN010000201.1_217,CAMPRX010000022.1_37,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54599,sc_4345,CAMPQN010000201.1_217,QOYG01000001_538,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54600,sc_4345,CAMPQN010000201.1_217,QOYJ01000016_41,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54601,sc_4345,CAMPQN010000201.1_217,QLJZ01000014.1_80,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54602,sc_4345,CAMPQN010000201.1_217,QOZE01000002_441,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54603,sc_4345,CAMPQN010000201.1_217,CAMPST010000017.1_26,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54604,sc_4345,CAMPQN010000201.1_217,CAMPTB010000013.1_79,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54605,sc_4345,CAMPQN010000201.1_217,QOYQ01000021_291,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54606,sc_4345,CAMPQN010000201.1_217,CAMPSY010000029.1_25,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54607,sc_4345,CAMPQN010000201.1_217,JAECMV010000024.1_41,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54608,sc_4345,CAMPQN010000201.1_217,QOYR01000005_61,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54609,sc_4345,CAMPQN010000201.1_217,QOZC01000008_138,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54610,sc_4345,CAMPQN010000201.1_217,CAMPSR010000034.1_3,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54611,sc_4345,CAMPQN010000201.1_217,CAMPQJ010000002.1_32,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54612,sc_4345,CAMPQN010000201.1_217,CAMPRL010000186.1_408,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54613,sc_4345,CAMPQN010000201.1_217,QOWX01000004_144,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54614,sc_4345,CAMPQN010000201.1_217,CAMPTH010000001.1_329,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54615,sc_4345,CAMPQN010000201.1_217,CANUGL010000001.1_30,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54616,sc_4345,CAMPQN010000201.1_217,QOXC01000024_48,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54617,sc_4345,CAMPQN010000201.1_217,CAMPTC010000063.1_3,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54618,sc_4345,CAMPQN010000201.1_217,CAMPRJ010000322.1_56,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54619,sc_4345,CAMPQN010000201.1_217,CAMPSO010000008.1_134,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54620,sc_4345,CAMPQN010000201.1_217,CAMPTJ010000040.1_3,yegJ,Uncharacterized protein conserved in bacteria (DUF2314),-
+54621,sc_4385,CAMPSK010000006.1_17,CAMPSK010000006.1_17,kpsM,ABC-2 type transporter,-
+54622,sc_4385,CAMPSK010000006.1_17,CP000247.1_2917,kpsM,ABC-2 type transporter,-
+54623,sc_4385,CAMPSK010000006.1_17,CAMPTD010000003.1_36,kpsM,ABC-2 type transporter,-
+54624,sc_4385,CAMPSK010000006.1_17,QOYG01000002_304,kpsM,ABC-2 type transporter,-
+54625,sc_4385,CAMPSK010000006.1_17,QOYI01000063_123,kpsM,ABC-2 type transporter,-
+54626,sc_4385,CAMPSK010000006.1_17,CAMPRD010000217.1_8,kpsM,ABC-2 type transporter,-
+54627,sc_4385,CAMPSK010000006.1_17,CAMPRI010000002.1_39,kpsM,ABC-2 type transporter,-
+54628,sc_4385,CAMPSK010000006.1_17,CAMPRH010000007.1_157,kpsM,ABC-2 type transporter,-
+54629,sc_4385,CAMPSK010000006.1_17,CP028714.1_1456,kpsM,ABC-2 type transporter,-
+54630,sc_4385,CAMPSK010000006.1_17,CAMPTL010000005.1_151,kpsM,ABC-2 type transporter,-
+54631,sc_4385,CAMPSK010000006.1_17,CAMPRV010000002.1_34,kpsM,ABC-2 type transporter,-
+54632,sc_4385,CAMPSK010000006.1_17,CAMPSD010000003.1_27,kpsM,ABC-2 type transporter,-
+54633,sc_4385,CAMPSK010000006.1_17,CAMPSZ010000031.1_36,kpsM,ABC-2 type transporter,-
+54634,sc_4385,CAMPSK010000006.1_17,CAMPQJ010000012.1_95,kpsM,ABC-2 type transporter,-
+54635,sc_4385,CAMPSK010000006.1_17,CAMPRZ010000349.1_6,kpsM,ABC-2 type transporter,-
+54636,sc_4385,CAMPSK010000006.1_17,QOYW01000002_326,kpsM,ABC-2 type transporter,-
+54637,sc_4385,CAMPSK010000006.1_17,CAMPQK010000113.1_23,kpsM,ABC-2 type transporter,-
+54638,sc_4385,CAMPSK010000006.1_17,CAMPRN010000030.1_172,kpsM,ABC-2 type transporter,-
+54639,sc_4385,CAMPSK010000006.1_17,CAMPRE010000007.1_158,kpsM,ABC-2 type transporter,-
+54640,sc_4385,CAMPSK010000006.1_17,QOYY01000015_91,kpsM,ABC-2 type transporter,-
+54641,sc_4385,CAMPSK010000006.1_17,CAMPRP010000763.1_25,kpsM,ABC-2 type transporter,-
+54642,sc_4385,CAMPSK010000006.1_17,QOXU01000030_23,kpsM,ABC-2 type transporter,-
+54643,sc_4385,CAMPSK010000006.1_17,CP028304.1_3191,kpsM,ABC-2 type transporter,-
+54644,sc_4385,CAMPSK010000006.1_17,QOYF01000017_7,kpsM,ABC-2 type transporter,-
+54645,sc_4385,CAMPSK010000006.1_17,QOYP01000003_46,kpsM,ABC-2 type transporter,-
+54646,sc_4385,CAMPSK010000006.1_17,CAMPRO010000292.1_325,kpsM,ABC-2 type transporter,-
+54647,sc_4385,CAMPSK010000006.1_17,QOXV01000030_23,kpsM,ABC-2 type transporter,-
+54648,sc_4385,CAMPSK010000006.1_17,QOYT01000042_8,kpsM,ABC-2 type transporter,-
+54649,sc_4385,CAMPSK010000006.1_17,CAMPSP010000021.1_64,kpsM,ABC-2 type transporter,-
+54650,sc_4385,CAMPSK010000006.1_17,CAMPRG010000005.1_416,kpsM,ABC-2 type transporter,-
+54651,sc_4385,CAMPSK010000006.1_17,CAMPRB010000003.1_19,kpsM,ABC-2 type transporter,-
+54652,sc_4385,CAMPSK010000006.1_17,QOXY01000008_15,kpsM,ABC-2 type transporter,-
+54653,sc_4385,CAMPSK010000006.1_17,CAMPQQ010000524.1_161,kpsM,ABC-2 type transporter,-
+54654,sc_4385,CAMPSK010000006.1_17,CAMPQS010000221.1_49,kpsM,ABC-2 type transporter,-
+54655,sc_4385,CAMPSK010000006.1_17,CAMPSU010000027.1_63,kpsM,ABC-2 type transporter,-
+54656,sc_4385,CAMPSK010000006.1_17,CAMPSA010000404.1_318,kpsM,ABC-2 type transporter,-
+54657,sc_4385,CAMPSK010000006.1_17,QOYL01000003_5,kpsM,ABC-2 type transporter,-
+54658,sc_4385,CAMPSK010000006.1_17,CU928162.2_3415,kpsM,ABC-2 type transporter,-
+54659,sc_4385,CAMPSK010000006.1_17,LN874954.1_2873,kpsM,ABC-2 type transporter,-
+54660,sc_4385,CAMPSK010000006.1_17,CAMPSH010000006.1_15,kpsM,ABC-2 type transporter,-
+54661,sc_4385,CAMPSK010000006.1_17,CAMPSM010000003.1_327,kpsM,ABC-2 type transporter,-
+54662,sc_4385,CAMPSK010000006.1_17,CAMPSX010000002.1_20,kpsM,ABC-2 type transporter,-
+54663,sc_4385,CAMPSK010000006.1_17,QOYH01000001_172,kpsM,ABC-2 type transporter,-
+54664,sc_4385,CAMPSK010000006.1_17,QOYK01000004_318,kpsM,ABC-2 type transporter,-
+54665,sc_4385,CAMPSK010000006.1_17,CAMPQT010000174.1_24,kpsM,ABC-2 type transporter,-
+54666,sc_4385,CAMPSK010000006.1_17,CAMPSW010000015.1_94,kpsM,ABC-2 type transporter,-
+54667,sc_4385,CAMPSK010000006.1_17,CAMPTI010000001.1_316,kpsM,ABC-2 type transporter,-
+54668,sc_4385,CAMPSK010000006.1_17,QOWW01000005_184,kpsM,ABC-2 type transporter,-
+54669,sc_4385,CAMPSK010000006.1_17,CAMPQX010000417.1_26,kpsM,ABC-2 type transporter,-
+54670,sc_4385,CAMPSK010000006.1_17,CAMPQL010000096.1_146,kpsM,ABC-2 type transporter,-
+54671,sc_4385,CAMPSK010000006.1_17,CAMPQM010000056.1_113,kpsM,ABC-2 type transporter,-
+54672,sc_4385,CAMPSK010000006.1_17,QOXJ01000004_25,kpsM,ABC-2 type transporter,-
+54673,sc_4385,CAMPSK010000006.1_17,QOYJ01000005_120,kpsM,ABC-2 type transporter,-
+54674,sc_4385,CAMPSK010000006.1_17,CAMPTM010000001.1_295,kpsM,ABC-2 type transporter,-
+54675,sc_4385,CAMPSK010000006.1_17,QOWZ01000033_27,kpsM,ABC-2 type transporter,-
+54676,sc_4385,CAMPSK010000006.1_17,CAMPTA010000058.1_11,kpsM,ABC-2 type transporter,-
+54677,sc_4385,CAMPSK010000006.1_17,CAMPRQ010000629.1_160,kpsM,ABC-2 type transporter,-
+54678,sc_4385,CAMPSK010000006.1_17,UIKI01000007.1_22,kpsM,ABC-2 type transporter,-
+54679,sc_4385,CAMPSK010000006.1_17,CAMPST010000001.1_80,kpsM,ABC-2 type transporter,-
+54680,sc_4385,CAMPSK010000006.1_17,CAMPRK010000410.1_4,kpsM,ABC-2 type transporter,-
+54681,sc_4385,CAMPSK010000006.1_17,GL872204.1_312,kpsM,ABC-2 type transporter,-
+54682,sc_4385,CAMPSK010000006.1_17,CAMPQU010000017.1_20,kpsM,ABC-2 type transporter,-
+54683,sc_4385,CAMPSK010000006.1_17,QOXI01000004_5,kpsM,ABC-2 type transporter,-
+54684,sc_4385,CAMPSK010000006.1_17,QOYN01000004_5,kpsM,ABC-2 type transporter,-
+54685,sc_4385,CAMPSK010000006.1_17,CAMPSC010000002.1_43,kpsM,ABC-2 type transporter,-
+54686,sc_4385,CAMPSK010000006.1_17,QOYO01000003_26,kpsM,ABC-2 type transporter,-
+54687,sc_4385,CAMPSK010000006.1_17,CAMPRL010000333.1_25,kpsM,ABC-2 type transporter,-
+54688,sc_4385,CAMPSK010000006.1_17,QOYM01000004_12,kpsM,ABC-2 type transporter,-
+54689,sc_4385,CAMPSK010000006.1_17,QOYU01000017_313,kpsM,ABC-2 type transporter,-
+54690,sc_4385,CAMPSK010000006.1_17,CP053601.1_2761,kpsM,ABC-2 type transporter,-
+54691,sc_4385,CAMPSK010000006.1_17,QOYV01000038_143,kpsM,ABC-2 type transporter,-
+54692,sc_4385,CAMPSK010000006.1_17,CAMPSE010000044.1_26,kpsM,ABC-2 type transporter,-
+54693,sc_4385,CAMPSK010000006.1_17,CAMPSF010000003.1_319,kpsM,ABC-2 type transporter,-
+54694,sc_4385,CAMPSK010000006.1_17,CAMPQV010000001.1_312,kpsM,ABC-2 type transporter,-
+54695,sc_4385,CAMPSK010000006.1_17,QOYD01000004_205,kpsM,ABC-2 type transporter,-
+54696,sc_4385,CAMPSK010000006.1_17,CAMPRR010000097.1_25,kpsM,ABC-2 type transporter,-
+54697,sc_4385,CAMPSK010000006.1_17,CAMPRS010000769.1_5,kpsM,ABC-2 type transporter,-
+54698,sc_4385,CAMPSK010000006.1_17,CAMPSG010000001.1_313,kpsM,ABC-2 type transporter,-
+54699,sc_4385,CAMPSK010000006.1_17,QOXZ01000010_15,kpsM,ABC-2 type transporter,-
+54700,sc_4385,CAMPSK010000006.1_17,QOYA01000007_15,kpsM,ABC-2 type transporter,-
+54701,sc_4385,CAMPSK010000006.1_17,QOYQ01000011_318,kpsM,ABC-2 type transporter,-
+54702,sc_4385,CAMPSK010000006.1_17,CU928164.2_3399,kpsM,ABC-2 type transporter,-
+54703,sc_4385,CAMPSK010000006.1_17,CAMPSN010000008.1_97,kpsM,ABC-2 type transporter,-
+54704,sc_4385,CAMPSK010000006.1_17,CAMPSR010000029.1_30,kpsM,ABC-2 type transporter,-
+54705,sc_4385,CAMPSK010000006.1_17,CAMPQO010000098.1_168,kpsM,ABC-2 type transporter,-
+54706,sc_4385,CAMPSK010000006.1_17,CAMPRC010000062.1_26,kpsM,ABC-2 type transporter,-
+54707,sc_4385,CAMPSK010000006.1_17,CP082771.1_3625,kpsM,ABC-2 type transporter,-
+54708,sc_4385,CAMPSK010000006.1_17,CAMPQN010000363.1_50,kpsM,ABC-2 type transporter,-
+54709,sc_4385,CAMPSK010000006.1_17,CVTE01000034.1_52,kpsM,ABC-2 type transporter,-
+54710,sc_4385,CAMPSK010000006.1_17,QOXX01000008_15,kpsM,ABC-2 type transporter,-
+54711,sc_4385,CAMPSK010000006.1_17,CAMPRY010000003.1_50,kpsM,ABC-2 type transporter,-
+55047,sc_4694,CAMPQK010000113.1_18,CAMPQK010000113.1_18,-,Glycosyltransferase like family 2,-
+55048,sc_4694,CAMPQK010000113.1_18,CAMPQO010000098.1_174,-,Glycosyltransferase like family 2,-
+55049,sc_4694,CAMPQK010000113.1_18,QOYI01000063_129,-,Glycosyltransferase like family 2,-
+55050,sc_4694,CAMPQK010000113.1_18,QOYW01000002_331,-,Glycosyltransferase like family 2,-
+55051,sc_4694,CAMPQK010000113.1_18,CAMPQT010000174.1_19,-,Glycosyltransferase like family 2,-
+55052,sc_4694,CAMPQK010000113.1_18,QOYO01000003_21,-,Glycosyltransferase like family 2,-
+55053,sc_4694,CAMPQK010000113.1_18,QOYK01000004_323,-,Glycosyltransferase like family 2,-
+55054,sc_4694,CAMPQK010000113.1_18,QOWW01000005_189,-,Glycosyltransferase like family 2,-
+55055,sc_4694,CAMPQK010000113.1_18,QOYJ01000005_125,-,Glycosyltransferase like family 2,-
+55056,sc_4694,CAMPQK010000113.1_18,CAMPSR010000029.1_25,-,Glycosyltransferase like family 2,-
+55057,sc_4694,CAMPQK010000113.1_18,CAMPQS010000197.1_18,-,Glycosyltransferase like family 2,-
+55058,sc_4694,CAMPQO010000098.1_173,CAMPQO010000098.1_173,-,Integrase core domain protein,-
+55059,sc_4694,CAMPQO010000098.1_173,CAMPQK010000113.1_19,-,Integrase core domain protein,-
+55060,sc_4694,CAMPQO010000098.1_173,QOYI01000063_128,-,Integrase core domain protein,-
+55061,sc_4694,CAMPQO010000098.1_173,QOYW01000002_330,-,Integrase core domain protein,-
+55062,sc_4694,CAMPQO010000098.1_173,CAMPQT010000174.1_20,-,Integrase core domain protein,-
+55063,sc_4694,CAMPQO010000098.1_173,QOYK01000004_322,-,Integrase core domain protein,-
+55064,sc_4694,CAMPQO010000098.1_173,QOYO01000003_22,-,Integrase core domain protein,-
+55065,sc_4694,CAMPQO010000098.1_173,QOWW01000005_188,-,Integrase core domain protein,-
+55066,sc_4694,CAMPQO010000098.1_173,QOYJ01000005_124,-,Integrase core domain protein,-
+55067,sc_4694,CAMPQO010000098.1_173,CAMPSR010000029.1_26,-,Integrase core domain protein,-
+55068,sc_4694,CAMPQO010000098.1_173,CAMPQS010000197.1_19,-,Integrase core domain protein,-
+55069,sc_4694,QOYI01000063_125,QOYI01000063_125,-,"transferase activity, transferring glycosyl groups",-
+55070,sc_4694,QOYI01000063_125,CAMPQK010000113.1_21,-,"transferase activity, transferring glycosyl groups",-
+55071,sc_4694,QOYI01000063_125,QOYW01000002_328,-,"transferase activity, transferring glycosyl groups",-
+55072,sc_4694,QOYI01000063_125,CAMPQT010000174.1_22,-,"transferase activity, transferring glycosyl groups",-
+55073,sc_4694,QOYI01000063_125,QOYK01000004_320,-,"transferase activity, transferring glycosyl groups",-
+55074,sc_4694,QOYI01000063_125,QOWW01000005_186,-,"transferase activity, transferring glycosyl groups",-
+55075,sc_4694,QOYI01000063_125,QOYJ01000005_122,-,"transferase activity, transferring glycosyl groups",-
+55076,sc_4694,QOYI01000063_125,QOYO01000003_24,-,"transferase activity, transferring glycosyl groups",-
+55077,sc_4694,QOYI01000063_125,CAMPSR010000029.1_28,-,"transferase activity, transferring glycosyl groups",-
+55078,sc_4694,QOYI01000063_125,CAMPQS010000197.1_21,-,"transferase activity, transferring glycosyl groups",-
+55079,sc_4694,QOYI01000063_125,CAMPQO010000098.1_170,-,"transferase activity, transferring glycosyl groups",-
+55080,sc_4695,CAMPQT010000174.1_21,CAMPQT010000174.1_21,-,"Glycosyl transferase, group",-
+55081,sc_4695,CAMPQT010000174.1_21,CAMPQK010000113.1_20,-,"Glycosyl transferase, group",-
+55082,sc_4695,CAMPQT010000174.1_21,QOYW01000002_329,-,"Glycosyl transferase, group",-
+55083,sc_4695,CAMPQT010000174.1_21,QOYK01000004_321,-,"Glycosyl transferase, group",-
+55084,sc_4695,CAMPQT010000174.1_21,QOWW01000005_187,-,"Glycosyl transferase, group",-
+55085,sc_4695,CAMPQT010000174.1_21,QOYJ01000005_123,-,"Glycosyl transferase, group",-
+55086,sc_4695,CAMPQT010000174.1_21,QOYO01000003_23,-,"Glycosyl transferase, group",-
+55087,sc_4695,CAMPQT010000174.1_21,CAMPSR010000029.1_27,-,"Glycosyl transferase, group",-
+55088,sc_4695,CAMPQT010000174.1_21,CAMPQS010000197.1_20,-,"Glycosyl transferase, group",-
+55608,sc_7121,CAMPST010000097.1_2,CAMPST010000097.1_2,-,"Phage-related protein, tail component",-
+55609,sc_7121,CAMPST010000097.1_2,CAMPRO010000128.1_1,-,"Phage-related protein, tail component",-
+55610,sc_7121,CAMPST010000097.1_2,CU928162.2_1221,-,"Phage-related protein, tail component",-
+55611,sc_7121,CAMPST010000097.1_2,CP124740.1_442,-,"Phage-related protein, tail component",-
+55612,sc_7121,CAMPST010000097.1_2,CAMPTA010000240.1_1,-,"Phage-related protein, tail component",-
+55613,sc_7121,CAMPST010000097.1_2,CAMPRY010000224.1_1,-,"Phage-related protein, tail component",-
+55614,sc_7121,CAMPST010000097.1_2,QOXW01000298_1,-,"Phage-related protein, tail component",-
+55615,sc_7121,CAMPST010000097.1_2,CAMPSS010000337.1_1,-,Fibronectin type III protein,-
+55616,sc_7121,CAMPST010000097.1_2,QOYM01000099_2,-,"Phage-related protein, tail component",-
+55617,sc_7121,CAMPST010000097.1_2,UIII01000275.1_1,-,"Phage-related protein, tail component",-
+55618,sc_7121,CAMPST010000097.1_2,QOYQ01000109_2,-,"Phage-related protein, tail component",-
+55619,sc_7121,CAMPST010000097.1_2,CAMPQX010000542.1_1,-,"Phage-related protein, tail component",-
+55620,sc_7121,CAMPST010000097.1_2,CAMPSS010000345.1_1,-,"Phage-related protein, tail component",-
+55632,sc_7349,QOXF01000071_7,QOXF01000071_7,-,DDE domain,-
+55633,sc_7349,QOXF01000071_7,LN874955.1_68,-,DDE domain,-
+55634,sc_7349,QOXF01000071_7,CAMPQZ010000610.1_3,-,COG2801 Transposase and inactivated derivatives,-
+55635,sc_7349,QOXF01000071_7,QOYQ01000002_30,-,DDE domain,-
+55636,sc_7349,QOXF01000071_7,CAMPTG010000048.1_22,-,COG2801 Transposase and inactivated derivatives,-
+55637,sc_7349,QOXF01000071_7,CAMPTE010000049.1_19,-,COG2801 Transposase and inactivated derivatives,-
+55638,sc_7349,QOXF01000071_7,QOXQ01000047_9,-,HTH-like domain,-
+55747,sc_8332,QOYH01000038_4,QOYH01000038_4,-,KilA-N,-
+55748,sc_8332,QOYH01000038_4,CAMPRN010000530.1_17,-,KilA-N,-
+55749,sc_8332,QOYH01000038_4,CAMPSW010000031.1_29,-,KilA-N,-
+55750,sc_8332,QOYH01000038_4,QOYF01000038_10,-,KilA-N,-
+55751,sc_8332,QOYH01000038_4,QOZE01000005_4,-,KilA-N,-
+55752,sc_8332,QOYH01000038_4,QOYJ01000011_30,-,KilA-N,-
+55753,sc_8332,QOYH01000038_4,QOXL01000004_8,-,KilA-N,-
+55754,sc_8332,QOYH01000038_4,QOXA01000039_18,-,KilA-N,-
+55755,sc_8332,QOYH01000038_4,QOYI01000092_103,-,KilA-N,-
+55799,sc_9281,QOYL01000044_4,QOYL01000044_4,-,-,-
+55800,sc_9281,QOYL01000044_4,QOXI01000040_4,-,-,-
+55801,sc_9281,QOYL01000044_4,CAMPSK010000036.1_20,-,-,-
+55802,sc_9281,QOYL01000044_4,QOXQ01000053_13,-,-,-
+55803,sc_9281,QOYL01000044_4,QOYF01000062_19,-,-,-
+55804,sc_9281,QOYL01000044_4,QLKJ01000041.1_1,-,-,-
+55837,sc_10135,QOXK01000004_275,QOXK01000004_275,-,Domain of unknown function (DUF4942),-
+55838,sc_10135,QOXK01000004_275,CAMPTL010000014.1_121,-,Domain of unknown function (DUF4942),-
+55839,sc_10135,QOXK01000004_275,QOYL01000017_93,-,Domain of unknown function (DUF4942),-
+55840,sc_10135,QOXK01000004_275,CAMPTF010000012.1_1,-,Domain of unknown function (DUF4942),-
+55841,sc_10135,QOXK01000004_275,CAMPTL010000025.1_51,-,Domain of unknown function (DUF4942),-
+55842,sc_10135,QOXK01000004_275,QOXI01000017_92,-,Domain of unknown function (DUF4942),-
+56042,sc_10624,QOYO01000099_1,QOYO01000099_1,-,of 539 from GenPept.129 gb AAL57569.1 AF453441_53 (AF453441),-
+56043,sc_10624,QOYO01000099_1,QOXT01000042_2,-,of 539 from GenPept.129 gb AAL57569.1 AF453441_53 (AF453441),-
+56044,sc_10624,QOYO01000099_1,QOYY01000001_391,-,of 539 from GenPept.129 gb AAL57569.1 AF453441_53 (AF453441),-
+56045,sc_10624,QOYO01000099_1,QOXB01000055_31,-,of 539 from GenPept.129 gb AAL57569.1 AF453441_53 (AF453441),-
+56151,sc_10824,QOYQ01000008_86,QOYQ01000008_86,-,-,-
+56152,sc_10824,QOYQ01000008_86,QOZF01000019_1,-,-,-
+56153,sc_10824,QOYQ01000008_86,QOZE01000010_89,-,-,-
