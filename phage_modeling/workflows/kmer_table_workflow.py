@@ -86,7 +86,7 @@ def generate_kmer_df(seqrecords, k):
     logging.info(f"Generated k-mer DataFrame with {len(kmer_df)} rows.")
     return kmer_df
 
-def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output_dir, output_name, k_range=False, ignore_families=False):
+def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output_dir, output_name, k_range=False, ignore_families=False, genome_list=None):
     """Constructs a feature table from k-mers and merges it with protein feature data."""
     logging.info(f"Starting feature table construction for {fasta_file} with k = {k} (range: {k_range}).")
     
@@ -99,6 +99,31 @@ def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output
         logging.error(f"No sequences found in {fasta_file}.")
         return
 
+    # Load the protein feature data FIRST to get genome mapping
+    logging.info(f"Loading protein features from {protein_csv}.")
+    gene_data = pd.read_csv(protein_csv)
+    
+    if 'protein_ID' not in gene_data.columns:
+        logging.error(f"'protein_ID' column not found in {protein_csv}.")
+        raise KeyError(f"'protein_ID' column not found in {protein_csv}")
+
+    # Filter sequences if genome_list provided
+    if genome_list:
+        logging.info(f"Filtering sequences to {len(genome_list)} specified genomes")
+        
+        # Get protein IDs that belong to the specified genomes
+        filtered_gene_data = gene_data[gene_data[id_col].isin(genome_list)]
+        valid_protein_ids = set(filtered_gene_data['protein_ID'].unique())
+        
+        # Filter sequences to only those from specified genomes
+        filtered_seqrecords = [record for record in seqrecords if record.id in valid_protein_ids]
+        
+        logging.info(f"Retained {len(filtered_seqrecords)} sequences from {len(genome_list)} genomes")
+        seqrecords = filtered_seqrecords
+        
+        # Also filter the gene_data to match
+        gene_data = filtered_gene_data
+
     # Generate k-mer data
     full_kmer_df = pd.DataFrame()
     if k_range:
@@ -107,24 +132,17 @@ def construct_feature_table(fasta_file, protein_csv, k, id_col, one_gene, output
             kmers_df_temp = generate_kmer_df(seqrecords, k_len)
             kmers_df_temp['k'] = k_len
             full_kmer_df = pd.concat([full_kmer_df, kmers_df_temp], ignore_index=True)
-            del kmers_df_temp  # Clear temporary kmer DataFrame
+            del kmers_df_temp
             gc.collect()
     else:
         full_kmer_df = generate_kmer_df(seqrecords, k)
         full_kmer_df['k'] = k
 
-    # Load the protein feature data
-    logging.info(f"Loading protein features from {protein_csv}.")
-    gene_data = pd.read_csv(protein_csv)
-    
-    if 'protein_ID' not in gene_data.columns:
-        logging.error(f"'protein_ID' column not found in {protein_csv}.")
-        raise KeyError(f"'protein_ID' column not found in {protein_csv}")
-
     # Merge k-mer data with gene features
     logging.info("Merging k-mer data with protein feature data.")
     full_kmer_df_merged = full_kmer_df.merge(gene_data, on="protein_ID", how='left')
-    del full_kmer_df  # Clear full k-mer DataFrame
+    
+    del full_kmer_df
     gc.collect()
 
     # Aggregate k-mer data by feature and cluster
@@ -436,6 +454,10 @@ def run_kmer_table_workflow(
         cpu_monitor_thread = Thread(target=monitor_cpu)
         cpu_monitor_thread.start()
 
+        # Load genome lists if provided
+        strain_genome_list = load_genome_list(strain_list, id_col) if strain_list else None
+        phage_genome_list = load_genome_list(phage_list, 'phage') if phage_list else None
+
         # Process strain FASTA if not empty
         strain_empty = False
         if is_fasta_empty(strain_fasta):
@@ -445,7 +467,8 @@ def run_kmer_table_workflow(
         if not strain_empty:
             # Step 1: Construct strain feature table
             strain_feature_table_path = construct_feature_table(strain_fasta, protein_csv, k, id_col, one_gene,
-                                                                feature_output_dir, "strain", k_range, ignore_families=ignore_families)
+                                                                feature_output_dir, "strain", k_range, 
+                                                                ignore_families=ignore_families, genome_list=strain_genome_list)
             strain_feature_table = pd.read_csv(strain_feature_table_path)
             input_genomes += strain_feature_table[id_col].nunique()
 
@@ -462,7 +485,7 @@ def run_kmer_table_workflow(
 
             # Step 4: Assign features to genomes
             assignment_df, final_feature_table, final_feature_table_output = feature_assignment(
-                genome_assignments, selected_features, id_col, feature_output_dir
+                genome_assignments, selected_features, id_col, feature_output_dir, all_genomes=strain_genome_list
             )
 
             select_kmers += len(final_feature_table.columns) - 1  # Exclude genome ID column
@@ -480,7 +503,8 @@ def run_kmer_table_workflow(
             else:
                 phage_protein_csv = protein_csv_phage if protein_csv_phage else protein_csv
                 phage_feature_table_path = construct_feature_table(phage_fasta, phage_protein_csv, k, 'phage', one_gene,
-                                                                feature_output_dir, "phage", k_range, ignore_families=ignore_families)
+                                                                feature_output_dir, "phage", k_range, ignore_families=ignore_families,
+                                                                genome_list=phage_genome_list)
                 phage_feature_table = pd.read_csv(phage_feature_table_path)
 
                 phage_genome_assignments = get_genome_assignments_tables(phage_feature_table, 'phage', feature_output_dir, prefix='phage')
@@ -493,7 +517,7 @@ def run_kmer_table_workflow(
                 gc.collect()
 
                 phage_assignment_df, phage_final_feature_table, phage_final_feature_table_output = feature_assignment(
-                    phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage'
+                    phage_genome_assignments, phage_selected_features, 'phage', feature_output_dir, prefix='phage', all_genomes=phage_genome_list
                 )
 
                 del phage_selected_features, phage_genome_assignments, phage_assignment_df, phage_final_feature_table  # Clear phage selected features
