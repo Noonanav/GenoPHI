@@ -381,7 +381,9 @@ def run_kmer_table_workflow(
     cluster_selection_epsilon=0.0,
     use_dynamic_weights=False,
     weights_method='log10',
-    check_feature_presence=False
+    check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2
 ):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
@@ -421,6 +423,8 @@ def run_kmer_table_workflow(
         use_dynamic_weights (bool, optional): Whether to use dynamic class weights. Default is False.
         weights_method (str, optional): Method to calculate class weights ('log10', 'inverse_frequency', 'balanced'). Default is 'log10'.
         check_feature_presence (bool, optional): If True, only include features present in both train and test sets. Default is False.
+        filter_by_cluster_presence (bool, optional): If True, filters features based on cluster presence. Default is False.
+        min_cluster_presence (int, optional): Minimum number of clusters required for a feature to be included in the final table. Default is 2.
 
     Returns:
         None. Saves the final feature tables and optional modeling results to `output_dir`.
@@ -598,7 +602,9 @@ def run_kmer_table_workflow(
                 cluster_selection_epsilon=cluster_selection_epsilon,
                 use_dynamic_weights=use_dynamic_weights,
                 weights_method=weights_method,
-                check_feature_presence=check_feature_presence
+                check_feature_presence=check_feature_presence,
+                filter_by_cluster_presence=filter_by_cluster_presence,
+                min_cluster_presence=min_cluster_presence   
             )
     except Exception as e:
         logging.error(f"An error occurred: {e}")
@@ -671,6 +677,8 @@ def main():
     fs_modeling_group.add_argument('--use_dynamic_weights', action='store_true', help='Use dynamic class weights for imbalanced datasets')
     fs_modeling_group.add_argument('--weights_method', default='log10', choices=['log10', 'inverse_frequency', 'balanced'], help='Method to calculate class weights (default: log10)')
     fs_modeling_group.add_argument('--check_feature_presence', action='store_true', help='Only include features present in both train and test sets')
+    fs_modeling_group.add_argument('--filter_by_cluster_presence', action='store_true', help='Filter features by cluster/group presence instead of train/test presence.')
+    fs_modeling_group.add_argument('--min_cluster_presence', type=int, default=2, help='Minimum number of clusters/groups a feature must be present in (default: 2).')
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -716,7 +724,9 @@ def main():
         cluster_selection_epsilon=args.cluster_selection_epsilon,
         use_dynamic_weights=args.use_dynamic_weights,
         weights_method=args.weights_method,
-        check_feature_presence=args.check_feature_presence
+        check_feature_presence=args.check_feature_presence,
+        filter_by_cluster_presence=args.filter_by_cluster_presence,
+        min_cluster_presence=args.min_cluster_presence
     )
 
 if __name__ == "__main__":

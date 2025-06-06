@@ -64,6 +64,8 @@ def run_modeling_workflow_from_feature_table(
     min_samples=None,
     cluster_selection_epsilon=0.0,
     check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
     max_ram=8, 
     use_shap=False
 ):
@@ -132,7 +134,9 @@ def run_modeling_workflow_from_feature_table(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         cluster_selection_epsilon=cluster_selection_epsilon,
-        check_feature_presence=check_feature_presence
+        check_feature_presence=check_feature_presence,
+        filter_by_cluster_presence=filter_by_cluster_presence,
+        min_cluster_presence=min_cluster_presence
     )
 
     # Step 2: Generate feature tables from feature selection results
@@ -256,6 +260,8 @@ def main():
     fs_modeling_group.add_argument('--min_samples', type=int, help='Minimum number of samples for clustering feature selection.')
     fs_modeling_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering feature selection.')
     fs_modeling_group.add_argument('--check_feature_presence', action='store_true', help='If set, checks for presence of features during train-test split.')
+    fs_modeling_group.add_argument('--filter_by_cluster_presence', action='store_true', help='Filter features by cluster/group presence instead of train/test presence.')
+    fs_modeling_group.add_argument('--min_cluster_presence', type=int, default=2, help='Minimum number of clusters/groups a feature must be present in (default: 2).')
 
     # Predictive proteins and annotations
     predictive_proteins_group = parser.add_argument_group('Predictive Proteins and Annotations')
@@ -316,6 +322,8 @@ def main():
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
         check_feature_presence=args.check_feature_presence,
+        filter_by_cluster_presence=args.filter_by_cluster_presence,
+        min_cluster_presence=args.min_cluster_presence,
         max_ram=args.max_ram,
         use_shap=args.use_shap
     )

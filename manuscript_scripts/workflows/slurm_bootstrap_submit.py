@@ -246,6 +246,9 @@ if not os.path.exists(metrics_file):
         min_samples={args.min_samples},
         cluster_selection_epsilon={args.cluster_selection_epsilon},
         check_feature_presence={args.check_feature_presence},
+        filter_by_cluster_presence={args.filter_by_cluster_presence},
+        min_cluster_presence={args.min_cluster_presence},   
+        bootstrapping={args.bootstrapping},
         max_ram={args.max_ram}
     )
 else:
@@ -401,8 +404,11 @@ def main():
     parser.add_argument('--min_samples', type=int, help="Minimum number of samples for clustering feature selection.")
     parser.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help="Epsilon value for clustering feature selection.")
     parser.add_argument('--check_feature_presence', action='store_true', help="Check for feature presence for train-test splits.")
+    parser.add_argument('--filter_by_cluster_presence', action='store_true', help="Filter features by cluster presence across train/test splits.")
+    parser.add_argument('--min_cluster_presence', type=float, default=2, help="Minimum fraction of clusters that must contain the feature.")
     parser.add_argument('--duplicate_all', action='store_true', help="Duplicate all genomes in the feature table for predictions.")
     parser.add_argument('--max_ram', type=float, default=40, help="Maximum RAM usage in GB.")
+    parser.add_argument('--bootstrapping', action='store_true', help="Enable bootstrapping for feature selection and modeling.")
     
     # SLURM-specific arguments
     parser.add_argument('--account', default='ac_mak', help='SLURM account (default: ac_mak).')

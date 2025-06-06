@@ -116,6 +116,8 @@ def run_full_workflow(
     min_samples=None,
     cluster_selection_epsilon=0.0,
     check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
     use_shap=False,
     clear_tmp=False,
     k=5,
@@ -179,6 +181,8 @@ def run_full_workflow(
                                                         min_samples=min_samples,
                                                         cluster_selection_epsilon=cluster_selection_epsilon,
                                                         check_feature_presence=check_feature_presence,
+                                                        filter_by_cluster_presence=filter_by_cluster_presence,
+                                                        min_cluster_presence=min_cluster_presence,
                                                         clear_tmp=clear_tmp)
         write_section_report("Protein_Family_Workflow", metrics['protein_family'], output)
     else:
@@ -318,6 +322,8 @@ def main():
     fs_modeling_group.add_argument('--min_samples', type=int, default=None, help='Min samples parameter for HDBSCAN')
     fs_modeling_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Cluster selection epsilon for HDBSCAN (default: 0.0)')
     fs_modeling_group.add_argument('--check_feature_presence', action='store_true', help='Check for presence of features during train-test split.')
+    fs_modeling_group.add_argument('--filter_by_cluster_presence', action='store_true', help='Filter features by cluster/group presence instead of train/test presence.')
+    fs_modeling_group.add_argument('--min_cluster_presence', type=int, default=2, help='Minimum number of clusters/groups a feature must be present in (default: 2).') 
 
     # General parameters
     general_group = parser.add_argument_group('General')
@@ -372,6 +378,8 @@ def main():
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
         check_feature_presence=args.check_feature_presence,
+        filter_by_cluster_presence=args.filter_by_cluster_presence,
+        min_cluster_presence=args.min_cluster_presence,
         clear_tmp=args.clear_tmp,
         k=args.k,
         k_range=args.k_range,

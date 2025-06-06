@@ -12,10 +12,10 @@ def main():
     # =============================================
     # YOUR PATHS - EDIT THESE
     # =============================================
-    input_strain_dir = "/global/home/users/anoonan/EDGE/strain_AAs"
-    input_phage_dir = "/global/home/users/anoonan/EDGE/phage_AAs"
-    interaction_matrix = "/global/home/users/anoonan/EDGE/EDGE_interaction_long_172_no2.csv"
-    output_dir = "/global/scratch/users/anoonan/EDGE/bootstrap_validation"
+    input_strain_dir = "/global/scratch/users/anoonan/BRaVE/pseudomonas/strain_AAs"
+    input_phage_dir = "/global/scratch/users/anoonan/BRaVE/pseudomonas/phage_AAs"
+    interaction_matrix = "/global/scratch/users/anoonan/BRaVE/pseudomonas/pseudo_anarita_matrix_long.csv"
+    output_dir = "/global/scratch/users/anoonan/BRaVE/pseudomonas/pseudomonas_modeling_hierarchical"
     
     # Optional: Use existing clustering results to speed up workflow
     clustering_dir = None  # Set to path if you have pre-computed clustering results
@@ -28,8 +28,8 @@ def main():
     partition = "lr7"                    # SLURM partition 
     qos = "lr_normal"                    # SLURM QOS
     environment = "phage_modeling"       # Conda environment name
-    mem_per_job = "60"                   # Memory per iteration job in GB
-    time_limit = "12:00:00"              # Time limit per iteration job
+    mem_per_job = "80"                   # Memory per iteration job in GB
+    time_limit = "24:00:00"              # Time limit per iteration job
     
     # =============================================
     # BOOTSTRAP VALIDATION PARAMETERS
@@ -39,7 +39,7 @@ def main():
     n_iterations = "20"                  # Number of cross-validation iterations (20 for 20-fold CV)
     threads = "16"                       # Number of threads per job
     strain_column = "strain"             # Column in interaction matrix with strain names
-    max_ram = "40"                       # Max RAM usage in GB
+    max_ram = "60"                       # Max RAM usage in GB
     
     # Feature selection and modeling runs
     num_runs_fs = "25"                   # Number of feature selection runs per iteration
@@ -51,7 +51,7 @@ def main():
     use_clustering = True                # Use clustering for feature selection
     cluster_method = "hierarchical"      # Clustering method ('hdbscan' or 'hierarchical')
     n_clusters = "20"                    # Number of clusters for hierarchical clustering
-    min_cluster_size = "5"               # Minimum cluster size for HDBSCAN
+    min_cluster_size = "3"               # Minimum cluster size for HDBSCAN
     min_samples = None                   # Min samples for HDBSCAN (None = auto)
     cluster_selection_epsilon = "0.0"    # Cluster selection epsilon for HDBSCAN
     check_feature_presence = False        # Check feature presence in train-test splits

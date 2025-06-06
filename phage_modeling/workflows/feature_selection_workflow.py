@@ -43,6 +43,8 @@ def run_feature_selection_workflow(
     min_samples=None,
     cluster_selection_epsilon=0.0,
     check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
     max_ram=8):
     """
     Workflow for running feature selection iterations and generating feature tables.
@@ -102,6 +104,8 @@ def run_feature_selection_workflow(
         min_samples=min_samples,
         cluster_selection_epsilon=cluster_selection_epsilon,
         check_feature_presence=check_feature_presence,
+        filter_by_cluster_presence=filter_by_cluster_presence,
+        min_cluster_presence=min_cluster_presence,
         max_ram=max_ram,
     )
     
@@ -148,6 +152,8 @@ def main():
     parser.add_argument('--min_samples', help='Minimum number of samples for filtering.')
     parser.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering.')
     parser.add_argument('--check_feature_presence', action='store_true', help='If set, checks for presence of features during train-test split.')
+    parser.add_argument('--filter_by_cluster_presence', action='store_true', help='Filter features by cluster/group presence instead of train/test presence.')
+    parser.add_argument('--min_cluster_presence', type=int, default=2, help='Minimum number of clusters/groups a feature must be present in (default: 2).')
     parser.add_argument('--max_ram', type=int, default=8, help='Maximum amount of RAM to use in GB.')
 
     args = parser.parse_args()
@@ -176,6 +182,8 @@ def main():
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
         check_feature_presence=args.check_feature_presence,
+        filter_by_cluster_presence=args.filter_by_cluster_presence,
+        min_cluster_presence=args.min_cluster_presence,
         max_ram=args.max_ram
     )
 

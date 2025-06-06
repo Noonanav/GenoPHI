@@ -28,8 +28,8 @@ def main():
     partition = "lr7"                    # SLURM partition 
     qos = "lr_normal"                    # SLURM QOS
     environment = "phage_modeling"       # Conda environment name
-    mem_per_job = "120"                   # Memory per iteration job in GB
-    time_limit = "24:00:00"              # Time limit per iteration job
+    mem_per_job = "240"                   # Memory per iteration job in GB
+    time_limit = "36:00:00"              # Time limit per iteration job
     
     # =============================================
     # BOOTSTRAP VALIDATION PARAMETERS
@@ -54,7 +54,10 @@ def main():
     min_cluster_size = "5"               # Minimum cluster size for HDBSCAN
     min_samples = None                   # Min samples for HDBSCAN (None = auto)
     cluster_selection_epsilon = "0.0"    # Cluster selection epsilon for HDBSCAN
-    check_feature_presence = True        # Check feature presence in train-test splits
+    check_feature_presence = False        # Check feature presence in train-test splits
+    filter_by_cluster_presence = True    # Filter features by cluster presence across train/test
+    min_cluster_presence = "2"     
+    bootstrapping = True                  # Enable bootstrapping for feature selection
     
     # Prediction parameters
     duplicate_all = True                 # Duplicate all genomes in feature table for predictions
@@ -98,6 +101,7 @@ def main():
         "--n_clusters", n_clusters,
         "--min_cluster_size", min_cluster_size,
         "--cluster_selection_epsilon", cluster_selection_epsilon,
+        "--min_cluster_presence", min_cluster_presence,  
     ]
     
     # Add optional arguments
@@ -113,6 +117,10 @@ def main():
         cmd.append("--use_clustering")
     if check_feature_presence:
         cmd.append("--check_feature_presence")
+    if filter_by_cluster_presence:
+        cmd.append("--filter_by_cluster_presence")
+    if bootstrapping:
+        cmd.append("--bootstrapping")
     if duplicate_all:
         cmd.append("--duplicate_all")
     if dry_run:

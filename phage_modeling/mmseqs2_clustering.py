@@ -508,7 +508,7 @@ def feature_assignment(genome_assignments, selected_features, genome_column_name
     return assignment_df, feature_table
 
 
-def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', strain_column='strain', compare=False, clear_tmp=False):
+def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', strain_column='strain', compare=False, bootstrapping=False, clear_tmp=False):
     """
     Runs a full MMseqs2 clustering workflow including presence-absence matrix generation.
     
@@ -547,8 +547,12 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
     duplicate_found = detect_duplicate_ids(input_path, suffix, strains_to_process, input_type)
     if duplicate_found:
         if input_type == 'directory':
-            logging.info("Duplicate protein IDs found in input directory; modifying protein IDs.")
-            input_path = modify_duplicate_ids(input_path, output_dir, suffix, strains_to_process, strain_column)
+            if bootstrapping:
+                logging.info("Duplicate protein IDs found in input directory; modifying all protein IDs in the directory.")
+                input_path = modify_duplicate_ids(input_path, output_dir, suffix, None, strain_column)
+            else:
+                logging.info("Duplicate protein IDs found in input directory; modifying protein IDs.")
+                input_path = modify_duplicate_ids(input_path, output_dir, suffix, strains_to_process, strain_column)
         if input_type == 'file':
             logging.error("Duplicate protein IDs found in input file; please modify the IDs manually.")
             return

@@ -76,8 +76,10 @@ def filter_data(
     cluster_method='hdbscan',
     n_clusters=20,
     check_feature_presence=False,
-    ensure_balanced_split=True,  # New parameter to enable/disable this check
-    max_attempts=10,             # Maximum attempts to find a valid split
+    filter_by_cluster_presence=False,  # NEW: Filter features by cluster/group presence
+    min_cluster_presence=2,            # NEW: Minimum clusters/groups a feature must appear in
+    ensure_balanced_split=True,
+    max_attempts=10,
     **kwargs
 ):
     """
@@ -96,6 +98,8 @@ def filter_data(
         cluster_method (str): Clustering method to use when use_clustering=True. Options: 'hdbscan' or 'hierarchical'.
         n_clusters (int): Number of clusters for hierarchical clustering (default: 20).
         check_feature_presence (bool): If True, only include features present in both train and test sets.
+        filter_by_cluster_presence (bool): If True, only include features present in multiple clusters/groups.
+        min_cluster_presence (int): Minimum number of clusters/groups a feature must be present in (default: 2).
         ensure_balanced_split (bool): If True, ensures both train and test sets contain at least one positive sample.
                                      Only applies when y contains only 0s and 1s.
         max_attempts (int): Maximum number of attempts to find a valid split when ensure_balanced_split is True.
@@ -174,7 +178,9 @@ def filter_data(
         logging.warning(f"No feature columns found for clustering. Falling back to group-based split.")
         use_clustering = False
         return filter_data(X, y, full_feature_table, filter_type, random_state, sample_column, output_dir, 
-                          use_clustering=False, ensure_balanced_split=ensure_balanced_split)
+                          use_clustering=False, ensure_balanced_split=ensure_balanced_split,
+                          filter_by_cluster_presence=filter_by_cluster_presence, 
+                          min_cluster_presence=min_cluster_presence)
 
     # ---- 4️⃣ Apply Clustering Based on Selected Method ----
     if use_clustering:
@@ -240,8 +246,52 @@ def filter_data(
     else:
         group_col = filter_type  # Use original filter type column
 
+    # ---- NEW: Filter by Cluster/Group Presence if Requested ----
+    if filter_by_cluster_presence:
+        # Determine what to use as "groups" for filtering
+        if use_clustering and 'cluster' in full_feature_table.columns:
+            group_col_for_filtering = 'cluster'
+            logging.info(f"Filtering features by cluster presence (min_cluster_presence={min_cluster_presence})")
+        else:
+            group_col_for_filtering = filter_type
+            logging.info(f"Filtering features by {filter_type} group presence (min_group_presence={min_cluster_presence})")
+        
+        # Get feature columns that match those in X
+        feature_columns_for_filtering = [col for col in feature_columns if col in X.columns]
+        
+        if feature_columns_for_filtering:
+            # Create a matrix showing feature presence by group/cluster
+            group_feature_presence = full_feature_table.groupby(group_col_for_filtering)[feature_columns_for_filtering].apply(
+                lambda group: (group > 0).any()
+            )
+            
+            # Count how many groups/clusters each feature appears in
+            feature_group_counts = group_feature_presence.sum(axis=0)
+            
+            # Keep features that appear in at least min_cluster_presence groups/clusters
+            valid_features = feature_group_counts[feature_group_counts >= min_cluster_presence].index.tolist()
+            
+            # Filter X to only include valid features
+            original_feature_count = len(feature_columns_for_filtering)
+            X = X[valid_features]
+            
+            logging.info(f"Original features: {original_feature_count}")
+            logging.info(f"Features present in >= {min_cluster_presence} groups/clusters: {len(valid_features)}")
+            logging.info(f"Features removed: {original_feature_count - len(valid_features)}")
+        else:
+            logging.warning("No matching feature columns found for cluster/group-based filtering")
+
     # ---- 5️⃣ Perform Group-Based Splitting (Clustering or Normal) ----
     groups = full_feature_table[group_col].unique()
+
+    # Calculate group/cluster sizes for sample-based splitting
+    group_sizes = {}
+    for group in groups:
+        group_mask = full_feature_table[group_col] == group
+        group_sizes[group] = group_mask.sum()
+    
+    total_samples = sum(group_sizes.values())
+    target_train_size = int(0.8 * total_samples)
 
     if apply_balanced_split:
         # Track which groups contain positive samples
@@ -260,9 +310,20 @@ def filter_data(
         
         if len(positive_groups) < 2:
             logging.warning(f"Not enough groups with positive samples (found {len(positive_groups)}). Cannot ensure balanced split.")
-            # Fall back to random splitting
+            # CHANGED: Fall back to sample-based random splitting instead of cluster-count splitting
             np.random.seed(random_state)
-            train_groups = np.random.choice(groups, size=int(0.8 * len(groups)), replace=False)
+            all_groups = list(groups)
+            np.random.shuffle(all_groups)
+            
+            train_groups = []
+            current_train_size = 0
+            
+            for group in all_groups:
+                train_groups.append(group)
+                current_train_size += group_sizes[group]
+                if current_train_size >= target_train_size:
+                    break
+            
             test_groups = np.setdiff1d(groups, train_groups)
         else:
             # Try multiple random seeds to find a valid split
@@ -272,28 +333,29 @@ def filter_data(
                 current_seed = random_state * 1000 + attempt * 17
                 np.random.seed(current_seed)
                 
-                # Ensure at least one positive group in train and test
-                np.random.shuffle(positive_groups)
-                pos_train_groups = positive_groups[:max(1, int(0.8 * len(positive_groups)))]
-                pos_test_groups = np.setdiff1d(positive_groups, pos_train_groups)
+                # Sample-based splitting while ensuring positive groups in both sets
+                # Shuffle all groups to randomize selection order
+                all_groups = list(groups)
+                np.random.shuffle(all_groups)
                 
-                # Fill remaining train groups with other groups
-                remaining_groups = np.setdiff1d(groups, positive_groups)
-                if len(remaining_groups) > 0:
-                    other_train_count = int(0.8 * len(groups)) - len(pos_train_groups)
-                    if other_train_count > 0:
-                        other_train_groups = np.random.choice(
-                            remaining_groups, 
-                            size=min(other_train_count, len(remaining_groups)), 
-                            replace=False
-                        )
-                        train_groups = np.concatenate([pos_train_groups, other_train_groups])
-                    else:
-                        train_groups = pos_train_groups
-                else:
-                    train_groups = pos_train_groups
+                # Keep adding groups until we reach target, ensuring positive groups are distributed
+                train_groups = []
+                current_train_size = 0
+                used_positive_groups = []
+                
+                for group in all_groups:
+                    # Add the group
+                    train_groups.append(group)
+                    current_train_size += group_sizes[group]
+                    if group in positive_groups:
+                        used_positive_groups.append(group)
+                    
+                    # Stop when we reach target size
+                    if current_train_size >= target_train_size:
+                        break
                 
                 test_groups = np.setdiff1d(groups, train_groups)
+                remaining_positive_groups = np.setdiff1d(positive_groups, used_positive_groups)
                 
                 # Check that both sets will have positive samples
                 train_idx = full_feature_table[group_col].isin(train_groups)
@@ -310,9 +372,20 @@ def filter_data(
             if not found_valid_split:
                 logging.warning(f"Failed to find a valid group-based split after {max_attempts} attempts. Using last attempt.")
     else:
-        # Standard group-based split without ensuring positive samples
+        # Standard sample-based split without ensuring positive samples
         np.random.seed(random_state)
-        train_groups = np.random.choice(groups, size=int(0.8 * len(groups)), replace=False)
+        all_groups = list(groups)
+        np.random.shuffle(all_groups)
+        
+        train_groups = []
+        current_train_size = 0
+        
+        for group in all_groups:
+            train_groups.append(group)
+            current_train_size += group_sizes[group]
+            if current_train_size >= target_train_size:
+                break
+        
         test_groups = np.setdiff1d(groups, train_groups)
 
     train_idx = full_feature_table[group_col].isin(train_groups)
@@ -1179,6 +1252,8 @@ def run_feature_selection_iterations(
     min_samples=None,
     cluster_selection_epsilon=0.0,
     check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
     max_ram=8
 ):
     """
@@ -1235,7 +1310,9 @@ def run_feature_selection_iterations(
                 min_cluster_size=min_cluster_size,
                 min_samples=min_samples,
                 cluster_selection_epsilon=cluster_selection_epsilon,
-                check_feature_presence=check_feature_presence
+                check_feature_presence=check_feature_presence,
+                filter_by_cluster_presence=filter_by_cluster_presence,
+                min_cluster_presence=min_cluster_presence
             )
 
             if num_features == 'none':

@@ -99,34 +99,37 @@ def run_protein_family_workflow(
     threads=4, 
     strain_list='none', 
     phage_list='none', 
-     strain_column='strain', 
-     phage_column='phage', 
-     compare=False, 
-     source_strain='strain', 
-     source_phage='phage', 
-     num_features='none', 
-     filter_type='none', 
-     num_runs_fs=10, 
-     num_runs_modeling=10,
-     sample_column='strain', 
-     phenotype_column='interaction', 
-     method='rfe',
-     annotation_table_path=None, 
-     protein_id_col="protein_ID",
-     task_type='classification', 
-     max_features='none', 
-     max_ram=8, 
-     use_dynamic_weights=False, 
-     weights_method='log10',
-     use_clustering=True,
-     cluster_method='hdbscan',
-     n_clusters=20,
-     min_cluster_size=5,
-     min_samples=None,
-     cluster_selection_epsilon=0.0,
-     check_feature_presence=False,
-     use_shap=False, 
-     clear_tmp=False):
+    strain_column='strain', 
+    phage_column='phage', 
+    compare=False, 
+    source_strain='strain', 
+    source_phage='phage', 
+    num_features='none', 
+    filter_type='none', 
+    num_runs_fs=10, 
+    num_runs_modeling=10,
+    sample_column='strain', 
+    phenotype_column='interaction', 
+    method='rfe',
+    annotation_table_path=None, 
+    protein_id_col="protein_ID",
+    task_type='classification', 
+    max_features='none', 
+    max_ram=8, 
+    use_dynamic_weights=False, 
+    weights_method='log10',
+    use_clustering=True,
+    cluster_method='hdbscan',
+    n_clusters=20,
+    min_cluster_size=5,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2, 
+    use_shap=False, 
+    bootstrapping=False,
+    clear_tmp=False):
     """
     Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
     
@@ -229,7 +232,7 @@ def run_protein_family_workflow(
 
             run_clustering_workflow(input_path_strain, strain_output_dir, strain_tmp_dir, 
                                  min_seq_id, coverage, sensitivity, suffix, threads, 
-                                 strain_list, strain_column, compare, clear_tmp=False)
+                                 strain_list, strain_column, compare, bootstrapping, clear_tmp=False)
         
         if not os.path.exists(strain_features_path):
             run_feature_assignment(
@@ -278,7 +281,7 @@ def run_protein_family_workflow(
 
                 run_clustering_workflow(input_path_phage, phage_output_dir, phage_tmp_dir, 
                                      min_seq_id, coverage, sensitivity, suffix, threads, 
-                                     phage_list, phage_column, compare, clear_tmp=False)
+                                     phage_list, phage_column, compare, bootstrapping, clear_tmp=False)
 
             if not os.path.exists(phage_features_path):
                 run_feature_assignment(
@@ -355,6 +358,8 @@ def run_protein_family_workflow(
             min_samples=min_samples,
             cluster_selection_epsilon=cluster_selection_epsilon,
             check_feature_presence=check_feature_presence,
+            filter_by_cluster_presence=filter_by_cluster_presence,
+            min_cluster_presence=min_cluster_presence,
             max_ram=max_ram
         )
 
@@ -518,6 +523,8 @@ def main():
     optional_input_group.add_argument('--min_samples', type=int, help='Minimum number of samples for clustering (default: None).')
     optional_input_group.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering (default: 0.0).')
     optional_input_group.add_argument('--check_feature_presence', action='store_true', help='Check for presence of features during train-test split (default: False).')
+    optional_input_group.add_argument('--filter_by_cluster_presence', action='store_true', help='Filter features by cluster/group presence instead of train/test presence.')
+    optional_input_group.add_argument('--min_cluster_presence', type=int, default=2, help='Minimum number of clusters/groups a feature must be present in (default: 2).')
 
     # Output arguments
     output_group = parser.add_argument_group('Output arguments')
@@ -545,6 +552,7 @@ def main():
     general_group = parser.add_argument_group('General')
     general_group.add_argument('--threads', type=int, default=4, help='Number of threads to use (default: 4).')
     general_group.add_argument('--max_ram', type=float, default=8, help='Maximum RAM usage in GB for feature selection (default: 8).')
+    general_group.add_argument('--bootstrapping', action='store_true', help='Bootstrapping model performance (default: False).')
     
     args = parser.parse_args()
 
@@ -589,7 +597,10 @@ def main():
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
         check_feature_presence=args.check_feature_presence,
-        clear_tmp=args.clear_tmp
+        filter_by_cluster_presence=args.filter_by_cluster_presence,
+        min_cluster_presence=args.min_cluster_presence,
+        clear_tmp=args.clear_tmp,
+        bootstrapping=args.bootstrapping
     )
 
 if __name__ == "__main__":
