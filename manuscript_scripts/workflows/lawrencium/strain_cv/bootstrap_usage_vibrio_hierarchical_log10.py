@@ -47,7 +47,7 @@ def main():
     
     # Dynamic weights and clustering for feature selection
     use_dynamic_weights = True           # Use dynamic class weights
-    weights_method = "inverse_frequency"             # Weight calculation method ('log10', 'inverse_frequency', 'balanced')
+    weights_method = "log10"             # Weight calculation method ('log10', 'inverse_frequency', 'balanced')
     use_clustering = True                # Use clustering for feature selection
     cluster_method = "hierarchical"      # Clustering method ('hdbscan' or 'hierarchical')
     n_clusters = "20"                    # Number of clusters for hierarchical clustering

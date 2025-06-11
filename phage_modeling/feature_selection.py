@@ -271,13 +271,20 @@ def filter_data(
             # Keep features that appear in at least min_cluster_presence groups/clusters
             valid_features = feature_group_counts[feature_group_counts >= min_cluster_presence].index.tolist()
             
-            # Filter X to only include valid features
+            # Only filter features of the filter_type, keep all other features
             original_feature_count = len(feature_columns_for_filtering)
-            X = X[valid_features]
             
-            logging.info(f"Original features: {original_feature_count}")
-            logging.info(f"Features present in >= {min_cluster_presence} groups/clusters: {len(valid_features)}")
-            logging.info(f"Features removed: {original_feature_count - len(valid_features)}")
+            # Get all features that are NOT of the filter_type (e.g., keep phage features when filtering strain)
+            other_features = [col for col in X.columns if col not in feature_columns_for_filtering]
+            
+            # Combine valid filtered features with all other features
+            all_features_to_keep = valid_features + other_features
+            X = X[all_features_to_keep]
+            
+            logging.info(f"Original {filter_type} features: {original_feature_count}")
+            logging.info(f"{filter_type} features present in >= {min_cluster_presence} groups/clusters: {len(valid_features)}")
+            logging.info(f"{filter_type} features removed: {original_feature_count - len(valid_features)}")
+            logging.info(f"Other feature types kept: {len(other_features)}")
         else:
             logging.warning("No matching feature columns found for cluster/group-based filtering")
 
@@ -390,6 +397,52 @@ def filter_data(
 
     train_idx = full_feature_table[group_col].isin(train_groups)
     test_idx = full_feature_table[group_col].isin(test_groups)
+
+    # Post-splitting validation: ensure we have valid train/test sets
+    train_sample_count = train_idx.sum() if isinstance(train_idx, pd.Series) else len(train_idx)
+    test_sample_count = test_idx.sum() if isinstance(test_idx, pd.Series) else len(test_idx)
+
+    # Fallback to random split if group-based splitting produced invalid results
+    if train_sample_count == 0 or test_sample_count == 0 or test_sample_count < 2:
+        logging.warning(f"Group-based splitting produced invalid sets (train: {train_sample_count}, test: {test_sample_count}). "
+                    f"Falling back to random split to ensure valid train/test sets.")
+        
+        # Use the same balanced splitting logic as the random split section
+        if apply_balanced_split:
+            for attempt in range(max_attempts):
+                current_seed = random_state * 1000 + attempt * 17
+                X_train_temp, X_test_temp, y_train_temp, y_test_temp = train_test_split(
+                    X, y, test_size=0.2, random_state=current_seed
+                )
+                
+                # Check if both sets have positives
+                if y_train_temp.sum() > 0 and y_test_temp.sum() > 0:
+                    # Create boolean masks instead of using indices directly
+                    train_idx = pd.Series(False, index=full_feature_table.index)
+                    test_idx = pd.Series(False, index=full_feature_table.index)
+                    train_idx.loc[X_train_temp.index] = True
+                    test_idx.loc[X_test_temp.index] = True
+                    logging.info(f"Fallback random split successful on attempt {attempt+1}")
+                    break
+                
+                if attempt == max_attempts - 1:
+                    # Use last attempt even if not perfect
+                    train_idx = pd.Series(False, index=full_feature_table.index)
+                    test_idx = pd.Series(False, index=full_feature_table.index)
+                    train_idx.loc[X_train_temp.index] = True
+                    test_idx.loc[X_test_temp.index] = True
+                    logging.warning(f"Fallback random split used last attempt after {max_attempts} tries")
+        else:
+            # Simple random split for non-balanced case
+            X_train_temp, X_test_temp, y_train_temp, y_test_temp = train_test_split(
+                X, y, test_size=0.2, random_state=random_state
+            )
+            # Create boolean masks instead of using indices directly
+            train_idx = pd.Series(False, index=full_feature_table.index)
+            test_idx = pd.Series(False, index=full_feature_table.index)
+            train_idx.loc[X_train_temp.index] = True
+            test_idx.loc[X_test_temp.index] = True
+            logging.info("Fallback to simple random split successful")
 
     X_train = X[train_idx]
     X_test = X[test_idx]

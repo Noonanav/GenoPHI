@@ -12,10 +12,10 @@ def main():
     # =============================================
     # YOUR PATHS - EDIT THESE
     # =============================================
-    input_strain_dir = "/global/scratch/users/anoonan/BRaVE/kleb_Bea/strain_AAs"
-    input_phage_dir = "/global/scratch/users/anoonan/BRaVE/kleb_Bea/phage_AAs"
-    interaction_matrix = "/global/scratch/users/anoonan/BRaVE/kleb_Bea/kleb_beatriz_interaction_matrix_full.csv"
-    output_dir = "/global/scratch/users/anoonan/BRaVE/kleb_Bea/kleb_Bea_modeling_hierarchical_log10"
+    input_strain_dir = "/global/scratch/users/anoonan/BRaVE/pseudomonas/strain_AAs"
+    input_phage_dir = "/global/scratch/users/anoonan/BRaVE/pseudomonas/phage_AAs"
+    interaction_matrix = "/global/scratch/users/anoonan/BRaVE/pseudomonas/pseudo_anarita_matrix_long.csv"
+    output_dir = "/global/scratch/users/anoonan/BRaVE/pseudomonas/pseudomonas_modeling_hierarchical_log10"
     
     # Optional: Use existing clustering results to speed up workflow
     clustering_dir = None  # Set to path if you have pre-computed clustering results
@@ -47,7 +47,7 @@ def main():
     
     # Dynamic weights and clustering for feature selection
     use_dynamic_weights = True           # Use dynamic class weights
-    weights_method = "inverse_frequency"             # Weight calculation method ('log10', 'inverse_frequency', 'balanced')
+    weights_method = "log10"             # Weight calculation method ('log10', 'inverse_frequency', 'balanced')
     use_clustering = True                # Use clustering for feature selection
     cluster_method = "hierarchical"      # Clustering method ('hdbscan' or 'hierarchical')
     n_clusters = "20"                    # Number of clusters for hierarchical clustering

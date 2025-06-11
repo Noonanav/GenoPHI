@@ -12,10 +12,10 @@ def main():
     # =============================================
     # YOUR PATHS - EDIT THESE
     # =============================================
-    input_strain_dir = "/global/scratch/users/anoonan/BRaVE/ecoli/strain_AAs"
-    input_phage_dir = "/global/scratch/users/anoonan/BRaVE/ecoli/phage_AAs"
-    interaction_matrix = "/global/scratch/users/anoonan/BRaVE/ecoli/Gaborieau_interaction_matrix_long_mod.csv"
-    output_dir = "/global/scratch/users/anoonan/BRaVE/ecoli/ecoli_modeling_hierarchical"
+    input_strain_dir = "/global/scratch/users/anoonan/BRaVE/kleb_Bea/strain_AAs"
+    input_phage_dir = "/global/scratch/users/anoonan/BRaVE/kleb_Bea/phage_AAs"
+    interaction_matrix = "/global/scratch/users/anoonan/BRaVE/kleb_Bea/kleb_beatriz_interaction_matrix_full.csv"
+    output_dir = "/global/scratch/users/anoonan/BRaVE/kleb_Bea/kleb_Bea_modeling_hierarchical_log10"
     
     # Optional: Use existing clustering results to speed up workflow
     clustering_dir = None  # Set to path if you have pre-computed clustering results
@@ -49,7 +49,7 @@ def main():
     use_dynamic_weights = True           # Use dynamic class weights
     weights_method = "log10"             # Weight calculation method ('log10', 'inverse_frequency', 'balanced')
     use_clustering = True                # Use clustering for feature selection
-    cluster_method = "hdbscan"      # Clustering method ('hdbscan' or 'hierarchical')
+    cluster_method = "hierarchical"      # Clustering method ('hdbscan' or 'hierarchical')
     n_clusters = "20"                    # Number of clusters for hierarchical clustering
     min_cluster_size = "3"               # Minimum cluster size for HDBSCAN
     min_samples = None                   # Min samples for HDBSCAN (None = auto)
