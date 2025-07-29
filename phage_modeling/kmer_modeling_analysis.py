@@ -399,6 +399,9 @@ def plot_segments(segment_summary_df, output_dir):
         group['protein_ID'] = pd.Categorical(group['protein_ID'], categories=reordered_protein_ids, ordered=True)
         group = group.sort_values('protein_ID')
 
+        total_protein_count = group['protein_ID'].nunique()
+        plot_height = min(20, total_protein_count * 0.5)  # Dynamic height based on number of proteins
+
         # Plot segments with reordered protein IDs
         plot = (
             ggplot() +
@@ -421,7 +424,7 @@ def plot_segments(segment_summary_df, output_dir):
             theme(
                 axis_text_x=element_text(rotation=90),
                 panel_background=element_rect(fill='white'),
-                figure_size=(15, 8)
+                figure_size=(12, plot_height),
             )
         )
         

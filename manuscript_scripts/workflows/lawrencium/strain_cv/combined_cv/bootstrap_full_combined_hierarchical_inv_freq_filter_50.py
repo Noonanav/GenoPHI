@@ -14,8 +14,8 @@ def main():
     # =============================================
     input_strain_dir = "/global/scratch/users/anoonan/BRaVE/full_combined/strain_AAs"
     input_phage_dir = "/global/scratch/users/anoonan/BRaVE/full_combined/phage_AAs"
-    interaction_matrix = "/global/scratch/users/anoonan/BRaVE/full_combined/combined_interactions.csv"
-    output_dir = "/global/scratch/users/anoonan/BRaVE/full_combined/bootstrapping/inverse_frequency_hierarchical_filter_50"
+    interaction_matrix = "/global/scratch/users/anoonan/BRaVE/full_combined/full_interactions_vibrio.csv"
+    output_dir = "/global/scratch/users/anoonan/BRaVE/full_combined/bootstrapping/inverse_frequency_hierarchical_filter_50_vibrio"
     
     # Optional: Use existing clustering results to speed up workflow
     clustering_dir = None  # Set to path if you have pre-computed clustering results

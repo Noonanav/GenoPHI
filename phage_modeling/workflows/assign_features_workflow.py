@@ -153,6 +153,7 @@ def map_features(best_hits_tsv, feature_map, genome_contig_mapping, genome_type)
     genome_contig_mapping_df = pd.DataFrame(list(genome_contig_mapping.items()), columns=['contig_id', genome_type])
 
     merged_df = best_hits_df.merge(feature_mapping, left_on='Cluster', right_on='Cluster_Label')
+    merged_df['Query'] = merged_df['Query'].astype(str)
     merged_df = merged_df.merge(genome_contig_mapping_df, left_on='Query', right_on='contig_id')
 
     feature_presence = merged_df.pivot_table(index=genome_type, columns='Feature', aggfunc='size', fill_value=0)

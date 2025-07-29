@@ -39,6 +39,7 @@ def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None,
         raise ValueError("Input data is empty.")
     
     full_feature_table = full_feature_table.dropna()
+    full_feature_table = full_feature_table.reset_index(drop=True)
 
     # Prepare the feature set and drop unnecessary columns
     drop_columns = ['strain', 'phage', 'interaction', 'header', 'contig_id', 'orf_ko', filter_type]
@@ -232,9 +233,30 @@ def filter_data(
         # Assign clusters to samples
         filter_type_feature_table["cluster"] = cluster_labels
         print(f"Number of clusters for splitting: {len(filter_type_feature_table['cluster'].unique())}")
-        full_feature_table = full_feature_table.merge(
-            filter_type_feature_table[[filter_type, "cluster"]], on=filter_type, how="left"
-        )
+        
+        # Create mapping dictionary with validation
+        try:
+            cluster_mapping = dict(zip(filter_type_feature_table[filter_type], 
+                                    filter_type_feature_table["cluster"]))
+            logging.info(f"Created cluster mapping for {len(cluster_mapping)} {filter_type} groups")
+            
+            # Apply mapping to add cluster column
+            full_feature_table["cluster"] = full_feature_table[filter_type].map(cluster_mapping)
+            
+            # Validate mapping success
+            unmapped_rows = full_feature_table["cluster"].isna()
+            if unmapped_rows.any():
+                unmapped_count = unmapped_rows.sum()
+                unmapped_values = full_feature_table.loc[unmapped_rows, filter_type].unique()
+                logging.error(f"Failed to map {unmapped_count} rows to clusters. "
+                            f"Unmapped {filter_type} values: {unmapped_values}")
+                raise ValueError(f"Cluster mapping failed for {unmapped_count} rows")
+            
+            logging.info("Cluster mapping completed successfully")
+            
+        except Exception as e:
+            logging.error(f"Error during cluster mapping: {e}")
+            raise
 
         if output_dir:
             cluster_file = os.path.join(output_dir, f"{filter_type}_clusters.csv")
