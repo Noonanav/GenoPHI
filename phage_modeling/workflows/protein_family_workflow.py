@@ -133,7 +133,11 @@ def run_protein_family_workflow(
     use_feature_clustering=False,
     feature_cluster_method='hierarchical',
     feature_n_clusters=20,
-    feature_min_cluster_presence=2
+    feature_min_cluster_presence=2,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3
 ):
     """
     Complete workflow: Feature table generation, feature selection, modeling, and predictive proteins extraction.
@@ -373,6 +377,10 @@ def run_protein_family_workflow(
             check_feature_presence=check_feature_presence,
             filter_by_cluster_presence=filter_by_cluster_presence,
             min_cluster_presence=min_cluster_presence,
+            use_augmentation=use_augmentation,
+            augmentation_strain_fraction=augmentation_strain_fraction,
+            augmentation_phage_fraction=augmentation_phage_fraction,
+            augmentation_fold_increase=augmentation_fold_increase,
             max_ram=max_ram
         )
 
@@ -412,7 +420,11 @@ def run_protein_family_workflow(
             min_cluster_size=min_cluster_size,
             min_samples=min_samples,
             cluster_selection_epsilon=cluster_selection_epsilon,
-            use_shap=use_shap
+            use_shap=use_shap,
+            use_augmentation=use_augmentation,
+            augmentation_strain_fraction=augmentation_strain_fraction,
+            augmentation_phage_fraction=augmentation_phage_fraction,
+            augmentation_fold_increase=augmentation_fold_increase
         )
 
         logging.info("Step 5: Selecting top-performing cutoff and running predictive proteins workflow...")
@@ -571,6 +583,13 @@ def main():
     fs_modeling_group.add_argument('--task_type', type=str, default='classification', choices=['classification', 'regression'], help="Task type for modeling ('classification' or 'regression').")
     fs_modeling_group.add_argument('--max_features', default='none', help='Maximum number of features to include in the feature tables.')
 
+    # Augmentation parameters
+    augmentation_group = parser.add_argument_group('Augmentation')
+    augmentation_group.add_argument('--use_augmentation', action='store_true', help='Enable data augmentation for feature selection and modeling.')
+    augmentation_group.add_argument('--augmentation_strain_fraction', type=float, default=0.01, help='Fraction of strain data to augment (default: 0.01).')
+    augmentation_group.add_argument('--augmentation_phage_fraction', type=float, default=0.01, help='Fraction of phage data to augment (default: 0.01).')
+    augmentation_group.add_argument('--augmentation_fold_increase', type=int, default=3, help='Fold increase in data size due to augmentation (default: 3).')
+
     # General parameters
     general_group = parser.add_argument_group('General')
     general_group.add_argument('--threads', type=int, default=4, help='Number of threads to use (default: 4).')
@@ -627,7 +646,11 @@ def main():
         use_feature_clustering=args.use_feature_clustering,
         feature_cluster_method=args.feature_cluster_method,
         feature_n_clusters=args.feature_n_clusters,
-        feature_min_cluster_presence=args.feature_min_cluster_presence
+        feature_min_cluster_presence=args.feature_min_cluster_presence,
+        use_augmentation=args.use_augmentation,
+        augmentation_strain_fraction=args.augmentation_strain_fraction,
+        augmentation_phage_fraction=args.augmentation_phage_fraction,
+        augmentation_fold_increase=args.augmentation_fold_increase
     )
 
 if __name__ == "__main__":

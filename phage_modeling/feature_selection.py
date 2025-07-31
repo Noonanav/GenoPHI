@@ -65,6 +65,105 @@ def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None,
     
     return X, y, full_feature_table
 
+def augment_feature_table(feature_table, strain_column='strain', phage_column=None, 
+                         strain_feature_fraction=0.01, phage_feature_fraction=0.01,
+                         fold_increase=3, random_state=42):
+    """
+    Augments feature table by randomly switching strain and phage features from 1 to 0.
+    
+    Args:
+        feature_table (DataFrame): Full feature table with strain and interaction data.
+        strain_column (str): Column name for strain identifier (default: 'strain').
+        phage_column (str or None): Column name for phage identifier (default: None).
+        strain_feature_fraction (float): Fraction of active strain features to modify (default: 0.01).
+        phage_feature_fraction (float): Fraction of active phage features to modify (default: 0.01).
+        fold_increase (int): Number of augmented copies to create per original sample (default: 3).
+        random_state (int): Random seed for reproducibility (default: 42).
+        
+    Returns:
+        DataFrame: Original data concatenated with augmented samples.
+    """
+    if fold_increase <= 0:
+        logging.warning("Fold increase must be positive. Returning original data.")
+        return feature_table.copy()
+    
+    logging.info(f"Augmenting dataset with {fold_increase}x increase, modifying {strain_feature_fraction:.1%} strain features" + 
+                (f" and {phage_feature_fraction:.1%} phage features" if phage_column else ""))
+    
+    # Identify feature columns
+    strain_features = [col for col in feature_table.columns if col.startswith('sc_')]
+    phage_features = [col for col in feature_table.columns if col.startswith('pc_')] if phage_column else []
+    
+    logging.info(f"Found {len(strain_features)} strain features" + 
+                (f" and {len(phage_features)} phage features" if phage_column else "") + " for augmentation")
+    
+    if not strain_features and not phage_features:
+        logging.warning("No features found for augmentation. Returning original data.")
+        return feature_table.copy()
+    
+    original_size = len(feature_table)
+    augmented_datasets = [feature_table]  # Start with original
+    
+    # Process each fold
+    for fold in range(fold_increase):
+        fold_seed = random_state * 1000 + fold * 100
+        np.random.seed(fold_seed)
+        
+        augmented_rows = []
+        
+        for idx, row in feature_table.iterrows():
+            augmented_row = row.copy()
+            features_modified = False
+            
+            # Process strain features
+            if strain_features:
+                active_strain_features = [col for col in strain_features if row[col] == 1]
+                if active_strain_features:
+                    n_strain_to_modify = max(1, int(len(active_strain_features) * strain_feature_fraction))
+                    n_strain_to_modify = min(n_strain_to_modify, len(active_strain_features))
+                    
+                    if n_strain_to_modify > 0:
+                        strain_to_flip = np.random.choice(
+                            active_strain_features, 
+                            size=n_strain_to_modify, 
+                            replace=False
+                        )
+                        for feature in strain_to_flip:
+                            augmented_row[feature] = 0
+                        features_modified = True
+            
+            # Process phage features
+            if phage_column and phage_features:
+                active_phage_features = [col for col in phage_features if row[col] == 1]
+                if active_phage_features:
+                    n_phage_to_modify = max(1, int(len(active_phage_features) * phage_feature_fraction))
+                    n_phage_to_modify = min(n_phage_to_modify, len(active_phage_features))
+                    
+                    if n_phage_to_modify > 0:
+                        phage_to_flip = np.random.choice(
+                            active_phage_features, 
+                            size=n_phage_to_modify, 
+                            replace=False
+                        )
+                        for feature in phage_to_flip:
+                            augmented_row[feature] = 0
+                        features_modified = True
+            
+            # Include sample (modified or original)
+            augmented_rows.append(augmented_row)
+        
+        if augmented_rows:
+            augmented_df = pd.DataFrame(augmented_rows)
+            augmented_datasets.append(augmented_df)
+            logging.info(f"Generated augmentation fold {fold + 1}/{fold_increase} with {len(augmented_df)} samples")
+    
+    # Combine all datasets
+    final_dataset = pd.concat(augmented_datasets, ignore_index=True)
+    
+    logging.info(f"Augmentation complete: {original_size} original samples expanded to {len(final_dataset)} total samples")
+    
+    return final_dataset
+
 # Function to filter the data based on strain or phage
 def filter_data(
     X, y, 
@@ -77,15 +176,20 @@ def filter_data(
     cluster_method='hdbscan',
     n_clusters=20,
     check_feature_presence=False,
-    filter_by_cluster_presence=False,  # NEW: Filter features by cluster/group presence
-    min_cluster_presence=2,            # NEW: Minimum clusters/groups a feature must appear in
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
     ensure_balanced_split=True,
     max_attempts=10,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3,
     **kwargs
 ):
     """
     Filters the data by strain or phage and splits into training and testing sets. 
     If use_clustering=True, it first clusters based on feature content before splitting.
+    Now supports optional data augmentation applied to training data only after splitting.
 
     Args:
         X (DataFrame): Features.
@@ -102,8 +206,11 @@ def filter_data(
         filter_by_cluster_presence (bool): If True, only include features present in multiple clusters/groups.
         min_cluster_presence (int): Minimum number of clusters/groups a feature must be present in (default: 2).
         ensure_balanced_split (bool): If True, ensures both train and test sets contain at least one positive sample.
-                                     Only applies when y contains only 0s and 1s.
         max_attempts (int): Maximum number of attempts to find a valid split when ensure_balanced_split is True.
+        use_augmentation (bool): Whether to apply data augmentation to training data only (default: False).
+        augmentation_strain_fraction (float): Fraction of active strain features to modify during augmentation (default: 0.01).
+        augmentation_phage_fraction (float): Fraction of active phage features to modify during augmentation (default: 0.01).
+        augmentation_fold_increase (int): Number of augmented copies to create per original sample (default: 3).
         **kwargs: Additional parameters for the clustering method.
 
     Returns:
@@ -151,6 +258,56 @@ def filter_data(
         X_test_sample_ids = full_feature_table.loc[test_idx, meta_columns]
         X_train_sample_ids = full_feature_table.loc[train_idx, meta_columns]
 
+        # AUGMENTATION BLOCK - only for training data after split
+        if use_augmentation:
+            logging.info("Applying augmentation to training data only")
+            
+            # Get training subset of full_feature_table
+            train_full_table = full_feature_table.loc[train_idx]
+            
+            # Apply augmentation
+            phage_col = 'phage' if 'phage' in train_full_table.columns else None
+            augmented_train_table = augment_feature_table(
+                train_full_table,
+                strain_column=sample_column,
+                phage_column=phage_col,
+                strain_feature_fraction=augmentation_strain_fraction,
+                phage_feature_fraction=augmentation_phage_fraction,
+                fold_increase=augmentation_fold_increase,
+                random_state=random_state
+            )
+            
+            # Expand training data to match augmented table
+            original_train_indices = train_idx
+            augmented_train_indices = augmented_train_table.index
+            
+            # Create expanded training sets
+            X_train_expanded = pd.DataFrame(index=augmented_train_indices, columns=X_train.columns)
+            y_train_expanded = pd.Series(index=augmented_train_indices, dtype=y_train.dtype)
+            X_train_sample_ids_expanded = pd.DataFrame(index=augmented_train_indices, columns=X_train_sample_ids.columns)
+            
+            # Map augmented indices to original training data
+            num_original_train = len(original_train_indices)
+            for i, aug_idx in enumerate(augmented_train_indices):
+                orig_idx = original_train_indices[i % num_original_train]
+                X_train_expanded.loc[aug_idx] = X_train.loc[orig_idx]
+                y_train_expanded.loc[aug_idx] = y_train.loc[orig_idx]
+                X_train_sample_ids_expanded.loc[aug_idx] = X_train_sample_ids.loc[orig_idx]
+            
+            # Update feature values from augmented table
+            feature_cols = [col for col in X_train.columns if col.startswith(('sc_', 'pc_'))]
+            for col in feature_cols:
+                if col in augmented_train_table.columns:
+                    X_train_expanded[col] = augmented_train_table[col]
+            
+            # Replace training data (test data unchanged!)
+            X_train = X_train_expanded
+            y_train = y_train_expanded
+            X_train_sample_ids = X_train_sample_ids_expanded
+            
+            logging.info(f"Training set augmented from {num_original_train} to {len(X_train)} samples")
+            logging.info(f"Test set unchanged at {len(X_test)} samples")
+
         if check_feature_presence:
             # Find features present in both train and test sets
             train_features = (X_train > 0).any(axis=0)
@@ -181,7 +338,11 @@ def filter_data(
         return filter_data(X, y, full_feature_table, filter_type, random_state, sample_column, output_dir, 
                           use_clustering=False, ensure_balanced_split=ensure_balanced_split,
                           filter_by_cluster_presence=filter_by_cluster_presence, 
-                          min_cluster_presence=min_cluster_presence)
+                          min_cluster_presence=min_cluster_presence,
+                          use_augmentation=use_augmentation,
+                          augmentation_strain_fraction=augmentation_strain_fraction,
+                          augmentation_phage_fraction=augmentation_phage_fraction,
+                          augmentation_fold_increase=augmentation_fold_increase)
 
     # ---- 4️⃣ Apply Clustering Based on Selected Method ----
     if use_clustering:
@@ -268,7 +429,7 @@ def filter_data(
     else:
         group_col = filter_type  # Use original filter type column
 
-    # ---- NEW: Filter by Cluster/Group Presence if Requested ----
+    # ---- 5️⃣ Filter by Cluster/Group Presence if Requested ----
     if filter_by_cluster_presence:
         # Determine what to use as "groups" for filtering
         if use_clustering and 'cluster' in full_feature_table.columns:
@@ -310,7 +471,7 @@ def filter_data(
         else:
             logging.warning("No matching feature columns found for cluster/group-based filtering")
 
-    # ---- 5️⃣ Perform Group-Based Splitting (Clustering or Normal) ----
+    # ---- 6️⃣ Perform Group-Based Splitting (Clustering or Normal) ----
     groups = full_feature_table[group_col].unique()
 
     # Calculate group/cluster sizes for sample-based splitting
@@ -480,7 +641,64 @@ def filter_data(
         logging.info(f"Train set distribution: min={y_train.min()}, mean={y_train.mean():.2f}, max={y_train.max()}")
         logging.info(f"Test set distribution: min={y_test.min()}, mean={y_test.mean():.2f}, max={y_test.max()}")
 
-    # ---- 6️⃣ Check Feature Presence if Requested ----
+    # ---- 7️⃣ Prepare Metadata for Train/Test Sets ----
+    meta_columns = [sample_column]
+    if 'phage' in full_feature_table.columns:
+        meta_columns.append('phage')
+    X_test_sample_ids = full_feature_table.loc[test_idx, meta_columns]
+    X_train_sample_ids = full_feature_table.loc[train_idx, meta_columns]
+
+    # ---- 8️⃣ AUGMENTATION BLOCK - only for training data after clustering split ----
+    if use_augmentation:
+        logging.info("Applying augmentation to training data only")
+        
+        # Get training subset of full_feature_table
+        train_full_table = full_feature_table.loc[train_idx]
+        
+        # Apply augmentation
+        phage_col = 'phage' if 'phage' in train_full_table.columns else None
+        augmented_train_table = augment_feature_table(
+            train_full_table,
+            strain_column=sample_column,
+            phage_column=phage_col,
+            strain_feature_fraction=augmentation_strain_fraction,
+            phage_feature_fraction=augmentation_phage_fraction,
+            fold_increase=augmentation_fold_increase,
+            random_state=random_state
+        )
+        
+        # Expand training data to match augmented table
+        original_train_indices = train_idx
+        augmented_train_indices = augmented_train_table.index
+        
+        # Create expanded training sets
+        X_train_expanded = pd.DataFrame(index=augmented_train_indices, columns=X_train.columns)
+        y_train_expanded = pd.Series(index=augmented_train_indices, dtype=y_train.dtype)
+        X_train_sample_ids_expanded = pd.DataFrame(index=augmented_train_indices, columns=X_train_sample_ids.columns)
+        
+        # Map augmented indices to original training data
+        num_original_train = len(original_train_indices)
+        for i, aug_idx in enumerate(augmented_train_indices):
+            orig_idx = original_train_indices[i % num_original_train]
+            X_train_expanded.loc[aug_idx] = X_train.loc[orig_idx]
+            y_train_expanded.loc[aug_idx] = y_train.loc[orig_idx]
+            X_train_sample_ids_expanded.loc[aug_idx] = X_train_sample_ids.loc[orig_idx]
+        
+        # Update feature values from augmented table
+        feature_cols = [col for col in X_train.columns if col.startswith(('sc_', 'pc_'))]
+        for col in feature_cols:
+            if col in augmented_train_table.columns:
+                X_train_expanded[col] = augmented_train_table[col]
+        
+        # Replace training data (test data unchanged!)
+        X_train = X_train_expanded
+        y_train = y_train_expanded
+        X_train_sample_ids = X_train_sample_ids_expanded
+        
+        logging.info(f"Training set augmented from {num_original_train} to {len(X_train)} samples")
+        logging.info(f"Test set unchanged at {len(X_test)} samples")
+
+    # ---- 9️⃣ Check Feature Presence if Requested ----
     if check_feature_presence:
         # Find features present in both train and test sets
         train_features = (X_train > 0).any(axis=0)
@@ -495,14 +713,7 @@ def filter_data(
         logging.info(f"Features present in both sets: {common_features.sum()}")
         logging.info(f"Features removed: {len(train_features) - common_features.sum()}")
 
-    # ---- 7️⃣ Prepare Metadata for Train/Test Sets ----
-    meta_columns = [sample_column]
-    if 'phage' in full_feature_table.columns:
-        meta_columns.append('phage')
-    X_test_sample_ids = full_feature_table.loc[test_idx, meta_columns]
-    X_train_sample_ids = full_feature_table.loc[train_idx, meta_columns]
-
-    # ---- 8️⃣ Check for Valid Training Set ----
+    # ---- 🔟 Check for Valid Training Set ----
     unique_values = y_train.nunique()
     if unique_values < 2:
         logging.warning(
@@ -1329,6 +1540,10 @@ def run_feature_selection_iterations(
     check_feature_presence=False,
     filter_by_cluster_presence=False,
     min_cluster_presence=2,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3,
     max_ram=8
 ):
     """
@@ -1387,7 +1602,11 @@ def run_feature_selection_iterations(
                 cluster_selection_epsilon=cluster_selection_epsilon,
                 check_feature_presence=check_feature_presence,
                 filter_by_cluster_presence=filter_by_cluster_presence,
-                min_cluster_presence=min_cluster_presence
+                min_cluster_presence=min_cluster_presence,
+                use_augmentation=use_augmentation,
+                augmentation_strain_fraction=augmentation_strain_fraction,
+                augmentation_phage_fraction=augmentation_phage_fraction,
+                augmentation_fold_increase=augmentation_fold_increase,
             )
 
             if num_features == 'none':

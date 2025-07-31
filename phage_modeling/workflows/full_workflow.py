@@ -129,7 +129,11 @@ def run_full_workflow(
     use_feature_clustering=False,
     feature_cluster_method='hierarchical',
     feature_n_clusters=20,
-    feature_min_cluster_presence=2
+    feature_min_cluster_presence=2,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3
 ):
     os.makedirs(output, exist_ok=True)
     setup_logging(output)
@@ -191,7 +195,12 @@ def run_full_workflow(
                                                         use_feature_clustering=use_feature_clustering,
                                                         feature_cluster_method=feature_cluster_method,
                                                         feature_n_clusters=feature_n_clusters,
-                                                        feature_min_cluster_presence=feature_min_cluster_presence)
+                                                        feature_min_cluster_presence=feature_min_cluster_presence,
+                                                        use_augmentation=use_augmentation,
+                                                        augmentation_strain_fraction=augmentation_strain_fraction,
+                                                        augmentation_phage_fraction=augmentation_phage_fraction,
+                                                        augmentation_fold_increase=augmentation_fold_increase)
+        logging.info("Protein family workflow completed.")
         write_section_report("Protein_Family_Workflow", metrics['protein_family'], output)
     else:
         logging.info(f"Found existing metrics file: {metrics_file}. Skipping protein family workflow.")
@@ -264,7 +273,12 @@ def run_full_workflow(
                                                     use_feature_clustering=use_feature_clustering,
                                                     feature_cluster_method=feature_cluster_method,
                                                     feature_n_clusters=feature_n_clusters,
-                                                    feature_min_cluster_presence=feature_min_cluster_presence)
+                                                    feature_min_cluster_presence=feature_min_cluster_presence,
+                                                    use_augmentation=use_augmentation,
+                                                    augmentation_strain_fraction=augmentation_strain_fraction,
+                                                    augmentation_phage_fraction=augmentation_phage_fraction,
+                                                    augmentation_fold_increase=augmentation_fold_increase)
+    logging.info("K-mer feature table workflow completed.")
     write_section_report("Kmer_Workflow", metrics['kmer_workflow'], output)
 
     # Final combined report
@@ -347,6 +361,13 @@ def main():
     fs_modeling_group.add_argument('--filter_by_cluster_presence', action='store_true', help='Filter features by cluster/group presence instead of train/test presence.')
     fs_modeling_group.add_argument('--min_cluster_presence', type=int, default=2, help='Minimum number of clusters/groups a feature must be present in (default: 2).') 
 
+    # Augmentation parameters
+    augmentation_group = parser.add_argument_group('Augmentation parameters')
+    augmentation_group.add_argument('--use_augmentation', action='store_true', help='Enable data augmentation for strain and phage features.')
+    augmentation_group.add_argument('--augmentation_strain_fraction', type=float, default=0.01, help='Fraction of strain data to augment (default: 0.01).')
+    augmentation_group.add_argument('--augmentation_phage_fraction', type=float, default=0.01, help='Fraction of phage data to augment (default: 0.01).')
+    augmentation_group.add_argument('--augmentation_fold_increase', type=int, default=3, help='Fold increase in data size after augmentation (default: 3).')
+
     # General parameters
     general_group = parser.add_argument_group('General')
     general_group.add_argument('--threads', type=int, default=4, help='Number of threads to use (default: 4).')
@@ -412,7 +433,11 @@ def main():
         use_feature_clustering=args.use_feature_clustering,
         feature_cluster_method=args.feature_cluster_method,
         feature_n_clusters=args.feature_n_clusters,
-        feature_min_cluster_presence=args.feature_min_cluster_presence
+        feature_min_cluster_presence=args.feature_min_cluster_presence,
+        use_augmentation=args.use_augmentation,
+        augmentation_strain_fraction=args.augmentation_strain_fraction,
+        augmentation_phage_fraction=args.augmentation_phage_fraction,
+        augmentation_fold_increase=args.augmentation_fold_increase
     )
 
 if __name__ == "__main__":

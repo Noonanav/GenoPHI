@@ -67,7 +67,11 @@ def run_modeling_workflow_from_feature_table(
     filter_by_cluster_presence=False,
     min_cluster_presence=2,
     max_ram=8, 
-    use_shap=False
+    use_shap=False,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3
 ):
     """
     Workflow for feature selection, modeling, and predictive protein extraction starting from a pre-generated full feature table.
@@ -136,7 +140,11 @@ def run_modeling_workflow_from_feature_table(
         cluster_selection_epsilon=cluster_selection_epsilon,
         check_feature_presence=check_feature_presence,
         filter_by_cluster_presence=filter_by_cluster_presence,
-        min_cluster_presence=min_cluster_presence
+        min_cluster_presence=min_cluster_presence,
+        use_augmentation=use_augmentation,
+        augmentation_strain_fraction=augmentation_strain_fraction,
+        augmentation_phage_fraction=augmentation_phage_fraction,
+        augmentation_fold_increase=augmentation_fold_increase
     )
 
     # Step 2: Generate feature tables from feature selection results
@@ -178,7 +186,11 @@ def run_modeling_workflow_from_feature_table(
         min_samples=min_samples,
         cluster_selection_epsilon=cluster_selection_epsilon,
         max_ram=max_ram,
-        use_shap=use_shap
+        use_shap=use_shap,
+        use_augmentation=use_augmentation,
+        augmentation_strain_fraction=augmentation_strain_fraction,
+        augmentation_phage_fraction=augmentation_phage_fraction,
+        augmentation_fold_increase=augmentation_fold_increase
     )
 
     # Conditional Step 4: Predictive Proteins Workflow
@@ -281,6 +293,13 @@ def main():
     optional_columns_group.add_argument('--phenotype_column', type=str, default='interaction', help='Column name for the phenotype (optional).')
     optional_columns_group.add_argument('--phage_column', type=str, default='phage', help='Column name for the phage identifier (optional).')
 
+    # Augmentation parameters
+    augmentation_group = parser.add_argument_group('Augmentation parameters')
+    augmentation_group.add_argument('--use_augmentation', action='store_true', help='Enable data augmentation for feature selection and modeling.')
+    augmentation_group.add_argument('--augmentation_strain_fraction', type=float, default=0.01, help='Fraction of strain data to augment (default: 0.01).')
+    augmentation_group.add_argument('--augmentation_phage_fraction', type=float, default=0.01, help='Fraction of phage data to augment (default: 0.01).')
+    augmentation_group.add_argument('--augmentation_fold_increase', type=int, default=3, help='Fold increase in data size due to augmentation (default: 3).')
+
     # General parameters
     general_group = parser.add_argument_group('General')
     general_group.add_argument('--threads', type=int, default=4, help='Number of threads to use (default: 4).')
@@ -325,7 +344,11 @@ def main():
         filter_by_cluster_presence=args.filter_by_cluster_presence,
         min_cluster_presence=args.min_cluster_presence,
         max_ram=args.max_ram,
-        use_shap=args.use_shap
+        use_shap=args.use_shap,
+        use_augmentation=args.use_augmentation,
+        augmentation_strain_fraction=args.augmentation_strain_fraction,
+        augmentation_phage_fraction=args.augmentation_phage_fraction,
+        augmentation_fold_increase=args.augmentation_fold_increase
     )
 
 if __name__ == "__main__":

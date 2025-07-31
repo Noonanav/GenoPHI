@@ -90,7 +90,11 @@ def model_testing_select_MCC(
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
-    use_shap=False
+    use_shap=False,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3
 ):
     """
     Runs a single experiment for feature table, training a CatBoost model with grid search and saving results.
@@ -123,7 +127,11 @@ def model_testing_select_MCC(
         n_clusters=n_clusters,
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
-        cluster_selection_epsilon=cluster_selection_epsilon
+        cluster_selection_epsilon=cluster_selection_epsilon,
+        use_augmentation=use_augmentation,
+        augmentation_strain_fraction=augmentation_strain_fraction,
+        augmentation_phage_fraction=augmentation_phage_fraction,
+        augmentation_fold_increase=augmentation_fold_increase
     )
     print(f"Training data shape: {X_train.shape}, Testing data shape: {X_test.shape}")
 
@@ -512,7 +520,11 @@ def run_experiments(
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
-    use_shap=False
+    use_shap=False,
+    use_augmentation=False,
+    augmentation_strain_fraction=augmentation_strain_fraction,
+    augmentation_phage_fraction=augmentation_phage_fraction,
+    augmentation_fold_increase=augmentation_fold_increase,
 ):
     """
     Iterates through feature tables in a directory, running the model testing process for each.
@@ -597,7 +609,11 @@ def run_experiments(
                         min_cluster_size=min_cluster_size,
                         min_samples=min_samples,
                         cluster_selection_epsilon=cluster_selection_epsilon,
-                        use_shap=use_shap
+                        use_shap=use_shap,
+                        use_augmentation=use_augmentation,
+                        augmentation_strain_fraction=augmentation_strain_fraction,
+                        augmentation_phage_fraction=augmentation_phage_fraction,
+                        augmentation_fold_increase=augmentation_fold_increase
                     )
                 else:
                     logging.info(f"Model performance already saved to {model_performance_path}")

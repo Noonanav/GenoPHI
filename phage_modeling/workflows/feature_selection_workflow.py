@@ -45,6 +45,10 @@ def run_feature_selection_workflow(
     check_feature_presence=False,
     filter_by_cluster_presence=False,
     min_cluster_presence=2,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3,
     max_ram=8):
     """
     Workflow for running feature selection iterations and generating feature tables.
@@ -106,6 +110,10 @@ def run_feature_selection_workflow(
         check_feature_presence=check_feature_presence,
         filter_by_cluster_presence=filter_by_cluster_presence,
         min_cluster_presence=min_cluster_presence,
+        use_augmentation=use_augmentation,
+        augmentation_strain_fraction=augmentation_strain_fraction,
+        augmentation_phage_fraction=augmentation_phage_fraction,
+        augmentation_fold_increase=augmentation_fold_increase,
         max_ram=max_ram,
     )
     
@@ -154,6 +162,10 @@ def main():
     parser.add_argument('--check_feature_presence', action='store_true', help='If set, checks for presence of features during train-test split.')
     parser.add_argument('--filter_by_cluster_presence', action='store_true', help='Filter features by cluster/group presence instead of train/test presence.')
     parser.add_argument('--min_cluster_presence', type=int, default=2, help='Minimum number of clusters/groups a feature must be present in (default: 2).')
+    parser.add_argument('--use_augmentation', action='store_true', help='Enable data augmentation for training data')
+    parser.add_argument('--augmentation_strain_fraction', type=float, default=0.01, help='Fraction of strain features to modify (default: 0.01)')
+    parser.add_argument('--augmentation_phage_fraction', type=float, default=0.01, help='Fraction of phage features to modify (default: 0.01)')
+    parser.add_argument('--augmentation_fold_increase', type=int, default=3, help='Number of augmented copies per original sample (default: 3)')
     parser.add_argument('--max_ram', type=int, default=8, help='Maximum amount of RAM to use in GB.')
 
     args = parser.parse_args()
@@ -184,6 +196,10 @@ def main():
         check_feature_presence=args.check_feature_presence,
         filter_by_cluster_presence=args.filter_by_cluster_presence,
         min_cluster_presence=args.min_cluster_presence,
+        use_augmentation=args.use_augmentation,
+        augmentation_strain_fraction=args.augmentation_strain_fraction,
+        augmentation_phage_fraction=args.augmentation_phage_fraction,
+        augmentation_fold_increase=args.augmentation_fold_increase,
         max_ram=args.max_ram
     )
 

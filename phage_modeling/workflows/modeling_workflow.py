@@ -20,7 +20,11 @@ def run_modeling_workflow(
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
-    binary_data=False
+    binary_data=False,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3
 ):
     """
     Workflow to run experiments on selected feature tables using grid search and MCC/R2 optimization.
@@ -69,7 +73,11 @@ def run_modeling_workflow(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         cluster_selection_epsilon=cluster_selection_epsilon,
-        binary_data=binary_data
+        binary_data=binary_data,
+        use_augmentation=use_augmentation,
+        augmentation_strain_fraction=augmentation_strain_fraction,
+        augmentation_phage_fraction=augmentation_phage_fraction,
+        augmentation_fold_increase=augmentation_fold_increase
     )
 
 # Main function for CLI
@@ -93,6 +101,11 @@ def main():
     parser.add_argument('--min_samples', type=int, help='Minimum number of samples for clustering feature selection.')
     parser.add_argument('--cluster_selection_epsilon', type=float, default=0.0, help='Epsilon value for clustering feature selection.')
     parser.add_argument('--binary_data', action='store_true', help='If True, plot SHAP jitter plot with binary data.')
+    # Augmentation parameters
+    parser.add_argument('--use_augmentation', action='store_true', help='Enable data augmentation for feature selection and modeling.')
+    parser.add_argument('--augmentation_strain_fraction', type=float, default=0.01, help='Fraction of strain data to augment (default: 0.01).')
+    parser.add_argument('--augmentation_phage_fraction', type=float, default=0.01, help='Fraction of phage data to augment (default: 0.01).')
+    parser.add_argument('--augmentation_fold_increase', type=int, default=3, help='Fold increase in data size due to augmentation (default: 3).')
 
     args = parser.parse_args()
 
@@ -115,7 +128,11 @@ def main():
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
         cluster_selection_epsilon=args.cluster_selection_epsilon,
-        binary_data=args.binary_data
+        binary_data=args.binary_data,
+        use_augmentation=args.use_augmentation,
+        augmentation_strain_fraction=args.augmentation_strain_fraction,
+        augmentation_phage_fraction=args.augmentation_phage_fraction,
+        augmentation_fold_increase=args.augmentation_fold_increase
     )
 
 if __name__ == "__main__":

@@ -387,7 +387,11 @@ def run_kmer_table_workflow(
     use_feature_clustering=False,
     feature_cluster_method='hierarchical',
     feature_n_clusters=20,
-    feature_min_cluster_presence=2
+    feature_min_cluster_presence=2,
+    use_augmentation=False,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3
 ):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
@@ -429,6 +433,10 @@ def run_kmer_table_workflow(
         check_feature_presence (bool, optional): If True, only include features present in both train and test sets. Default is False.
         filter_by_cluster_presence (bool, optional): If True, filters features based on cluster presence. Default is False.
         min_cluster_presence (int, optional): Minimum number of clusters required for a feature to be included in the final table. Default is 2.
+        use_augmentation (bool, optional): If True, applies data augmentation to the feature tables. Default is False.
+        augmentation_strain_fraction (float, optional): Fraction of strain data to augment. Default is 0.01.
+        augmentation_phage_fraction (float, optional): Fraction of phage data to augment. Default is 0.01.
+        augmentation_fold_increase (int, optional): Factor by which to increase the dataset size through augmentation. Default is 3.
 
     Returns:
         None. Saves the final feature tables and optional modeling results to `output_dir`.
@@ -612,7 +620,11 @@ def run_kmer_table_workflow(
                 weights_method=weights_method,
                 check_feature_presence=check_feature_presence,
                 filter_by_cluster_presence=filter_by_cluster_presence,
-                min_cluster_presence=min_cluster_presence   
+                min_cluster_presence=min_cluster_presence,
+                use_augmentation=use_augmentation,
+                augmentation_strain_fraction=augmentation_strain_fraction,
+                augmentation_phage_fraction=augmentation_phage_fraction,
+                augmentation_fold_increase=augmentation_fold_increase
             )
     except Exception as e:
         logging.error(f"An error occurred: {e}")
@@ -698,6 +710,13 @@ def main():
     fs_modeling_group.add_argument('--filter_by_cluster_presence', action='store_true', help='Filter features by cluster/group presence instead of train/test presence.')
     fs_modeling_group.add_argument('--min_cluster_presence', type=int, default=2, help='Minimum number of clusters/groups a feature must be present in (default: 2).')
 
+    # Augmentation parameters
+    augmentation_group = parser.add_argument_group('Augmentation parameters')
+    augmentation_group.add_argument('--use_augmentation', action='store_true', help='Enable data augmentation for strain and phage features.')
+    augmentation_group.add_argument('--augmentation_strain_fraction', type=float, default=0.01, help='Fraction of strain data to augment (default: 0.01).')
+    augmentation_group.add_argument('--augmentation_phage_fraction', type=float, default=0.01, help='Fraction of phage data to augment (default: 0.01).')
+    augmentation_group.add_argument('--augmentation_fold_increase', type=int, default=3, help='Fold increase in data size after augmentation (default: 3).')
+
     # General parameters
     general_group = parser.add_argument_group('General')
     general_group.add_argument('--threads', type=int, default=4, help="Number of threads to use (default: 4).")
@@ -748,7 +767,11 @@ def main():
         use_feature_clustering=args.use_feature_clustering,
         feature_cluster_method=args.feature_cluster_method,
         feature_n_clusters=args.feature_n_clusters,
-        feature_min_cluster_presence=args.feature_min_cluster_presence
+        feature_min_cluster_presence=args.feature_min_cluster_presence,
+        use_augmentation=args.use_augmentation,
+        augmentation_strain_fraction=args.augmentation_strain_fraction,
+        augmentation_phage_fraction=args.augmentation_phage_fraction,
+        augmentation_fold_increase=args.augmentation_fold_increase
     )
 
 if __name__ == "__main__":
