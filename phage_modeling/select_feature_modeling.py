@@ -522,9 +522,9 @@ def run_experiments(
     cluster_selection_epsilon=0.0,
     use_shap=False,
     use_augmentation=False,
-    augmentation_strain_fraction=augmentation_strain_fraction,
-    augmentation_phage_fraction=augmentation_phage_fraction,
-    augmentation_fold_increase=augmentation_fold_increase,
+    augmentation_strain_fraction=0.01,
+    augmentation_phage_fraction=0.01,
+    augmentation_fold_increase=3
 ):
     """
     Iterates through feature tables in a directory, running the model testing process for each.

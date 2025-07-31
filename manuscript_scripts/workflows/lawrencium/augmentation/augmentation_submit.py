@@ -119,9 +119,9 @@ n_iterations={n_iterations}
 iteration_idx=$(( ($SLURM_ARRAY_TASK_ID - 1) / $n_fractions + 1 ))
 fraction_idx=$(( ($SLURM_ARRAY_TASK_ID - 1) % $n_fractions + 1 ))
 
-# Get actual iteration number and fraction value
-iteration=$(sed -n "${{iteration_idx}}p" {iterations_file})
-fraction=$(sed -n "${{fraction_idx}}p" {fractions_file})
+# Get actual iteration number and fraction value  
+iteration=$(sed -n "${iteration_idx}p" /{run_dir_abs}/valid_iterations.txt)
+fraction=$(sed -n "${fraction_idx}p" /{run_dir_abs}/augmentation_fractions.txt)
 
 echo "Processing iteration $iteration with augmentation fraction $fraction"
 
