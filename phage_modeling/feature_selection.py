@@ -291,7 +291,7 @@ def filter_data(
             for i, aug_idx in enumerate(augmented_train_indices):
                 orig_idx = original_train_indices[i % num_original_train]
                 X_train_expanded.loc[aug_idx] = X_train.loc[orig_idx]
-                y_train_expanded.loc[aug_idx] = y_train.loc[orig_idx]
+                y_train_expanded.loc[aug_idx] = int(y_train.loc[orig_idx])
                 X_train_sample_ids_expanded.loc[aug_idx] = X_train_sample_ids.loc[orig_idx]
             
             # Update feature values from augmented table
@@ -681,7 +681,7 @@ def filter_data(
         for i, aug_idx in enumerate(augmented_train_indices):
             orig_idx = original_train_indices[i % num_original_train]
             X_train_expanded.loc[aug_idx] = X_train.loc[orig_idx]
-            y_train_expanded.loc[aug_idx] = y_train.loc[orig_idx]
+            y_train_expanded.loc[aug_idx] = int(y_train.loc[orig_idx])
             X_train_sample_ids_expanded.loc[aug_idx] = X_train_sample_ids.loc[orig_idx]
         
         # Update feature values from augmented table

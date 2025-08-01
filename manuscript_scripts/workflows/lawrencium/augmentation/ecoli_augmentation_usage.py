@@ -32,7 +32,7 @@ def main():
     
     # Augmentation fractions to test
     fractions = [0.005, 0.01, 0.02, 0.05, 0.1]  # Different fractions to test
-    fold_increase = 3                            # Fold increase for augmentation
+    fold_increase = 4                            # Fold increase for augmentation
     
     # CV parameters (auto-detected if not specified)
     n_iterations = None                          # None = auto-detect from CV directory

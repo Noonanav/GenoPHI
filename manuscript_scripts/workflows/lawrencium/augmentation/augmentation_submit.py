@@ -81,6 +81,7 @@ def create_augmentation_job_array(args, run_dir, valid_iterations):
     
     # Get the absolute path to the script directory for imports
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    run_dir_abs = os.path.abspath(run_dir)
     
     # Calculate total tasks
     n_fractions = len(args.fractions)
@@ -120,8 +121,8 @@ iteration_idx=$(( ($SLURM_ARRAY_TASK_ID - 1) / $n_fractions + 1 ))
 fraction_idx=$(( ($SLURM_ARRAY_TASK_ID - 1) % $n_fractions + 1 ))
 
 # Get actual iteration number and fraction value  
-iteration=$(sed -n "${iteration_idx}p" /{run_dir_abs}/valid_iterations.txt)
-fraction=$(sed -n "${fraction_idx}p" /{run_dir_abs}/augmentation_fractions.txt)
+iteration=$(sed -n "${{iteration_idx}}p" {run_dir_abs}/valid_iterations.txt)
+fraction=$(sed -n "${{fraction_idx}}p" {run_dir_abs}/augmentation_fractions.txt)
 
 echo "Processing iteration $iteration with augmentation fraction $fraction"
 
@@ -193,9 +194,9 @@ try:
         max_features='none',
         max_ram={args.max_ram},
         use_dynamic_weights={args.use_dynamic_weights},
-        weights_method='{args.weights_method}',
+        weights_method=False,
         use_clustering={args.use_clustering},
-        cluster_method='{args.cluster_method}',
+        cluster_method='hierarchical',
         n_clusters={args.n_clusters},
         min_cluster_size={args.min_cluster_size},
         min_samples={args.min_samples if args.min_samples is not None else None},
@@ -207,7 +208,7 @@ try:
         augmentation_strain_fraction=fraction,
         augmentation_phage_fraction=fraction,
         augmentation_fold_increase={args.fold_increase},
-        run_predictive_proteins=False  # Skip predictive proteins for speed
+        run_predictive_proteins=False
     )
 except Exception as e:
     print(f'ERROR in modeling workflow: {{e}}')
@@ -284,7 +285,7 @@ try:
         sensitivity=7.5,
         coverage=0.8,
         min_seq_id=0.4,
-        duplicate_all={args.duplicate_all}
+        duplicate_all={str(args.duplicate_all)}
     )
 except Exception as e:
     print(f'ERROR in prediction workflow: {{e}}')
@@ -530,7 +531,7 @@ def main():
     parser.add_argument('--weights_method', type=str, default='log10', choices=['log10', 'inverse_frequency', 'balanced'], 
                        help="Method for calculating dynamic weights (default: log10)")
     parser.add_argument('--use_clustering', action='store_true', help="Use clustering for feature selection")
-    parser.add_argument('--cluster_method', type=str, default='hdbscan', choices=['hdbscan', 'hierarchical'], 
+    parser.add_argument('--cluster_method', type=str, default='hierarchical', choices=['hdbscan', 'hierarchical'], 
                        help="Clustering method (default: hdbscan)")
     parser.add_argument('--n_clusters', type=int, default=20, help="Number of clusters for hierarchical clustering (default: 20)")
     parser.add_argument('--min_cluster_size', type=int, default=2, help="Minimum cluster size (default: 2)")
