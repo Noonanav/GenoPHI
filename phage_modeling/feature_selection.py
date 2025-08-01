@@ -278,7 +278,7 @@ def filter_data(
             )
             
             # Expand training data to match augmented table
-            original_train_indices = train_idx
+            original_train_indices = X_train.index
             augmented_train_indices = augmented_train_table.index
             
             # Create expanded training sets
@@ -668,7 +668,7 @@ def filter_data(
         )
         
         # Expand training data to match augmented table
-        original_train_indices = train_idx
+        original_train_indices = X_train.index
         augmented_train_indices = augmented_train_table.index
         
         # Create expanded training sets

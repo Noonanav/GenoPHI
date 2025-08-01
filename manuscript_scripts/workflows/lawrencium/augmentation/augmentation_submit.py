@@ -194,7 +194,7 @@ try:
         max_features='none',
         max_ram={args.max_ram},
         use_dynamic_weights={args.use_dynamic_weights},
-        weights_method=False,
+        weights_method='{args.weights_method}',
         use_clustering={args.use_clustering},
         cluster_method='hierarchical',
         n_clusters={args.n_clusters},
@@ -211,7 +211,11 @@ try:
         run_predictive_proteins=False
     )
 except Exception as e:
-    print(f'ERROR in modeling workflow: {{e}}')
+    print(f'\\n=== DETAILED ERROR INFO ===')
+    print(f'Error: {{e}}')
+    print('Traceback:')
+    traceback.print_exc()
+    print('=== END ERROR INFO ===\\n')
     sys.exit(1)
 
 # Step 2: Select best cutoff
