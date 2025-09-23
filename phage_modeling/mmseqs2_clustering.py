@@ -763,6 +763,8 @@ def merge_feature_tables(
 
     # Load strain features
     strain_features_df = read_csv_with_check(strain_features, rename_col='Genome', new_col=sample_column)
+    strain_features_df = strain_features_df.astype({col: 'uint8' for col in strain_features_df.columns if col.startswith(('sc_', 'pc_'))})
+
     if remove_suffix:
         strain_features_df[sample_column] = strain_features_df[sample_column].str.split('.').str[0]
     strain_features_df[sample_column] = strain_features_df[sample_column].astype(str)
@@ -777,6 +779,7 @@ def merge_feature_tables(
     if phage_features:
         # If phage features are provided, merge strain, phage, and phenotype matrices
         phage_features_df = read_csv_with_check(phage_features, rename_col='Genome', new_col='phage')
+        phage_features_df = phage_features_df.astype({col: 'uint8' for col in phage_features_df.columns if col.startswith(('sc_', 'pc_'))})
         
         # Check if phage features table has actual features
         phage_has_features = len(phage_features_df.columns) > 1 and len(phage_features_df) > 0
