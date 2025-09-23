@@ -1,0 +1,88 @@
+# search_config.yaml
+# This file contains the exact same parameters as currently hardcoded
+# Modify any values as needed for your dataset
+
+use_cross_attention:
+  type: categorical
+  choices: [true, false]
+
+num_heads:
+  type: categorical
+  choices: [2, 4, 8]
+
+temperature:
+  type: float
+  low: 0.001
+  high: 1.0
+  log: true
+
+strain_inds:
+  type: categorical
+  choices: [64, 128, 192, 256]
+
+phage_inds:
+  type: categorical
+  choices: [32, 64, 96, 128]
+
+num_isab_layers:
+  type: int
+  low: 1
+  high: 3
+
+ln:
+  type: categorical
+  choices: [true, false]
+
+num_seeds:
+  type: categorical
+  choices: [1, 2, 4]
+
+normalization_type:
+  type: categorical
+  choices: ["none", "layer_norm", "l2_norm"]
+
+use_residual_classifier:
+  type: categorical
+  choices: [false, true]
+
+dropout:
+  type: float
+  low: 0.0
+  high: 0.3
+
+classifier_hidden_layers:
+  type: int
+  low: 2
+  high: 6
+
+activation_function:
+  type: categorical
+  choices: ["relu", "gelu", "silu"]
+
+learning_rate:
+  type: float
+  low: 1e-10
+  high: 1e-04
+  log: true
+
+batch_size:
+  type: categorical
+  choices: [20]
+
+use_phage_weights:
+  type: categorical
+  choices: [true, false]
+
+weight_decay:
+  type: float
+  low: 0.0
+  high: 0.1
+
+scheduler_type:
+  type: categorical
+  choices: ["one_cycle", "cosine_annealing", "reduce_on_plateau", "linear_warmup_decay", "none"]
+
+warmup_ratio:
+  type: float
+  low: 0.0
+  high: 0.2

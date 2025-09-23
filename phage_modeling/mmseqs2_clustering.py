@@ -159,11 +159,15 @@ def create_mmseqs_database(input_path, db_name, suffix, input_type, strains, thr
         logging.error("No matching FASTA files found. Exiting.")
         raise FileNotFoundError("No FASTA files to process.")
     
-    fasta_files_str = " ".join(fasta_files)
-    createdb_command = f"mmseqs createdb {fasta_files_str} {db_name} -v 3"
-    logging.info(f"Running command: {createdb_command}")
+    logging.info(f"Creating MMseqs2 database for {len(fasta_files)} files using xargs")
+    temp_file = os.path.join(os.path.dirname(db_name), "file_list.tmp")
+    with open(temp_file, 'w') as f:
+        for fasta_file in fasta_files:
+            f.write(f"{fasta_file}\0")
+
+    createdb_command = f"cat {temp_file} | xargs -0 cat | mmseqs createdb stdin {db_name} -v 3"
     subprocess.run(createdb_command, shell=True, check=True)
-    logging.info("MMseqs2 database created successfully.")
+    os.remove(temp_file)  # Clean up
     
     return fasta_files
 

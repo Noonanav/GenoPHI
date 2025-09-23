@@ -237,7 +237,7 @@ def main():
     parser.add_argument('--genome_list', type=str, help="Path to file with list of genomes to process.")
     parser.add_argument('--sensitivity', type=float, default=7.5, help="Sensitivity for MMseqs2 search.")
     parser.add_argument('--coverage', type=float, default=0.8, help="Minimum coverage for assignment.")
-    parser.add_argument('--min_seq_id', type=float, default=0.6, help="Minimum sequence identity for assignment.")
+    parser.add_argument('--min_seq_id', type=float, default=0.4, help="Minimum sequence identity for assignment.")
     parser.add_argument('--threads', type=int, default=4, help="Number of threads for MMseqs2.")
     parser.add_argument('--suffix', type=str, default='faa', help="Suffix for FASTA files.")
     parser.add_argument('--duplicate_all', action='store_true', help="Process all genomes even if duplicates are found.")

@@ -462,7 +462,8 @@ def evalutate_cocktail_performance(
     output_path):
 
 
-    bootstrapping_dir = os.path.join(modeling_dir, 'bootstrapping')
+    # bootstrapping_dir = os.path.join(modeling_dir, 'bootstrapping')
+    bootstrapping_dir = modeling_dir
 
     bootstrap_metrics_df = pd.DataFrame()
 

@@ -459,10 +459,11 @@ def cluster_and_select_strains(strain_features_df, n_clusters=10, random_state=4
 def evalutate_cocktail_performance(
     modeling_dir,
     full_predictions_df,
-    output_path):
+    output_path,
+    sub_dir='bootstrapping'):
 
 
-    bootstrapping_dir = os.path.join(modeling_dir, 'bootstrapping')
+    bootstrapping_dir = os.path.join(modeling_dir, sub_dir)
 
     bootstrap_metrics_df = pd.DataFrame()
 
@@ -552,11 +553,13 @@ def main():
     parser.add_argument('--modeling_dir', type=str, required=True, help='Path to the modeling directory containing bootstrap predictions.')
     parser.add_argument('--full_predictions_path', type=str, required=True, help='Path to the full predictions CSV file containing phage modeling results.')
     parser.add_argument('--output_path', type=str, required=True, help='Path to save the output metrics CSV file.')
+    parser.add_argument('--sub_dir', type=str, default='bootstrapping', help='Subdirectory for bootstrapping results within the modeling directory.')
     args = parser.parse_args()
 
     modeling_dir = args.modeling_dir
     full_predictions_path = args.full_predictions_path
     output_path = args.output_path
+    sub_dir = args.sub_dir
 
     # Load full predictions DataFrame
     if os.path.exists(full_predictions_path):
@@ -568,7 +571,8 @@ def main():
     evalutate_cocktail_performance(
         modeling_dir=modeling_dir,
         full_predictions_df=full_predictions_df,
-        output_path=output_path
+        output_path=output_path,
+        sub_dir=sub_dir
     )
 
 if __name__ == "__main__":
