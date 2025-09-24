@@ -171,6 +171,120 @@ def create_mmseqs_database(input_path, db_name, suffix, input_type, strains, thr
     
     return fasta_files
 
+def validate_checkpoint_file(filepath, min_size=1, file_type='general'):
+    """
+    Validates if a checkpoint file exists and meets basic criteria.
+    
+    Args:
+        filepath (str): Path to the file to validate
+        min_size (int): Minimum file size in bytes
+        file_type (str): Type of file for specific validation ('tsv', 'csv', 'mmseqs_db')
+    
+    Returns:
+        bool: True if file is valid, False otherwise
+    """
+    if not os.path.exists(filepath):
+        return False
+    
+    # Check file size
+    if os.path.getsize(filepath) < min_size:
+        logging.warning(f"File {filepath} exists but is too small ({os.path.getsize(filepath)} bytes)")
+        return False
+    
+    # Type-specific validation
+    if file_type == 'mmseqs_db':
+        # For MMseqs database, check for .dbtype file
+        dbtype_file = f"{filepath}.dbtype"
+        if not os.path.exists(dbtype_file):
+            logging.warning(f"MMseqs database {filepath} missing .dbtype file")
+            return False
+        return True
+    
+    elif file_type in ['tsv', 'csv']:
+        # Basic structure validation for tabular files
+        try:
+            delimiter = '\t' if file_type == 'tsv' else ','
+            # Just read first few lines to check structure
+            with open(filepath, 'r') as f:
+                first_line = f.readline().strip()
+                if not first_line:
+                    logging.warning(f"File {filepath} appears to be empty")
+                    return False
+                
+                # Check if it's properly delimited
+                parts = first_line.split(delimiter)
+                if len(parts) < 2:
+                    logging.warning(f"File {filepath} doesn't appear to be properly {file_type} formatted")
+                    return False
+            return True
+        except Exception as e:
+            logging.warning(f"Error validating {filepath}: {e}")
+            return False
+    
+    # For general files, just check existence and size
+    return True
+
+def cleanup_partial_results(output_dir, tmp_dir, stage):
+    """
+    Removes incomplete intermediate files for a given stage.
+    
+    Args:
+        output_dir (str): Output directory path
+        tmp_dir (str): Temporary directory path  
+        stage (str): Stage to clean ('clustering', 'assignment', 'matrix')
+    """
+    logging.info(f"Cleaning up partial results for stage: {stage}")
+    
+    try:
+        if stage == 'clustering':
+            # Remove clustering outputs but keep database
+            files_to_remove = [
+                os.path.join(output_dir, "clusters"),
+                os.path.join(output_dir, "clusters.tsv"),
+            ]
+            # Also clean any clustering intermediates in tmp
+            for file in os.listdir(tmp_dir):
+                if 'cluster' in file.lower():
+                    files_to_remove.append(os.path.join(tmp_dir, file))
+                    
+        elif stage == 'assignment':
+            # Remove assignment outputs but keep clustering results
+            files_to_remove = [
+                os.path.join(output_dir, "assigned_clusters.tsv"),
+                os.path.join(output_dir, "best_hits.tsv"),
+                os.path.join(tmp_dir, "result_db"),
+            ]
+            # Clean result_db related files
+            for file in os.listdir(tmp_dir):
+                if file.startswith('result_db'):
+                    files_to_remove.append(os.path.join(tmp_dir, file))
+                    
+        elif stage == 'matrix':
+            # Remove matrix output but keep assignment results
+            files_to_remove = [
+                os.path.join(output_dir, "presence_absence_matrix.csv"),
+            ]
+            
+        # Remove files/directories
+        for item in files_to_remove:
+            try:
+                if os.path.isfile(item):
+                    os.remove(item)
+                    logging.debug(f"Removed file: {item}")
+                elif os.path.isdir(item):
+                    import shutil
+                    shutil.rmtree(item)
+                    logging.debug(f"Removed directory: {item}")
+            except FileNotFoundError:
+                pass  # File already doesn't exist
+            except Exception as e:
+                logging.warning(f"Could not remove {item}: {e}")
+                
+        logging.info(f"Cleanup completed for stage: {stage}")
+        
+    except Exception as e:
+        logging.error(f"Error during cleanup of stage {stage}: {e}")
+
 def create_contig_to_genome_dict(fasta_files, input_type, suffix='faa'):
     """
     Creates a mapping from contigs to genomes based on input FASTA files.
@@ -513,7 +627,7 @@ def feature_assignment(genome_assignments, selected_features, genome_column_name
     return assignment_df, feature_table
 
 
-def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', strain_column='strain', compare=False, bootstrapping=False, clear_tmp=False):
+def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.6, coverage=0.8, sensitivity=7.5, suffix='faa', threads=4, strain_list='none', strain_column='strain', compare=False, bootstrapping=False, clear_tmp=False, force_restart=False):
     """
     Runs a full MMseqs2 clustering workflow including presence-absence matrix generation.
     
@@ -532,47 +646,111 @@ def run_clustering_workflow(input_path, output_dir, tmp_dir="tmp", min_seq_id=0.
         strain_list (str): Path to a strain list file, or 'none' to process all strains.
         strain_column (str): Column name in the strain list file that contains strain names.
         compare (bool): Whether to compare the original clusters with assigned clusters.
+        bootstrapping (bool): Whether this is part of bootstrapping workflow.
         clear_tmp (bool): Whether to clear the temporary directory after processing.
+        force_restart (bool): Whether to bypass all checkpoints and restart from beginning.
     
     Raises:
         FileNotFoundError: If no FASTA files are found in the input path.
         ValueError: If there is an issue with loading the strain list.
     """
+
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(tmp_dir, exist_ok=True)
     
-    # Determine input type (directory or file)
-    input_type = 'directory' if os.path.isdir(input_path) else 'file'
+    # Define paths
+    presence_absence_csv = os.path.join(output_dir, "presence_absence_matrix.csv")
+    clusters_tsv = os.path.join(output_dir, "clusters.tsv")
+    best_hits_tsv = os.path.join(output_dir, "best_hits.tsv")
+    db_name = os.path.join(tmp_dir, "mmseqs_db")
+    
+    # Quick exit if final output exists
+    if not force_restart and validate_checkpoint_file(presence_absence_csv, file_type='csv'):
+        logging.info("Found complete presence-absence matrix. Skipping entire workflow.")
+        if compare:
+            compare_cluster_and_search_results(clusters_tsv, best_hits_tsv, output_dir)
+        return
 
-    # Convert 'none' to None for easier handling of strain_list
+    # Validate checkpoints and clean inconsistent states
+    database_valid = not force_restart and validate_checkpoint_file(db_name, file_type='mmseqs_db')
+    clustering_valid = not force_restart and validate_checkpoint_file(clusters_tsv, file_type='tsv')
+    assignment_valid = not force_restart and validate_checkpoint_file(best_hits_tsv, file_type='tsv')
+    
+    # Clean inconsistent states
+    if assignment_valid and not clustering_valid:
+        logging.info("Assignment exists without clustering - cleaning assignment")
+        cleanup_partial_results(output_dir, tmp_dir, 'assignment')
+        assignment_valid = False
+        
+    if clustering_valid and not database_valid:
+        logging.info("Clustering exists without database - cleaning clustering")  
+        cleanup_partial_results(output_dir, tmp_dir, 'clustering')
+        clustering_valid = False
+        
+    # Log what will be reused
+    if database_valid:
+        logging.info("Reusing existing database")
+    if clustering_valid:
+        logging.info("Reusing existing clustering")
+    if assignment_valid:
+        logging.info("Reusing existing assignment")
+
+    # Prepare workflow variables (always needed)
+    input_type = 'directory' if os.path.isdir(input_path) else 'file'
     strain_list_value = None if strain_list == 'none' else strain_list
     strains_to_process = load_strains(strain_list_value, strain_column) if strain_list_value else None
 
-    # Check for duplicate protein IDs and modify if necessary
+    # Handle duplicate IDs (this may modify input_path)
+    # Check if modified directory already exists to avoid unnecessary work
+    expected_modified_dir = os.path.join(output_dir, 'modified_AAs', strain_column)
     duplicate_found = detect_duplicate_ids(input_path, suffix, strains_to_process, input_type)
+    
     if duplicate_found:
         if input_type == 'directory':
-            if bootstrapping:
-                logging.info("Duplicate protein IDs found in input directory; modifying all protein IDs in the directory.")
-                input_path = modify_duplicate_ids(input_path, output_dir, suffix, None, strain_column)
+            if os.path.exists(expected_modified_dir) and os.listdir(expected_modified_dir):
+                logging.info("Using existing modified AA files")
+                input_path = expected_modified_dir
             else:
-                logging.info("Duplicate protein IDs found in input directory; modifying protein IDs.")
-                input_path = modify_duplicate_ids(input_path, output_dir, suffix, strains_to_process, strain_column)
-        if input_type == 'file':
+                if bootstrapping:
+                    input_path = modify_duplicate_ids(input_path, output_dir, suffix, None, strain_column)
+                else:
+                    input_path = modify_duplicate_ids(input_path, output_dir, suffix, strains_to_process, strain_column)
+        else:
             logging.error("Duplicate protein IDs found in input file; please modify the IDs manually.")
             return
 
-    db_name = os.path.join(tmp_dir, "mmseqs_db")
-    fasta_files = create_mmseqs_database(input_path, db_name, suffix, input_type, strains_to_process, threads)
+    # Stage 1: Database creation
+    if not database_valid:
+        fasta_files = create_mmseqs_database(input_path, db_name, suffix, input_type, strains_to_process, threads)
+    else:
+        # Build fasta_files list for later stages (using same logic as create_mmseqs_database)
+        fasta_files = []
+        strains = [str(s) for s in strains_to_process] if strains_to_process else None
+        if input_type == 'directory':
+            for fasta in os.listdir(input_path):
+                if fasta.endswith(suffix):
+                    strain_name = fasta.replace(f".{suffix}", "")
+                    if strains is None or strain_name in strains:
+                        fasta_files.append(os.path.join(input_path, fasta))
+        else:
+            fasta_files.append(input_path)
 
+    # Create contig mapping (always needed for matrix generation)
     contig_to_genome, genome_list = create_contig_to_genome_dict(fasta_files, input_type, suffix)
 
-    clusters_tsv = run_mmseqs_cluster(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads)
+    # Stage 2: Clustering  
+    if not clustering_valid:
+        clusters_tsv = run_mmseqs_cluster(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads)
 
-    best_hits_tsv = assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv, clear_tmp)
+    # Stage 3: Assignment
+    if not assignment_valid:
+        best_hits_tsv = assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq_id, sensitivity, threads, clusters_tsv, clear_tmp)
 
-    presence_absence_csv = os.path.join(output_dir, "presence_absence_matrix.csv")
-    generate_presence_absence_matrix(best_hits_tsv, presence_absence_csv, contig_to_genome, genome_list)
+    # Stage 4: Matrix generation (only if not already valid)
+    if not validate_checkpoint_file(presence_absence_csv, file_type='csv'):
+        generate_presence_absence_matrix(best_hits_tsv, presence_absence_csv, contig_to_genome, genome_list)
+    else:
+        logging.info("Reusing existing presence-absence matrix")
 
     if compare:
         compare_cluster_and_search_results(clusters_tsv, best_hits_tsv, output_dir)
