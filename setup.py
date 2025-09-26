@@ -42,6 +42,7 @@ setup(
             'run-kmer-analysis-workflow=phage_modeling.workflows.kmer_analysis_workflow:main',
             'run-kmer-assign-and-predict-workflow=phage_modeling.workflows.kmer_assign_predict_workflow:main',
             'run-kmer-assign-features-workflow=phage_modeling.workflows.kmer_assign_features_workflow:main',
+            'run-kmer-full-workflow=phage_modeling.workflows.kmer_full_workflow:main',
         ],
     },
     classifiers=[

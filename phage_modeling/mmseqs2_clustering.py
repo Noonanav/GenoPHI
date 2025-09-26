@@ -367,7 +367,17 @@ def assign_sequences_to_clusters(db_name, output_dir, tmp_dir, coverage, min_seq
     Returns:
         str: Path to the best hits TSV file.
     """
-    logging.info("Assigning sequences to clusters...")
+    assigned_tsv = os.path.join(output_dir, "assigned_clusters.tsv")
+    best_hits_tsv = os.path.join(output_dir, "best_hits.tsv")
+    
+    if validate_checkpoint_file(best_hits_tsv, file_type='tsv'):
+        logging.info("Found existing best_hits.tsv, skipping assignment")
+        return best_hits_tsv
+        
+    if validate_checkpoint_file(assigned_tsv, file_type='tsv'):
+        logging.info("Found existing assigned_clusters.tsv, processing to best hits") 
+        select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv)
+        return best_hits_tsv
     
     result_db = os.path.join(tmp_dir, "result_db")
     search_command = (
@@ -408,9 +418,15 @@ def select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv):
     logging.info("Selecting best hits...")
 
     # Read the assigned clusters file and ensure the correct column names
-    assigned_df = pd.read_csv(assigned_tsv, sep='\t', header=None, names=[
-        'Query', 'Target', 'Score', 'SeqIdentity', 'E-value', 'qStartPos', 'qEndPos', 'qLen', 'tStartPos', 'tEndPos', 'tLen'
-    ])
+    dtype_dict = {
+        'Query': 'string', 'Target': 'string', 'Score': 'float32',
+        'SeqIdentity': 'float32', 'E-value': 'float32',
+        'qStartPos': 'int32', 'qEndPos': 'int32', 'qLen': 'int32',
+        'tStartPos': 'int32', 'tEndPos': 'int32', 'tLen': 'int32'
+    }
+
+    assigned_df = pd.read_csv(assigned_tsv, sep='\t', header=None, 
+                            names=list(dtype_dict.keys()), dtype=dtype_dict)
 
     # Confirm assigned_df is not empty
     if assigned_df.empty:
