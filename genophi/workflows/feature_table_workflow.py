@@ -5,7 +5,7 @@ import logging
 import psutil
 import numpy as np
 import pandas as pd
-from phage_modeling.mmseqs2_clustering import run_clustering_workflow, run_feature_assignment, merge_feature_tables
+from genophi.mmseqs2_clustering import run_clustering_workflow, run_feature_assignment, merge_feature_tables
 
 # Configure logging
 def setup_logging(output_dir):

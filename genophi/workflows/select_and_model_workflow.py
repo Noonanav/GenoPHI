@@ -2,9 +2,9 @@ import os
 import argparse
 import pandas as pd
 import logging
-from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
-from phage_modeling.select_feature_modeling import run_experiments
-from phage_modeling.workflows.feature_annotations_workflow import run_predictive_proteins_workflow
+from genophi.feature_selection import run_feature_selection_iterations, generate_feature_tables
+from genophi.select_feature_modeling import run_experiments
+from genophi.workflows.feature_annotations_workflow import run_predictive_proteins_workflow
 
 def setup_logging(output_dir, log_filename="protein_family_workflow.log"):
     """

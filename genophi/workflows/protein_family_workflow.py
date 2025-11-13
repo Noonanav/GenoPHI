@@ -4,10 +4,10 @@ import argparse
 import logging
 import csv
 import gc
-from phage_modeling.mmseqs2_clustering import run_clustering_workflow, run_feature_assignment, merge_feature_tables
-from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
-from phage_modeling.select_feature_modeling import run_experiments
-from phage_modeling.workflows.feature_annotations_workflow import run_predictive_proteins_workflow
+from genophi.mmseqs2_clustering import run_clustering_workflow, run_feature_assignment, merge_feature_tables
+from genophi.feature_selection import run_feature_selection_iterations, generate_feature_tables
+from genophi.select_feature_modeling import run_experiments
+from genophi.workflows.feature_annotations_workflow import run_predictive_proteins_workflow
 import time
 import psutil
 

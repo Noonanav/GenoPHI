@@ -2,7 +2,7 @@ import os
 import argparse
 import logging
 import pandas as pd
-from phage_modeling.feature_annotations import (
+from genophi.feature_annotations import (
     get_predictive_features,
     get_predictive_proteins, 
     parse_and_filter_aa_sequences,

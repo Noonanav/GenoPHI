@@ -9,8 +9,8 @@ from tqdm import tqdm
 import gc
 from Bio import SeqIO
 from concurrent.futures import ThreadPoolExecutor
-from phage_modeling.mmseqs2_clustering import merge_feature_tables
-from phage_modeling.workflows.select_and_model_workflow import run_modeling_workflow_from_feature_table
+from genophi.mmseqs2_clustering import merge_feature_tables
+from genophi.workflows.select_and_model_workflow import run_modeling_workflow_from_feature_table
 
 # Set up logging
 def setup_logging(output_dir, log_filename="kmer_modeling_workflow.log"):

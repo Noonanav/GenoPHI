@@ -8,7 +8,7 @@ import time
 import psutil
 from Bio import SeqIO
 from collections import defaultdict
-from phage_modeling.workflows.kmer_table_workflow import run_kmer_table_workflow
+from genophi.workflows.kmer_table_workflow import run_kmer_table_workflow
 
 
 def setup_logging(output_dir, log_filename="kmer_workflow.log"):

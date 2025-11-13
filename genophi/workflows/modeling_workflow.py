@@ -1,6 +1,6 @@
 import os
 import argparse
-from phage_modeling.select_feature_modeling import run_experiments
+from genophi.select_feature_modeling import run_experiments
 
 def run_modeling_workflow(
     input_dir, 

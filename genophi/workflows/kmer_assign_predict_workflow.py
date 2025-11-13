@@ -1,8 +1,8 @@
 import os
 import logging
 from argparse import ArgumentParser
-from phage_modeling.workflows.kmer_assign_features_workflow import run_kmer_assign_features_workflow
-from phage_modeling.workflows.prediction_workflow import run_prediction_workflow
+from genophi.workflows.kmer_assign_features_workflow import run_kmer_assign_features_workflow
+from genophi.workflows.prediction_workflow import run_prediction_workflow
 
 def kmer_assign_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_map, filtered_kmers, aa_sequence_file,
                             tmp_dir, output_dir, model_dir, feature_table=None, phage_feature_table_path=None, genome_type='strain', 

@@ -1,7 +1,7 @@
 import os
 import argparse
 import sys
-from phage_modeling.feature_selection import run_feature_selection_iterations, generate_feature_tables
+from genophi.feature_selection import run_feature_selection_iterations, generate_feature_tables
 
 def check_method_task_type_compatibility(method, task_type):
     """

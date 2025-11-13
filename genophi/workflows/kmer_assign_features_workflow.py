@@ -14,7 +14,7 @@ from functools import partial
 # Suppress DataFrame fragmentation warning
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
-from phage_modeling.mmseqs2_clustering import create_mmseqs_database, load_strains, create_contig_to_genome_dict, select_best_hits
+from genophi.mmseqs2_clustering import create_mmseqs_database, load_strains, create_contig_to_genome_dict, select_best_hits
 
 def load_aa_sequences_from_files(fasta_files):
     """

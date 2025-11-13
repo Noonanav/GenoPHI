@@ -2,8 +2,8 @@ import os
 import shutil
 import logging
 from argparse import ArgumentParser
-from phage_modeling.workflows.assign_features_workflow import run_assign_features_workflow
-from phage_modeling.workflows.prediction_workflow import run_prediction_workflow
+from genophi.workflows.assign_features_workflow import run_assign_features_workflow
+from genophi.workflows.prediction_workflow import run_prediction_workflow
 
 def assign_predict_workflow(input_dir, mmseqs_db, clusters_tsv, feature_map, tmp_dir, output_dir, model_dir, 
                             feature_table=None, strain_feature_table_path=None, phage_feature_table_path=None, 

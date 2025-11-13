@@ -228,7 +228,7 @@ import warnings
 
 warnings.filterwarnings("ignore", category=pd.errors.SettingWithCopyWarning)
 
-from phage_modeling.kmer_modeling_analysis import (
+from genophi.kmer_modeling_analysis import (
     load_aa_sequences,
     get_predictive_kmers,
     merge_kmers_with_families,

@@ -9,7 +9,7 @@ from tqdm import tqdm
 import time
 import joblib
 import re
-from phage_modeling.feature_selection import load_and_prepare_data, filter_data, train_and_evaluate, grid_search, save_feature_importances, grid_search_regressor, train_and_evaluate_regressor
+from genophi.feature_selection import load_and_prepare_data, filter_data, train_and_evaluate, grid_search, save_feature_importances, grid_search_regressor, train_and_evaluate_regressor
 import shap
 import matplotlib.pyplot as plt
 import logging

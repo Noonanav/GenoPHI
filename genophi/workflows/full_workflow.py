@@ -4,8 +4,8 @@ import argparse
 import logging
 import time
 import psutil
-from phage_modeling.workflows.protein_family_workflow import run_protein_family_workflow
-from phage_modeling.workflows.kmer_table_workflow import run_kmer_table_workflow 
+from genophi.workflows.protein_family_workflow import run_protein_family_workflow
+from genophi.workflows.kmer_table_workflow import run_kmer_table_workflow 
 
 # Set up logging
 def setup_logging(output_dir):
