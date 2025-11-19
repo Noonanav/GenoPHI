@@ -978,18 +978,19 @@ data/
 If you use GenoPHI in your research, please cite:
 
 ```bibtex
-@software{genophi2025,
-  author = {Noonan, Avery},
-  title = {GenoPHI: Genotype-to-Phenotype Phage-Host Interaction Prediction},
+@article{noonan2025genophi,
+  author = {Noonan, Avery J. C. and Moriniere, Lucas and Rivera-López, Edwin O. and Patel, Krish and Pena, Melina and Svab, Madeline and Kazakov, Alexey and Deutschbauer, Adam and Dudley, Edward G. and Mutalik, Vivek K. and Arkin, Adam P.},
+  title = {Phylogeny-agnostic strain-level prediction of phage-host interactions from genomes},
   year = {2025},
-  url = {https://github.com/Noonanav/GenoPHI},
-  version = {0.1.0}
+  doi = {10.1101/2025.11.15.688630},
+  publisher = {Cold Spring Harbor Laboratory},
+  url = {https://www.biorxiv.org/content/10.1101/2025.11.15.688630v1},
+  journal = {bioRxiv}
 }
 ```
 
-### Related Publications
+**Preprint**: Noonan, A.J.C., Moriniere, L., Rivera-López, E.O., Patel, K., Pena, M., Svab, M., Kazakov, A., Deutschbauer, A., Dudley, E.G., Mutalik, V.K., & Arkin, A.P. (2025). Phylogeny-agnostic strain-level prediction of phage-host interactions from genomes. *bioRxiv*. https://doi.org/10.1101/2025.11.15.688630
 
-[Publications using GenoPHI will be listed here upon availability]
 
 ## Contributing
 
