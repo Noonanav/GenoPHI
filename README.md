@@ -962,15 +962,15 @@ The datasets used in the GenoPHI publication are included in the `data/` directo
 ```
 data/
 ├── experimental_validation/
-│   ├── BASEL_ECOR_interaction_matrix.csv    # BASEL collection against ECOR strains
-│   └── ECOR27_TnSeq_high_fitness_genes.csv  # Transposon sequencing results
+│   ├── BASEL_ECOR_interaction_matrix.csv    # BASEL collection against ECOR strains for model validation
+│   └── ECOR27_TnSeq_high_fitness_genes.csv  # Filtered RB-TnSeq results
 └── interaction_matrices/
     ├── ecoli_interaction_matrix.csv          # E. coli phage-host interactions
     ├── ecoli_interaction_matrix_subset.csv   # Smaller E. coli subset for testing
     ├── klebsiella1_interaction_matrix.csv    # Klebsiella dataset 1
     ├── klebsiella2_interaction_matrix.csv    # Klebsiella dataset 2
-    ├── pseudomonas_interaction_matrix.csv    # Pseudomonas aeruginosa interactions
-    └── vibrio_interaction_matrix.csv         # Vibrio cholerae interactions
+    ├── pseudomonas_interaction_matrix.csv    # Pseudomonas interactions
+    └── vibrio_interaction_matrix.csv         # Vibrionaceae interactions
 ```
 
 ## Citation
