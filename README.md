@@ -186,6 +186,7 @@ genophi protein-family-workflow \
     --filter_type none
 ```
 
+
 ## Usage
 
 ### CLI Commands Overview
@@ -953,6 +954,24 @@ A: Minimum 8 GB. Recommend 16+ GB for 50+ genomes, 32+ GB for 100+ genomes. Use 
 ### Upcoming Features
 - Web interface for prediction and visualization
 - Docker container for easy deployment
+
+## Publication Datasets
+
+The datasets used in the GenoPHI publication are included in the `data/` directory for reproducibility and benchmarking purposes.
+
+```
+data/
+├── experimental_validation/
+│   ├── BASEL_ECOR_interaction_matrix.csv    # BASEL collection against ECOR strains
+│   └── ECOR27_TnSeq_high_fitness_genes.csv  # Transposon sequencing results
+└── interaction_matrices/
+    ├── ecoli_interaction_matrix.csv          # E. coli phage-host interactions
+    ├── ecoli_interaction_matrix_subset.csv   # Smaller E. coli subset for testing
+    ├── klebsiella1_interaction_matrix.csv    # Klebsiella dataset 1
+    ├── klebsiella2_interaction_matrix.csv    # Klebsiella dataset 2
+    ├── pseudomonas_interaction_matrix.csv    # Pseudomonas aeruginosa interactions
+    └── vibrio_interaction_matrix.csv         # Vibrio cholerae interactions
+```
 
 ## Citation
 
