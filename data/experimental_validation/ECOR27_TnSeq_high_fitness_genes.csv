@@ -1,0 +1,130 @@
+strain,phage,protein_ID,fitness,t_test,desc
+ECOR27,Bas05,NOLOHH_06665,-4.5595327085100905,-7.72893456033916,ECA oligosaccharide polymerase
+ECOR27,Bas05,NOLOHH_06675,-4.097610511753305,-6.54023484306374,lipid III flippase WzxE
+ECOR27,Bas05,NOLOHH_06715,-7.16510910098118,-22.7851819478607,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas05,NOLOHH_07555,-7.44717263047436,-5.27098358076634,glucosyltransferase
+ECOR27,Bas05,NOLOHH_07565,-7.6856687220611,-5.44073901484707,O-antigen ligase RfaL
+ECOR27,Bas05,NOLOHH_15730,-6.3179009251348255,-11.3963091155399,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas07,NOLOHH_06715,-7.637185742463499,-19.8495268689056,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas07,NOLOHH_07560,-6.8999620578200105,-7.81058734421564,"UDP-glucose--(glucosyl)LPS alpha-1,2-glucosyltransferase"
+ECOR27,Bas07,NOLOHH_07565,-7.054081534065785,-9.6323656929019,O-antigen ligase RfaL
+ECOR27,Bas07,NOLOHH_15730,-7.30789566385303,-7.04199409681725,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas09,NOLOHH_06715,-4.542758448068485,-13.692561831383,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas10,NOLOHH_06715,-7.155770230323265,-24.3577179077835,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas10,NOLOHH_07555,-7.819415967281545,-5.35884611100181,glucosyltransferase
+ECOR27,Bas10,NOLOHH_07560,-7.357983529800094,-7.0082067626925,"UDP-glucose--(glucosyl)LPS alpha-1,2-glucosyltransferase"
+ECOR27,Bas10,NOLOHH_07565,-6.42167345876571,-7.67044257786891,O-antigen ligase RfaL
+ECOR27,Bas10,NOLOHH_15730,-7.603689702693285,-7.3553390076696,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas18,NOLOHH_06395,9.79743033523912,27.1468213822221,transcription/translation regulatory transformer protein RfaH
+ECOR27,Bas18,NOLOHH_06715,12.3321778004063,96.2048286403561,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas18,NOLOHH_07535,8.100125810017087,23.6134977112003,Lipopolysaccharide core biosynthesis protein RfaG
+ECOR27,Bas18,NOLOHH_07540,4.858822882422505,11.2337283859079,lipopolysaccharide core heptose(I) kinase RfaP
+ECOR27,Bas18,NOLOHH_07575,10.040895815860026,14.903726665688,ADP-heptose--LPS heptosyltransferase RfaF
+ECOR27,Bas18,NOLOHH_15730,10.840430795718,45.1992862946659,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas18,NOLOHH_15795,12.291590433311999,76.7809836888935,LPS O-antigen chain length determinant protein WzzB
+ECOR27,Bas18,NOLOHH_20460,9.479295919019345,10.0616758859786,UTP--glucose-1-phosphate uridylyltransferase GalU
+ECOR27,Bas18,NOLOHH_23145,5.754076745828005,9.96209571813818,UDP-glucose 4-epimerase GalE
+ECOR27,Bas18,NOLOHH_24675,5.75752759719665,24.6782645101523,Fertility inhibition protein
+ECOR27,Bas21,NOLOHH_06395,-4.57178507103724,-10.7392459231064,transcription/translation regulatory transformer protein RfaH
+ECOR27,Bas21,NOLOHH_06715,-8.17889775115814,-16.7515871297377,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas21,NOLOHH_07535,-4.1394424369877605,-8.06169558970184,Lipopolysaccharide core biosynthesis protein RfaG
+ECOR27,Bas21,NOLOHH_07555,-7.600397447054895,-5.42449062222121,glucosyltransferase
+ECOR27,Bas21,NOLOHH_07565,-7.83712174608565,-5.59412560233751,O-antigen ligase RfaL
+ECOR27,Bas21,NOLOHH_15730,-7.2733914384497,-8.69289669269955,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas25,NOLOHH_07560,-4.078043449553805,-7.85880417713946,"UDP-glucose--(glucosyl)LPS alpha-1,2-glucosyltransferase"
+ECOR27,Bas25,NOLOHH_15730,-5.09394837657922,-12.5092864253083,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas25,NOLOHH_23145,-4.324103269682925,-8.34759033787041,UDP-glucose 4-epimerase GalE
+ECOR27,Bas37,NOLOHH_06715,-8.647813729035155,-6.03766139128925,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas37,NOLOHH_07555,-7.63834485955456,-5.32512335385912,glucosyltransferase
+ECOR27,Bas37,NOLOHH_07560,-7.40372359986042,-5.16845269131586,"UDP-glucose--(glucosyl)LPS alpha-1,2-glucosyltransferase"
+ECOR27,Bas37,NOLOHH_07565,-7.622119044398184,-7.25660445958855,O-antigen ligase RfaL
+ECOR27,Bas37,NOLOHH_15730,-7.59228612326607,-5.28518791866749,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas38,NOLOHH_06715,-7.57601791650683,-18.6398851913359,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas38,NOLOHH_07560,-4.08868840534955,-6.90799717566402,"UDP-glucose--(glucosyl)LPS alpha-1,2-glucosyltransferase"
+ECOR27,Bas38,NOLOHH_07565,-6.98557938214838,-7.89224576930143,O-antigen ligase RfaL
+ECOR27,Bas38,NOLOHH_15730,-6.971583488354045,-8.40623899715943,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas38,NOLOHH_23145,-4.47441118176753,-8.0480320737816,UDP-glucose 4-epimerase GalE
+ECOR27,Bas39,NOLOHH_01415,8.70353093340069,56.2814588624619,nucleoside-specific channel-forming protein Tsx
+ECOR27,Bas39,NOLOHH_07535,5.995095673772649,19.4236846896352,Lipopolysaccharide core biosynthesis protein RfaG
+ECOR27,Bas39,NOLOHH_07575,9.86271289318716,13.3894119998268,ADP-heptose--LPS heptosyltransferase RfaF
+ECOR27,Bas39,NOLOHH_12625,12.35780940851085,45.3803080833233,multidrug efflux transporter EmrAB transcriptional repressor EmrR
+ECOR27,Bas39,NOLOHH_21640,8.63885006875318,10.7007235645992,Uncharacterized lipoprotein GfcB
+ECOR27,Bas39,NOLOHH_21645,9.257304140919466,9.4854017455488,Uncharacterized protein GfcC
+ECOR27,Bas39,NOLOHH_21650,10.830201121680801,40.1539798994073,Uncharacterized lipoprotein GfcD
+ECOR27,Bas39,NOLOHH_21655,11.8004047686763,39.7902137149118,Putative polysaccharide export protein GfcE
+ECOR27,Bas39,NOLOHH_21660,11.56680710251835,38.8809021605039,protein-tyrosine-phosphatase Etp
+ECOR27,Bas39,NOLOHH_21665,11.8589480318673,58.4502301410676,tyrosine-protein kinase
+ECOR27,Bas45,NOLOHH_06395,-4.982648737278665,-11.2105203309109,transcription/translation regulatory transformer protein RfaH
+ECOR27,Bas45,NOLOHH_06715,-8.293113364478796,-14.877498091476,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas45,NOLOHH_07555,-6.85838117327539,-5.23590604333682,glucosyltransferase
+ECOR27,Bas45,NOLOHH_07560,-7.436601123826019,-5.20158819449854,"UDP-glucose--(glucosyl)LPS alpha-1,2-glucosyltransferase"
+ECOR27,Bas45,NOLOHH_07565,-7.90895341084383,-5.5286448851146,O-antigen ligase RfaL
+ECOR27,Bas45,NOLOHH_09630,-5.185642117321541,-10.056052452925,stringent starvation protein A
+ECOR27,Bas45,NOLOHH_15730,-7.113849008625665,-8.24554961411991,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas45,NOLOHH_23545,-4.366638559488285,-10.9019460551877,N-acetylglucosamine-6-phosphate deacetylase
+ECOR27,Bas48,NOLOHH_06705,9.99541510084036,73.835560422306,UDP-N-acetylglucosamine 2-epimerase (non-hydrolyzing)
+ECOR27,Bas48,NOLOHH_07535,8.11198013389631,22.5843160802295,Lipopolysaccharide core biosynthesis protein RfaG
+ECOR27,Bas48,NOLOHH_07550,5.18657316968571,14.8392001531231,lipopolysaccharide core heptose(II) kinase RfaY
+ECOR27,Bas48,NOLOHH_07575,6.8403167759833,13.4360637231757,ADP-heptose--LPS heptosyltransferase RfaF
+ECOR27,Bas48,NOLOHH_11120,5.82212677590348,5.80799153315899,osmotic shock tolerance protein YggT
+ECOR27,Bas48,NOLOHH_17225,4.39583092018144,5.00167266160441,diguanylate cyclase DgcJ
+ECOR27,Bas48,NOLOHH_20000,7.28873173384923,15.0814371618815,transcriptional regulator TyrR
+ECOR27,Bas48,NOLOHH_24140,9.9744795179084,64.2741197587108,phage adsorption protein NrfB
+ECOR27,Bas48,NOLOHH_24145,10.036328166727,70.8924124402705,bacteriophage adsorption protein NfrA
+ECOR27,Bas61,NOLOHH_07530,7.676955472285121,8.08660259159526,lipopolysaccharide core heptosyltransferase RfaQ
+ECOR27,Bas61,NOLOHH_07535,14.40793467861195,31.7099259855971,Lipopolysaccharide core biosynthesis protein RfaG
+ECOR27,Bas61,NOLOHH_07540,9.16640822123978,9.00608327450323,lipopolysaccharide core heptose(I) kinase RfaP
+ECOR27,Bas61,NOLOHH_07550,16.82023721017795,54.2809039274252,lipopolysaccharide core heptose(II) kinase RfaY
+ECOR27,Bas61,NOLOHH_07575,12.88781749617595,17.4979677305794,ADP-heptose--LPS heptosyltransferase RfaF
+ECOR27,Bas61,NOLOHH_08110,6.146733466392876,36.4317141086129,cellulose biosynthesis protein BcsG
+ECOR27,Bas61,NOLOHH_08125,4.13973561343396,8.89015156167857,cellulose biosynthesis protein BcsR
+ECOR27,Bas61,NOLOHH_08130,5.964985143440475,21.9470631127321,cellulose biosynthesis protein BcsQ
+ECOR27,Bas61,NOLOHH_08135,6.28252669015699,47.5380145136708,UDP-forming cellulose synthase catalytic subunit
+ECOR27,Bas61,NOLOHH_08140,6.202321997574665,38.8201214275321,cellulose biosynthesis cyclic di-GMP-binding regulatory protein BcsB
+ECOR27,Bas61,NOLOHH_08150,6.1752543568902105,44.9115639941358,cellulose synthase complex outer membrane protein BcsC
+ECOR27,Bas61,NOLOHH_20460,13.8426650391899,11.4028506666839,UTP--glucose-1-phosphate uridylyltransferase GalU
+ECOR27,Bas63,NOLOHH_07535,8.995594030602216,22.4079890508731,Lipopolysaccharide core biosynthesis protein RfaG
+ECOR27,Bas63,NOLOHH_07550,11.64348181146,35.6747613060226,lipopolysaccharide core heptose(II) kinase RfaY
+ECOR27,Bas63,NOLOHH_07575,9.712147503149382,9.65787145972478,ADP-heptose--LPS heptosyltransferase RfaF
+ECOR27,Bas63,NOLOHH_14450,6.2328387555869345,36.0573892810986,transcriptional regulator LrhA
+ECOR27,Bas63,NOLOHH_16535,4.611019989643645,7.62203548815581,universal stress protein UspC
+ECOR27,Bas63,NOLOHH_17225,11.94011739635055,12.1547925988299,diguanylate cyclase DgcJ
+ECOR27,Bas63,NOLOHH_20460,7.29546134563091,9.18291449729024,UTP--glucose-1-phosphate uridylyltransferase GalU
+ECOR27,Bas67,NOLOHH_06715,-5.232883859074815,-8.07909524755649,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas68,NOLOHH_02690,-4.16638003893803,-7.07835936239128,RNA polymerase-binding protein DksA
+ECOR27,Bas68,NOLOHH_06220,-4.040285922005895,-15.8912099330121,ribosome-dependent GTPase TypA
+ECOR27,Bas68,NOLOHH_06715,-8.347488413101864,-13.9591272480172,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas68,NOLOHH_07540,-4.158109062561095,-8.38899725777599,lipopolysaccharide core heptose(I) kinase RfaP
+ECOR27,Bas68,NOLOHH_07555,-7.54088496126855,-5.27890709588897,glucosyltransferase
+ECOR27,Bas68,NOLOHH_07560,-7.08441267188722,-6.58967754356853,"UDP-glucose--(glucosyl)LPS alpha-1,2-glucosyltransferase"
+ECOR27,Bas68,NOLOHH_07565,-7.7825897424394,-5.44880464802864,O-antigen ligase RfaL
+ECOR27,Bas68,NOLOHH_15730,-7.296092365299129,-7.18612817656236,"N-acetyl-alpha-D-glucosaminyl-diphospho-ditrans,o ctacis-undecaprenol 4-epimerase"
+ECOR27,Bas68,NOLOHH_17225,6.1594933985931455,6.38807884683234,diguanylate cyclase DgcJ
+ECOR27,Bas68,NOLOHH_18060,-4.139021061217591,-6.1786864689385,electron transport complex subunit RsxD
+ECOR27,Bas69,NOLOHH_06705,6.95833624250741,53.7767984238932,UDP-N-acetylglucosamine 2-epimerase (non-hydrolyzing)
+ECOR27,Bas69,NOLOHH_06715,-4.026176708624825,-12.413339286775,UDP-N-acetylglucosamine--undecaprenyl-phosphate N-acetylglucosaminephosphotransferase
+ECOR27,Bas69,NOLOHH_07690,4.0218901404427,19.7253939942377,mannitol-1-phosphate 5-dehydrogenase
+ECOR27,Bas69,NOLOHH_15795,6.04056074764057,36.2540391565794,LPS O-antigen chain length determinant protein WzzB
+ECOR27,Bas69,NOLOHH_17225,4.69377642611256,7.61703853654714,diguanylate cyclase DgcJ
+ECOR27,Bas69,NOLOHH_20000,6.053874848347325,11.8671719263198,transcriptional regulator TyrR
+ECOR27,Bas69,NOLOHH_23545,6.1239573334697095,28.7173605718388,N-acetylglucosamine-6-phosphate deacetylase
+ECOR27,Bas69,NOLOHH_23550,4.150107588673995,16.4936686076101,DNA-binding transcriptional regulator NagC
+ECOR27,Bas69,NOLOHH_24140,7.21508741248772,48.8167180078125,phage adsorption protein NrfB
+ECOR27,Bas69,NOLOHH_24145,7.3095514572932405,54.6852239115252,bacteriophage adsorption protein NfrA
+ECOR27,Phi92,NOLOHH_04520,5.36095945426249,6.12039245383339,RNA chaperone Hfq
+ECOR27,Phi92,NOLOHH_07530,5.735516664001295,7.46452207498152,lipopolysaccharide core heptosyltransferase RfaQ
+ECOR27,Phi92,NOLOHH_07535,10.275506847123701,25.2424610962641,Lipopolysaccharide core biosynthesis protein RfaG
+ECOR27,Phi92,NOLOHH_07540,6.6869748463385,10.482834841066,lipopolysaccharide core heptose(I) kinase RfaP
+ECOR27,Phi92,NOLOHH_07550,12.1088464743979,40.7626021481062,lipopolysaccharide core heptose(II) kinase RfaY
+ECOR27,Phi92,NOLOHH_07575,9.800603938087695,12.4447481672195,ADP-heptose--LPS heptosyltransferase RfaF
+ECOR27,Phi92,NOLOHH_08110,9.75908029679087,75.9730232013023,cellulose biosynthesis protein BcsG
+ECOR27,Phi92,NOLOHH_08115,5.633824918874155,9.86228888508528,cellulose biosynthesis protein BcsF
+ECOR27,Phi92,NOLOHH_08120,4.717734755148156,12.9589903582561,cellulose biosynthesis protein BcsE
+ECOR27,Phi92,NOLOHH_08125,8.57201075966663,28.4353669475997,cellulose biosynthesis protein BcsR
+ECOR27,Phi92,NOLOHH_08130,10.009428276358811,64.2290188525919,cellulose biosynthesis protein BcsQ
+ECOR27,Phi92,NOLOHH_08135,10.1117382690387,90.8849523070003,UDP-forming cellulose synthase catalytic subunit
+ECOR27,Phi92,NOLOHH_08140,10.039691788260185,77.2034595399903,cellulose biosynthesis cyclic di-GMP-binding regulatory protein BcsB
+ECOR27,Phi92,NOLOHH_08150,10.0612110567095,87.3619241989322,cellulose synthase complex outer membrane protein BcsC
+ECOR27,Phi92,NOLOHH_20460,9.634539395378638,12.1862918105971,UTP--glucose-1-phosphate uridylyltransferase GalU
+ECOR27,T2,NOLOHH_14180,13.093693330703651,81.4863937932759,long-chain fatty acid transporter FadL
+ECOR27,T2,NOLOHH_20735,6.848894615076009,7.35690760257464,fatty acid metabolism transcriptional regulator FadR
