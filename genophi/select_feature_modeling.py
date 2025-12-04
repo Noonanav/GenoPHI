@@ -392,9 +392,13 @@ def evaluate_classifier_performance(df, model_performance_dir, grouping_columns,
         pr_list.append(pr_df)
 
     metrics_df = pd.DataFrame(metrics_list)
-    metrics_df['cutoff_int'] = metrics_df['cut_off'].str.split('_').str[-1].astype(int)
-    metrics_df = metrics_df.sort_values(['MCC', 'cutoff_int'], ascending=[False, True])
-    metrics_df = metrics_df.drop('cutoff_int', axis=1)
+    try:
+        metrics_df['cutoff_int'] = metrics_df['cut_off'].str.split('_').str[-1].astype(int)
+        metrics_df = metrics_df.sort_values(['MCC', 'cutoff_int'], ascending=[False, True])
+        metrics_df = metrics_df.drop('cutoff_int', axis=1)
+    except (ValueError, TypeError):
+        # No numeric cutoff available, just sort by MCC
+        metrics_df = metrics_df.sort_values(['MCC'], ascending=[False])
     roc_df = pd.concat(roc_list).reset_index(drop=True)
     pr_df = pd.concat(pr_list).reset_index(drop=True)
 
@@ -432,10 +436,12 @@ def evaluate_regressor_performance(df, model_performance_dir, grouping_columns, 
         comparison_list.append(comparison_df)
 
     metrics_df = pd.DataFrame(metrics_list)
-    metrics_df['cutoff_int'] = metrics_df['cut_off'].str.split('_').str[-1].astype(int)
-    metrics_df = metrics_df.sort_values(['r2', 'cutoff_int'], ascending=[False, True])
-    metrics_df = metrics_df.drop('cutoff_int', axis=1)
-    metrics_df = metrics_df.sort_values('r2', ascending=False)
+    try:
+        metrics_df['cutoff_int'] = metrics_df['cut_off'].str.split('_').str[-1].astype(int)
+        metrics_df = metrics_df.sort_values(['r2', 'cutoff_int'], ascending=[False, True])
+        metrics_df = metrics_df.drop('cutoff_int', axis=1)
+    except (ValueError, TypeError):
+        metrics_df = metrics_df.sort_values(['r2'], ascending=[False])
     comparison_df = pd.concat(comparison_list).reset_index(drop=True)
 
     plot_regressor_performance(comparison_df, model_performance_dir)

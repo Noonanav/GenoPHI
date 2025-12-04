@@ -1,445 +1,361 @@
 import os
 import re
+import shutil
+import subprocess
+import logging
 import numpy as np
 import pandas as pd
 from Bio import SeqIO, AlignIO
-from Bio.Align.Applications import MafftCommandline
-from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 from plotnine import *
 from scipy.cluster.hierarchy import linkage, leaves_list
-from scipy.spatial.distance import pdist, squareform
-import logging
+from scipy.spatial.distance import pdist
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Load AA sequences from file
+# ==========================
+# 1. DATA LOADING
+# ==========================
+
 def load_aa_sequences(aa_sequence_file):
-    """
-    Loads amino acid sequences from a FASTA file into a DataFrame.
-
-    Parameters:
-    aa_sequence_file (str): Path to the amino acid sequence file in FASTA format.
-
-    Returns:
-    DataFrame: A DataFrame with 'protein_ID' and 'sequence' columns.
-    """
     logging.info(f"Loading amino acid sequences from {aa_sequence_file}")
-    
-    # Convert the iterator to a list to prevent re-consumption
     aa_records = list(SeqIO.parse(aa_sequence_file, 'fasta'))
-    
-    # Create the DataFrame with consistent-length lists
     aa_sequences_df = pd.DataFrame({
         'protein_ID': [record.id for record in aa_records],
         'sequence': [str(record.seq) for record in aa_records]
     })
-    
     logging.info(f"Loaded {len(aa_sequences_df)} sequences.")
     return aa_sequences_df
 
-# Get predictive features based on host or phage
+def aggregate_shap_values(model_output_dir):
+    """Aggregates SHAP importance values from multiple model runs."""
+    runs = [x for x in os.listdir(model_output_dir) if 'run' in x]
+    top_models_shap_df = pd.DataFrame()
+    for run in runs:
+        shap_values_csv_path = os.path.join(model_output_dir, run, 'shap_importances.csv')
+        if os.path.exists(shap_values_csv_path):
+            shap_values_temp = pd.read_csv(shap_values_csv_path)
+            shap_values_temp = shap_values_temp.groupby(['feature', 'value']).agg({'shap_value': 'median'}).reset_index()
+            top_models_shap_df = pd.concat([top_models_shap_df, shap_values_temp], ignore_index=True)
+    return top_models_shap_df
+
+# ==========================
+# 2. FEATURE EXTRACTION & MAPPING
+# ==========================
+
 def get_predictive_kmers(feature_file_path, feature2cluster_path, feature_type, ignore_families=False):
-    """
-    Filters predictive features based on the specified feature type.
-
-    Parameters:
-    feature_file_path (str): Path to the feature CSV file.
-    feature2cluster_path (str): Path to the feature-to-cluster mapping CSV file.
-    feature_type (str): Either 'host', 'strain', or 'phage' to indicate feature type.
-    ignore_families (bool): Whether protein families were ignored during k-mer generation.
-
-    Returns:
-    DataFrame: A DataFrame containing filtered k-mers with 'kmer' and 'protein_family' columns.
-    """
-    logging.info(f"Extracting predictive features of type '{feature_type}' from {feature_file_path}")
+    logging.info(f"Extracting predictive features of type '{feature_type}'")
     feature_df = pd.read_csv(feature_file_path)
-    feature_prefix = feature_type[0] + 'c_'
+    
+    feature_prefix = feature_type[0] + 'c_' 
     select_features = [col for col in feature_df.columns if feature_prefix in col]
-    print(select_features)
 
-    # Return empty DataFrame with the expected structure if no features found
     if not select_features:
-        logging.warning(f"No predictive {feature_type} features found in the feature file.")
+        logging.warning(f"No predictive {feature_type} features found.")
         return pd.DataFrame(columns=['cluster', 'kmer', 'protein_family', 'Feature'])
 
     feature2cluster_df = pd.read_csv(feature2cluster_path)
     feature2cluster_df.rename(columns={'Cluster_Label': 'cluster'}, inplace=True)
-    filtered_kmers = feature2cluster_df[feature2cluster_df['Feature'].isin(select_features)]
+    
+    filtered_kmers = feature2cluster_df[feature2cluster_df['Feature'].isin(select_features)].copy()
     
     if ignore_families:
-        # When ignore_families=True, cluster IS the k-mer (no underscore separator)
+        # In ignore_families mode, the 'cluster' column IS the k-mer sequence
+        # We preserve the 'Feature' column (sc_*) as is
         filtered_kmers['kmer'] = filtered_kmers['cluster']
-        # Use cluster as protein_family to maintain compatibility
-        filtered_kmers['protein_family'] = filtered_kmers['cluster']
-        logging.info(f"Processing k-mers without protein families (ignore_families=True)")
+        filtered_kmers['protein_family'] = 'Unclustered' 
     else:
-        # When ignore_families=False, cluster format is 'protein_family_kmer'
+        # Standard mode: cluster = family_kmer
         filtered_kmers['kmer'] = filtered_kmers['cluster'].str.split('_').str[-1]
         filtered_kmers['protein_family'] = filtered_kmers['cluster'].str.split('_').str[:-1].str.join('_')
     
     logging.info(f"Filtered down to {len(filtered_kmers)} predictive k-mers.")
     return filtered_kmers
 
-# Merge kmers with protein families
-def merge_kmers_with_families(protein_families_file, aa_sequences_df, feature_type='strain'):
+def merge_kmers_with_families(protein_families_file, aa_sequences_df, feature_type='strain', ignore_families=False, filtered_kmers=None):
     """
-    Merges k-mer data with protein family information.
-
-    NOTE: This function does NOT filter by protein_count > 1 because:
-    - one_gene=False already filtered k-mers to those present in 2+ proteins during table generation
-    - A protein family with 1 protein could still have valid k-mers if those k-mers appear 
-      in multiple proteins across different families
-    - We want to preserve all k-mers that passed the one_gene filter
-
-    Parameters:
-    protein_families_file (str): Path to the protein families file in CSV format.
-    aa_sequences_df (DataFrame): DataFrame containing amino acid sequences.
-    feature_type (str): Type of feature, either 'strain' or other.
-
-    Returns:
-    DataFrame: A merged DataFrame with k-mers and protein family information.
+    Merges k-mer data with proteins.
+    In Standard Mode: Joins using the protein_families_file.
+    In Ignore Mode: Scans sequences for k-mers and maps back to Feature ID.
     """
-    logging.info(f"Merging k-mer data with protein families from {protein_families_file}")
-    protein_families_df = pd.read_csv(protein_families_file)
-    protein_families_df = protein_families_df[[feature_type, 'cluster', 'protein_ID']].drop_duplicates()
-    protein_families_df.rename(columns={'cluster': 'protein_family'}, inplace=True)
-    merged_df = protein_families_df.merge(aa_sequences_df, on='protein_ID', how='inner')
     
-    # Count proteins per family for logging/debugging
-    protein_counts = merged_df.groupby('protein_family').size().reset_index(name='protein_count')
-    logging.info(f"Protein family size distribution:\n{protein_counts['protein_count'].value_counts().sort_index()}")
+    # --- PATH A: STANDARD (Use Lookup File) ---
+    if not ignore_families:
+        logging.info(f"Merging k-mer data via Protein Families file...")
+        if not protein_families_file:
+            logging.error("Protein families file is missing!")
+            return pd.DataFrame()
+
+        protein_families_df = pd.read_csv(protein_families_file)
+        protein_families_df = protein_families_df[[feature_type, 'cluster', 'protein_ID']].drop_duplicates()
+        protein_families_df.rename(columns={'cluster': 'protein_family'}, inplace=True)
+        
+        # Return Families + Sequences (Features merged later in workflow)
+        merged_df = protein_families_df.merge(aa_sequences_df, on='protein_ID', how='inner')
+        return merged_df
+
+    # --- PATH B: SEARCH MODE (No Lookup File) ---
+    else:
+        logging.info("ignore_families=True: Searching AA sequences for k-mers...")
+        if filtered_kmers is None or filtered_kmers.empty:
+            return pd.DataFrame()
+
+        # Unique K-mers to search for
+        target_kmers = filtered_kmers['kmer'].unique()
+        hits = []
+        
+        for _, row in aa_sequences_df.iterrows():
+            seq = row['sequence']
+            pid = row['protein_ID']
+            
+            for kmer in target_kmers:
+                if kmer in seq:
+                    # Get the Feature ID (e.g. sc_123) corresponding to this kmer
+                    # Handle case where one kmer might map to multiple Features (rare but possible)
+                    matching_features = filtered_kmers[filtered_kmers['kmer'] == kmer]['Feature'].values
+                    
+                    for feat in matching_features:
+                        hits.append({
+                            'protein_family': 'Unclustered', 
+                            'protein_ID': pid,
+                            'sequence': seq,
+                            'kmer': kmer,
+                            'Feature': feat 
+                        })
+        
+        if not hits:
+            logging.warning("No proteins found containing predictive k-mers.")
+            return pd.DataFrame()
+
+        merged_df = pd.DataFrame(hits)
+        logging.info(f"Found {len(merged_df)} hits across {merged_df['protein_ID'].nunique()} proteins.")
+        return merged_df
+
+# ==========================
+# 3. CLUSTERING & ALIGNMENT
+# ==========================
+
+def cluster_sequences_mmseqs(seq_df, output_dir, threads=4, min_seq_id=0.4, coverage=0.8):
+    """Clusters sequences using MMseqs2."""
+    logging.info("Clustering sequences with MMseqs2...")
+    cluster_dir = os.path.join(output_dir, "mmseqs_clustering")
+    if os.path.exists(cluster_dir):
+        shutil.rmtree(cluster_dir)
+    os.makedirs(cluster_dir, exist_ok=True)
+
+    input_fasta = os.path.join(cluster_dir, "input.fasta")
+    unique_seqs = seq_df[['protein_ID', 'sequence']].drop_duplicates()
     
-    # DO NOT FILTER by protein_count > 1
-    # The one_gene=False filter already ensures k-mers appear in 2+ proteins
-    # Filtering here would incorrectly remove valid single-protein families
-    
-    logging.info(f"Merged k-mer data with {len(merged_df)} entries across {len(merged_df['protein_family'].unique())} protein families.")
-    return merged_df
+    with open(input_fasta, 'w') as f:
+        for _, row in unique_seqs.iterrows():
+            f.write(f">{row['protein_ID']}\n{row['sequence']}\n")
 
-# Construct kmer ID DataFrame for alignment
-def construct_kmer_id_df(protein_families_df, kmer_df):
-    """
-    Constructs a DataFrame of k-mers for each protein family.
+    db_path = os.path.join(cluster_dir, "DB")
+    cluster_db = os.path.join(cluster_dir, "DB_clu")
+    tsv_path = os.path.join(cluster_dir, "clusters.tsv")
+    tmp_dir = os.path.join(cluster_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
 
-    Parameters:
-    protein_families_df (DataFrame): DataFrame of protein families.
-    kmer_df (DataFrame): DataFrame of k-mers.
+    try:
+        subprocess.run(['mmseqs', 'createdb', input_fasta, db_path], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(['mmseqs', 'cluster', db_path, cluster_db, tmp_dir, 
+                        '--min-seq-id', str(min_seq_id), '-c', str(coverage), '--threads', str(threads)], 
+                        check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(['mmseqs', 'createtsv', db_path, db_path, cluster_db, tsv_path], 
+                        check=True, stdout=subprocess.DEVNULL)
+        
+        clusters_df = pd.read_csv(tsv_path, sep="\t", header=None, names=["cluster_rep", "protein_ID"])
+        clusters_df["cluster_id"] = clusters_df.groupby("cluster_rep").ngroup()
+        
+        logging.info(f"MMseqs2 created {clusters_df['cluster_id'].nunique()} clusters.")
+        return clusters_df[["protein_ID", "cluster_id"]]
 
-    Returns:
-    DataFrame: A DataFrame of k-mers with associated protein families.
-    """
-    logging.info("Constructing k-mer ID DataFrame for alignment.")
-    kmer_id_df = pd.DataFrame()
-    for protein in kmer_df['protein_ID'].unique():
-        family_id = protein_families_df.loc[protein_families_df['protein_ID'] == protein, 'protein_family'].values[0]
-        family_df = protein_families_df[protein_families_df['protein_family'] == family_id]
-        family_df['kmer_cluster'] = protein
-        kmer_id_df = pd.concat([kmer_id_df, family_df])
-    logging.info(f"Constructed k-mer ID DataFrame with {len(kmer_id_df)} entries.")
-    return kmer_id_df
+    except Exception as e:
+        logging.error(f"MMseqs2 clustering failed: {e}")
+        return pd.DataFrame({'protein_ID': unique_seqs['protein_ID'], 'cluster_id': 0})
 
-# Perform MSA and extract indices
 def align_sequences(sequences, output_dir, family_name):
-    """
-    Aligns sequences within a protein family and removes excessive leading gaps.
-
-    Parameters:
-    sequences (list of tuples): List of (header, sequence) tuples.
-    output_dir (str): Directory to save temporary files for alignment.
-    family_name (str): Name of the protein family for unique file handling.
-
-    Returns:
-    DataFrame: DataFrame with 'protein_ID', 'aln_sequence', and 'start_index'.
-    """
-    logging.info(f"Aligning sequences for protein family: {family_name}")
+    """Aligns sequences using MAFFT via subprocess."""
+    logging.info(f"Aligning {len(sequences)} sequences for group: {family_name}")
     
     if len(sequences) < 2:
-        logging.warning(f"Skipping alignment for {family_name}: Only one sequence provided.")
-        return pd.DataFrame()  # Return an empty DataFrame for skipped families
-
-    file_family_name = family_name.replace('|', '_').replace('/', '_')  # Replace special chars for file handling
-    
-    # Paths for temporary files
-    temp_fasta_path = os.path.join(output_dir, f"{file_family_name}_temp_sequences.fasta")
-    temp_aln_path = os.path.join(output_dir, f"{file_family_name}_temp_sequences.aln")
-
-    # Validate sequences
-    if not sequences:
-        logging.warning(f"No sequences provided for alignment in protein family: {family_name}")
-        return pd.DataFrame()  # Return empty DataFrame
-
-    seq_records = []
-    temp_id_map = {}
-    for i, (header, seq) in enumerate(sequences):
-        if not seq or len(seq.strip('-')) == 0:
-            logging.warning(f"Skipping invalid or empty sequence for protein ID: {header}")
-            continue
-        temp_id = f"seq_{i}"
-        record = SeqRecord(Seq(seq), id=temp_id, description="")
-        seq_records.append(record)
-        temp_id_map[temp_id] = header
-
-    if not seq_records:
-        logging.warning(f"All sequences are invalid for protein family: {family_name}")
         return pd.DataFrame()
 
-    # Write sequences to the temporary FASTA file
-    with open(temp_fasta_path, "w") as output_handle:
-        SeqIO.write(seq_records, output_handle, "fasta")
+    safe_name = str(family_name).replace('|', '_').replace('/', '_')
+    temp_fasta_path = os.path.join(output_dir, f"{safe_name}_temp.fasta")
+    temp_aln_path = os.path.join(output_dir, f"{safe_name}_temp.aln")
 
-    # Run MAFFT for alignment
+    with open(temp_fasta_path, "w") as f:
+        for pid, seq in sequences:
+            f.write(f">{pid}\n{seq}\n")
+
     try:
-        mafft_cline = MafftCommandline(input=temp_fasta_path)
-        stdout, stderr = mafft_cline()
-
-        with open(temp_aln_path, "w") as handle:
-            handle.write(stdout)
-        if stderr:
-            logging.debug(f"MAFFT stderr for {family_name}: {stderr}")
-    except Exception as e:
-        logging.error(f"MAFFT failed for {family_name}: {e}")
-        return pd.DataFrame()
-
-    # Check if alignment file exists and has content
-    if not os.path.exists(temp_aln_path) or os.path.getsize(temp_aln_path) == 0:
-        logging.error(f"Alignment failed: No alignment file created for {family_name}")
-        return pd.DataFrame()
-
-    # Parse the alignment
-    try:
-        # Use "fasta" format since MAFFT outputs in FASTA by default
+        cmd = ["mafft", "--auto", "--quiet", temp_fasta_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        with open(temp_aln_path, "w") as f:
+            f.write(result.stdout)
+            
         alignment = AlignIO.read(temp_aln_path, "fasta")
+        
+        aln_len = alignment.get_alignment_length()
+        non_gap_pos = [any(rec.seq[i] != '-' for rec in alignment) for i in range(aln_len)]
+        first_non_gap = non_gap_pos.index(True) if True in non_gap_pos else 0
+        
+        aligned_data = []
+        for record in alignment:
+            trimmed = str(record.seq[first_non_gap:])
+            start_pos = trimmed.find(trimmed.lstrip('-'))
+            aligned_data.append({
+                'protein_ID': record.id,
+                'aln_sequence': trimmed,
+                'start_index': start_pos
+            })
+            
+        if os.path.exists(temp_fasta_path): os.remove(temp_fasta_path)
+        if os.path.exists(temp_aln_path): os.remove(temp_aln_path)
+        return pd.DataFrame(aligned_data)
+
     except Exception as e:
-        logging.error(f"Failed to parse alignment for {family_name}: {e}")
-        os.remove(temp_fasta_path)
-        if os.path.exists(temp_aln_path):
-            os.remove(temp_aln_path)
+        logging.error(f"Alignment failed for {family_name}: {e}")
         return pd.DataFrame()
 
-    # Remove leading gaps from alignment
-    aln_length = alignment.get_alignment_length()
-    non_gap_positions = [any(record.seq[i] != '-' for record in alignment) for i in range(aln_length)]
-    first_non_gap = non_gap_positions.index(True) if True in non_gap_positions else 0
+# ==========================
+# 4. ANALYSIS (INDICES & COVERAGE)
+# ==========================
 
-    aligned_sequences = []
-    for record in alignment:
-        trimmed_seq = str(record.seq[first_non_gap:])  # Trim leading gaps
-        original_id = temp_id_map[record.id]
-        start_pos = len(trimmed_seq) - len(trimmed_seq.lstrip('-'))
-        aligned_sequences.append({
-            'protein_ID': original_id,
-            'aln_sequence': trimmed_seq,
-            'start_index': start_pos
-        })
+def construct_kmer_id_df(protein_families_df, kmer_df):
+    """Legacy helper."""
+    return kmer_df
 
-    # Clean up temporary files
-    os.remove(temp_fasta_path)
-    if os.path.exists(temp_aln_path):
-        os.remove(temp_aln_path)
-    dnd_path = os.path.join(output_dir, f"{file_family_name}_temp_sequences.dnd")
-    if os.path.exists(dnd_path):
-        os.remove(dnd_path)
-
-    logging.info(f"Alignment completed for protein family: {family_name}")
-    return pd.DataFrame(aligned_sequences)
-
-# Find kmer indices within aligned sequences
 def find_kmer_indices(row):
-    """
-    Finds indices of k-mer within an aligned sequence.
-
-    Parameters:
-    row (Series): Row containing 'kmer' and 'aln_sequence'.
-
-    Returns:
-    Series: Start and stop indices of k-mer in aligned sequence.
-    """
-    kmer_pattern = '-*'.join(row['kmer'])
+    """Finds k-mer indices allowing for gaps (e.g. A-B-C)."""
+    kmer = row['kmer']
     seq = row['aln_sequence']
-    matches = [match.start() for match in re.finditer(f'(?={kmer_pattern})', seq)]
-    start_indices = matches
-    stop_indices = [m + len(row['kmer']) - 1 for m in matches]  # End of each kmer match
+    
+    pattern = ""
+    for char in kmer:
+        pattern += char + "-*"
+    pattern = pattern[:-2]
+    
+    start_indices = []
+    stop_indices = []
+    
+    for match in re.finditer(pattern, seq):
+        start = match.start()
+        stop = match.end() - 1
+        segment = seq[start:stop+1]
+        aa_count = sum(1 for c in segment if c != '-')
+        if aa_count == len(kmer):
+            start_indices.append(start)
+            stop_indices.append(stop)
+            
     return pd.Series([start_indices, stop_indices], index=['start_indices', 'stop_indices'])
 
-# Coverage calculation
 def calculate_coverage(df):
-    """
-    Calculates binary coverage for amino acids in aligned sequences with multiple k-mer matches.
-
-    Parameters:
-    df (DataFrame): DataFrame with aligned sequences and lists of k-mer start and stop positions.
-
-    Returns:
-    DataFrame: DataFrame with coverage information for each amino acid position.
-    """
-    logging.info("Calculating coverage for aligned sequences.")
+    """Calculates coverage and tracks gaps."""
+    logging.info("Calculating coverage...")
     coverage_data = []
+    
     for _, row in df.iterrows():
-        coverage = np.full(len(row['aln_sequence']), 0)  # Initialize with 0 (absence)
+        seq_len = len(row['aln_sequence'])
+        coverage = np.zeros(seq_len, dtype=int)
         
-        # Process each k-mer match for the sequence
-        for start, stop in zip(row['start_indices'], row['stop_indices']):
-            coverage[start:stop + 1] = 1  # Mark presence from start to stop index
-
+        # Only fill if matches exist
+        if len(row['start_indices']) > 0:
+            for start, stop in zip(row['start_indices'], row['stop_indices']):
+                coverage[start:stop+1] = 1
+            
         for idx, residue in enumerate(row['aln_sequence']):
-            if residue != '-':  # Skip gap positions
-                coverage_data.append({
-                    'Feature': row['Feature'],
-                    'protein_family': row['protein_family'],
-                    'protein_ID': row['protein_ID'],
-                    'AA_index': idx,
-                    'Residue': residue,
-                    'coverage': coverage[idx]
-                })
+            coverage_data.append({
+                'Feature': row.get('Feature', 'Unknown'),
+                'protein_ID': row['protein_ID'],
+                'cluster_id': row.get('cluster_id', 0),
+                'AA_index': idx,
+                'coverage': coverage[idx],
+                'is_gap': 1 if residue == '-' else 0
+            })
+            
+    if not coverage_data:
+        return pd.DataFrame()
+        
+    cov_df = pd.DataFrame(coverage_data)
+    cov_df = cov_df.groupby(['Feature', 'protein_ID', 'cluster_id', 'AA_index']).agg({
+        'coverage': 'max', 
+        'is_gap': 'max'
+    }).reset_index()
     
-    coverage_data = pd.DataFrame(coverage_data)
-    coverage_data = coverage_data.groupby(['Feature', 'protein_family', 'protein_ID', 'AA_index', 'Residue'])['coverage'].max().reset_index()
+    return cov_df
 
-    logging.info(f"Calculated coverage for {len(coverage_data)} amino acid positions.")
-    return coverage_data
-
-# Identify segments from binary coverage
 def identify_segments(df):
-    """
-    Identifies contiguous coverage segments in amino acid sequences for each unique combination
-    of Feature, protein family, and protein ID.
-
-    Parameters:
-    df (DataFrame): Input DataFrame containing the following columns:
-        - Feature: Identifier for the feature category.
-        - protein_family: Identifier for the protein family.
-        - protein_ID: Identifier for the specific protein.
-        - AA_index: Amino acid index within the protein sequence.
-        - coverage: Binary indicator of coverage (1 for covered, 0 for uncovered).
-    """
-    logging.info("Identifying coverage segments.")
+    """Identifies segments (0=Uncovered, 1=Covered, 2=Gap)."""
+    logging.info("Identifying segments...")
+    if df.empty: return pd.DataFrame()
     
-    # Sort values to ensure segment detection aligns with amino acid sequence order
-    df = df.sort_values(by=['Feature', 'protein_family', 'protein_ID', 'AA_index'])
+    df = df.sort_values(by=['Feature', 'protein_ID', 'AA_index'])
     
-    # Calculate changes in coverage, indicating the start of new segments
-    df['prev_coverage'] = df.groupby(['Feature', 'protein_family', 'protein_ID'])['coverage'].shift(1)
-    df['segment_change'] = (df['coverage'] != df['prev_coverage']) | (df['prev_coverage'].isna())
-    df['segment_id'] = df.groupby(['Feature', 'protein_family', 'protein_ID'])['segment_change'].cumsum()
+    # Segment type logic
+    df['segment_type'] = df['coverage']
+    df.loc[df['is_gap'] == 1, 'segment_type'] = 2
     
-    # Aggregate to find start and stop indices of each segment
-    segments_df = df.groupby(['Feature', 'protein_family', 'protein_ID', 'coverage', 'segment_id']).agg(
+    df['prev_type'] = df.groupby(['Feature', 'protein_ID'])['segment_type'].shift(1).fillna(-1)
+    df['segment_change'] = (df['segment_type'] != df['prev_type'])
+    df['segment_id'] = df.groupby(['Feature', 'protein_ID'])['segment_change'].cumsum()
+    
+    segments = df.groupby(['Feature', 'protein_ID', 'cluster_id', 'segment_type', 'segment_id']).agg(
         start=('AA_index', 'min'),
         stop=('AA_index', 'max')
     ).reset_index()
     
-    # Adjust stop index to be inclusive
-    segments_df['stop'] += 1
-    
-    # Clean up by removing temporary columns and handling missing values
-    segments_df = segments_df[['Feature', 'protein_family', 'protein_ID', 'coverage', 'segment_id', 'start', 'stop']]
-    segments_df = segments_df.dropna()
-    
-    logging.info(f"Identified {len(segments_df)} segments.")
-    return segments_df
+    return segments
 
-def merge_no_coverage_proteins(coverage_segments_df, aligned_df):
-    """
-    Merges proteins with no coverage into the final segment summary.
+# ==========================
+# 5. PLOTTING
+# ==========================
 
-    Parameters:
-    coverage_segments_df (DataFrame): DataFrame with identified segments and coverage.
-    aligned_df (DataFrame): DataFrame with aligned sequences and k-mer indices.
-
-    Returns:
-    DataFrame: The final coverage summary DataFrame, including proteins with no segments.
-    """
-    logging.info("Adding proteins with no coverage segments to the final summary.")
-    
-    # Identify proteins without any coverage segments
-    no_coverage_proteins_df = aligned_df[~aligned_df['protein_ID'].isin(coverage_segments_df['protein_ID'].unique())]
-    no_coverage_proteins_df = no_coverage_proteins_df[['protein_family', 'protein_ID', 'start_index', 'aln_sequence']].drop_duplicates()
-    
-    # Clean up and prepare no-coverage proteins for merging
-    no_coverage_proteins_df['aln_sequence'] = no_coverage_proteins_df['aln_sequence'].str.strip('-')
-    no_coverage_proteins_df['stop'] = no_coverage_proteins_df['aln_sequence'].str.len()
-    no_coverage_proteins_df = no_coverage_proteins_df.rename(columns={'start_index': 'start'})
-    no_coverage_proteins_df = no_coverage_proteins_df.drop(columns=['aln_sequence'])
-    no_coverage_proteins_df['coverage'] = 0  # Set coverage to 0 for proteins with no segments
-
-    # Concatenate the no-coverage proteins with the coverage segments
-    final_coverage_summary_df = pd.concat([coverage_segments_df, no_coverage_proteins_df], ignore_index=True)
-    logging.info(f"Final coverage summary includes {len(final_coverage_summary_df)} proteins.")
-
-    return final_coverage_summary_df
-
-# Plot segments
-def plot_segments(segment_summary_df, output_dir):
-    """
-    Plots segments by protein family and saves the plots, ordering sequences based on feature occurrence using hierarchical clustering.
-
-    Parameters:
-    segment_summary_df (DataFrame): DataFrame with segment summary data.
-    output_dir (str): Directory to save output plots.
-
-    Returns:
-    None
-    """
-    logging.info(f"Plotting segments to {output_dir}.")
+def plot_segments(segments_df, output_dir):
+    """Creates faceted plots based on cluster_id."""
+    logging.info(f"Plotting segments to {output_dir}")
     os.makedirs(output_dir, exist_ok=True)
     
-    for family, group in segment_summary_df.groupby('protein_family'):
-        try:
-            # Pivot table to compute feature occurrence matrix
-            feature_matrix = group.pivot_table(
-                index='protein_ID',
-                columns='Feature',
-                values='coverage',
-                aggfunc='sum',
-                fill_value=0
-            )
-            
-            # Only cluster if we have more than 1 protein
-            if len(feature_matrix) > 1:
-                # Compute pairwise distances and perform hierarchical clustering
-                distances = pdist(feature_matrix, metric='euclidean')
-                linkage_matrix = linkage(distances, method='ward')
-                ordered_indices = leaves_list(linkage_matrix)
-                
-                # Reorder protein IDs based on clustering
-                reordered_protein_ids = feature_matrix.index[ordered_indices]
-                group['protein_ID'] = pd.Categorical(group['protein_ID'], categories=reordered_protein_ids, ordered=True)
-                group = group.sort_values('protein_ID')
-            
-            total_protein_count = group['protein_ID'].nunique()
-            plot_height = min(20, max(4, total_protein_count * 0.5))  # Dynamic height
+    if segments_df.empty:
+        return
 
-            # Plot segments with reordered protein IDs
-            plot = (
-                ggplot() +
-                geom_segment(
-                    data=group[group['coverage'] == 0],
-                    mapping=aes(x='start', xend='stop', y='protein_ID', yend='protein_ID'),
-                    color='grey',
-                    size=5
-                ) +
-                geom_segment(
-                    data=group[group['coverage'] == 1],
-                    mapping=aes(x='start', xend='stop', y='protein_ID', yend='protein_ID', color='Feature'),
-                    size=5
-                ) +
-                labs(
-                    title=f'Protein Family: {family}',
-                    x='AA Index',
-                    y='Protein ID'
-                ) +
-                theme(
-                    axis_text_x=element_text(rotation=90),
-                    panel_background=element_rect(fill='white'),
-                    figure_size=(12, plot_height),
-                )
-            )
-            
-            # Sanitize family name for filename
-            safe_family_name = family.replace('/', '_').replace('|', '_')
-            plot.save(f"{output_dir}/{safe_family_name}_coverage_plot.png")
-            logging.info(f"Saved plot for protein family {family}")
-        except Exception as e:
-            logging.error(f"Failed to create plot for protein family {family}: {e}")
-            continue
+    # Separate Types
+    uncovered = segments_df[segments_df['segment_type'] == 0]
+    covered = segments_df[segments_df['segment_type'] == 1]
+    
+    n_proteins = segments_df['protein_ID'].nunique()
+    fig_height = min(max(5, n_proteins * 0.4), 25)
+    
+    plot = (
+        ggplot() +
+        geom_segment(
+            data=uncovered,
+            mapping=aes(x='start', xend='stop', y='protein_ID', yend='protein_ID'),
+            color='grey', size=5
+        ) +
+        geom_segment(
+            data=covered,
+            mapping=aes(x='start', xend='stop', y='protein_ID', yend='protein_ID', color='Feature'),
+            size=5
+        ) +
+        facet_wrap('~cluster_id', dir='v', scales='free_y', ncol=1) +
+        labs(title="K-mer Coverage by Sequence Cluster", x="AA Index", y="Protein ID") +
+        theme(
+            axis_text_x=element_text(rotation=90),
+            panel_background=element_rect(fill='white'),
+            figure_size=(12, fig_height),
+            strip_background=element_rect(fill='#f0f0f0')
+        )
+    )
+    
+    try:
+        plot.save(os.path.join(output_dir, "coverage_plot.png"))
+        logging.info("Plot saved successfully.")
+    except Exception as e:
+        logging.error(f"Plotting failed: {e}")
+
+def merge_no_coverage_proteins(segments, aligned):
+    return segments

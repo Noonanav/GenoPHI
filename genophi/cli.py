@@ -806,6 +806,34 @@ def create_parser():
     p.add_argument('--duplicate_all', action='store_true',
                    help='Process all genomes even with duplicates')
     add_common_args(p)
+
+    # KMER-ANALYSIS - Detailed analysis of predictive kmers
+    p = subparsers.add_parser(
+        'kmer-analysis',
+        help='Run detailed k-mer analysis, alignment, and SHAP aggregation',
+        description='Analyze predictive k-mers: align sequences, calculate coverage, identify segments, and plot.'
+    )
+    p.add_argument('--aa_sequence_file', required=True,
+                   help='Path to the amino acid sequences file (FASTA)')
+    p.add_argument('--feature_file_path', required=True,
+                   help='Path to the feature selection output file (CSV)')
+    p.add_argument('--feature2cluster_path', required=True,
+                   help='Path to the feature-to-cluster mapping file (CSV)')
+    p.add_argument('--protein_families_file', required=False, # CHANGED TO FALSE
+                   help='Path to the protein families file (CSV). Required unless --ignore_families is set.')
+    p.add_argument('--output_dir', '-o', required=True,
+                   help='Directory where output files/plots will be saved')
+    p.add_argument('--feature_type', default='strain', choices=['strain', 'phage', 'host'],
+                   help='Type of features to extract (default: strain)')
+    p.add_argument('--annotation_file',
+                   help='Path to optional annotations file (CSV) for plotting')
+    p.add_argument('--model_output_dir',
+                   help='Directory containing SHAP importance files (optional)')
+    p.add_argument('--quick_run', action='store_true',
+                   help='Skip alignment and coverage calculation steps')
+    p.add_argument('--ignore_families', action='store_true',
+                   help='Set if k-mer table was generated with ignore_families=True')
+    add_common_args(p)
     
     return parser
 
@@ -1310,6 +1338,39 @@ def protein_family_workflow_command(args):
         feature_min_cluster_presence=args.feature_min_cluster_presence
     )
 
+def run_kmer_analysis(args):
+    """Run detailed k-mer analysis workflow."""
+    from genophi.workflows.kmer_analysis_workflow import kmer_analysis_workflow
+    
+    # Validation
+    validate_file(args.aa_sequence_file, "AA sequence file")
+    validate_file(args.feature_file_path, "Feature file")
+    validate_file(args.feature2cluster_path, "Feature to cluster map")
+    
+    if not args.ignore_families:
+        if not args.protein_families_file:
+            sys.exit("Error: --protein_families_file is required unless --ignore_families is set.")
+        validate_file(args.protein_families_file, "Protein families file")
+    if args.annotation_file:
+        validate_file(args.annotation_file, "Annotation file")
+    if args.model_output_dir:
+        validate_directory(args.model_output_dir, "Model output directory")
+        
+    validate_directory(args.output_dir, "Output directory", create=True)
+
+    kmer_analysis_workflow(
+        aa_sequence_file=args.aa_sequence_file,
+        feature_file_path=args.feature_file_path,
+        feature2cluster_path=args.feature2cluster_path,
+        protein_families_file=args.protein_families_file,
+        output_dir=args.output_dir,
+        feature_type=args.feature_type,
+        annotation_file=args.annotation_file,
+        model_output_dir=args.model_output_dir,
+        quick_run=args.quick_run,
+        ignore_families=args.ignore_families
+    )
+
 def main():
     """Main entry point for the CLI."""
     parser = create_parser()
@@ -1349,6 +1410,8 @@ def main():
             run_kmer_assign_predict(args)
         elif args.command == 'assign-predict':
             run_assign_predict(args)
+        elif args.command == 'kmer-analysis':
+            run_kmer_analysis(args)
         else:
             parser.print_help()
             sys.exit(1)
