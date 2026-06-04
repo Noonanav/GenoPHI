@@ -847,7 +847,89 @@ def create_parser():
     p.add_argument('--ignore_families', action='store_true',
                    help='Set if k-mer table was generated with ignore_families=True')
     add_common_args(p)
-    
+
+    # NESTED-CV - Nested k-fold cross-validation
+    p = subparsers.add_parser(
+        'nested-cv',
+        help='Run nested k-fold cross-validation',
+        description='Deterministic (repeated) k-fold nested cross-validation: for each '
+                    'fold, train on the modeling strains and predict held-out validation '
+                    'strains, then aggregate per-fold predictions. Folds run sequentially.'
+    )
+    # Required inputs
+    p.add_argument('--input_strain_dir', '-is', required=True,
+                   help='Directory containing strain FASTA files')
+    p.add_argument('--input_phage_dir', '-ip', required=True,
+                   help='Directory containing phage FASTA files')
+    p.add_argument('--interaction_matrix', '-pm', required=True,
+                   help='Path to the interaction/phenotype matrix CSV')
+    p.add_argument('--output_dir', '-o', required=True,
+                   help='Output directory (per-fold results under iteration_N/)')
+    # Cross-validation parameters
+    p.add_argument('--n_folds', type=int, default=10,
+                   help='Number of folds per round (default: 10)')
+    p.add_argument('--cv_rounds', type=int, default=1,
+                   help='Number of repeated k-fold rounds; total fits = n_folds * cv_rounds (default: 1)')
+    p.add_argument('--strain_column', default='strain',
+                   help='Strain identifier column in the matrix (default: strain)')
+    p.add_argument('--suffix', default='faa',
+                   help='FASTA file suffix for strain files (default: faa)')
+    # MMseqs2 clustering/assignment parameters
+    p.add_argument('--min_seq_id', type=float, default=0.4,
+                   help='Minimum sequence identity for MMseqs2 (default: 0.4)')
+    p.add_argument('--coverage', type=float, default=0.8,
+                   help='Minimum coverage for MMseqs2 (default: 0.8)')
+    p.add_argument('--sensitivity', type=float, default=7.5,
+                   help='MMseqs2 sensitivity parameter (default: 7.5)')
+    # Modeling pass-through parameters
+    p.add_argument('--num_runs_fs', type=int, default=25,
+                   help='Number of feature selection runs (default: 25)')
+    p.add_argument('--num_runs_modeling', type=int, default=50,
+                   help='Number of modeling runs (default: 50)')
+    p.add_argument('--use_dynamic_weights', action='store_true',
+                   help='Use dynamic class weights in modeling')
+    p.add_argument('--weights_method', default='log10',
+                   choices=['log10', 'inverse_frequency', 'balanced'],
+                   help='Method for calculating class weights (default: log10)')
+    p.add_argument('--use_clustering', action='store_true',
+                   help='Enable sample clustering for feature filtering')
+    p.add_argument('--cluster_method', default='hdbscan',
+                   choices=['hdbscan', 'hierarchical'],
+                   help='Clustering method for samples (default: hdbscan)')
+    p.add_argument('--n_clusters', type=int, default=20,
+                   help='Number of clusters for hierarchical clustering (default: 20)')
+    p.add_argument('--min_cluster_size', type=int, default=2,
+                   help='Minimum cluster size for HDBSCAN (default: 2)')
+    p.add_argument('--min_samples', type=int,
+                   help='Min samples for core points (HDBSCAN)')
+    p.add_argument('--cluster_selection_epsilon', type=float, default=0.0,
+                   help='Cluster selection epsilon (HDBSCAN) (default: 0.0)')
+    p.add_argument('--check_feature_presence', action='store_true',
+                   help='Check feature presence across train/test splits')
+    p.add_argument('--filter_by_cluster_presence', action='store_true',
+                   help='Filter features by cluster presence')
+    p.add_argument('--min_cluster_presence', type=int, default=2,
+                   help='Minimum number of clusters a feature must appear in (default: 2)')
+    # Note: clustering always runs with bootstrapping=True for nested CV so that
+    # duplicate protein IDs are resolved across all strains (modeling + held-out
+    # validation); there is intentionally no --bootstrapping flag here.
+    p.add_argument('--max_ram', type=float, default=40,
+                   help='Maximum RAM usage in GB (default: 40)')
+    p.add_argument('--use_feature_clustering', action='store_true',
+                   help='Enable pre-processing cluster-based feature filtering')
+    p.add_argument('--feature_cluster_method', default='hierarchical',
+                   choices=['hierarchical'],
+                   help='Pre-processing clustering method (default: hierarchical)')
+    p.add_argument('--feature_n_clusters', type=int, default=20,
+                   help='Number of clusters for pre-processing (default: 20)')
+    p.add_argument('--feature_min_cluster_presence', type=int, default=2,
+                   help='Min clusters a feature must appear in pre-processing (default: 2)')
+    p.add_argument('--duplicate_all', action='store_true',
+                   help='Process all validation genomes even if duplicates are found')
+    p.add_argument('--clear_tmp', action='store_true',
+                   help='Delete per-fold tmp directories after each fold completes successfully')
+    add_common_args(p)
+
     return parser
 
 
@@ -1389,6 +1471,51 @@ def run_kmer_analysis(args):
         genome_mapping_file=args.genome_mapping_file
     )
 
+def run_nested_cv(args):
+    """Run nested k-fold cross-validation workflow."""
+    from genophi.workflows.nested_cv_workflow import run_nested_cv_workflow
+
+    validate_directory(args.input_strain_dir, "Strain input directory")
+    validate_directory(args.input_phage_dir, "Phage input directory")
+    validate_file(args.interaction_matrix, "Interaction matrix")
+    validate_directory(args.output_dir, "Output directory", create=True)
+
+    run_nested_cv_workflow(
+        input_strain_dir=args.input_strain_dir,
+        input_phage_dir=args.input_phage_dir,
+        interaction_matrix=args.interaction_matrix,
+        output_dir=args.output_dir,
+        n_folds=args.n_folds,
+        cv_rounds=args.cv_rounds,
+        strain_column=args.strain_column,
+        suffix=args.suffix,
+        min_seq_id=args.min_seq_id,
+        coverage=args.coverage,
+        sensitivity=args.sensitivity,
+        threads=args.threads,
+        num_runs_fs=args.num_runs_fs,
+        num_runs_modeling=args.num_runs_modeling,
+        use_dynamic_weights=args.use_dynamic_weights,
+        weights_method=args.weights_method,
+        use_clustering=args.use_clustering,
+        cluster_method=args.cluster_method,
+        n_clusters=args.n_clusters,
+        min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
+        cluster_selection_epsilon=args.cluster_selection_epsilon,
+        check_feature_presence=args.check_feature_presence,
+        filter_by_cluster_presence=args.filter_by_cluster_presence,
+        min_cluster_presence=args.min_cluster_presence,
+        max_ram=args.max_ram,
+        use_feature_clustering=args.use_feature_clustering,
+        feature_cluster_method=args.feature_cluster_method,
+        feature_n_clusters=args.feature_n_clusters,
+        feature_min_cluster_presence=args.feature_min_cluster_presence,
+        duplicate_all=args.duplicate_all,
+        clear_tmp=args.clear_tmp,
+    )
+
+
 def main():
     """Main entry point for the CLI."""
     parser = create_parser()
@@ -1430,6 +1557,8 @@ def main():
             run_assign_predict(args)
         elif args.command == 'kmer-analysis':
             run_kmer_analysis(args)
+        elif args.command == 'nested-cv':
+            run_nested_cv(args)
         else:
             parser.print_help()
             sys.exit(1)

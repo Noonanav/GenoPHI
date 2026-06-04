@@ -17,6 +17,7 @@ from .feature_annotations_workflow import run_predictive_proteins_workflow
 from .kmer_assign_features_workflow import run_kmer_assign_features_workflow
 from .kmer_assign_predict_workflow import kmer_assign_predict_workflow
 from .kmer_full_workflow import run_kmer_workflow
+from .nested_cv_workflow import run_nested_cv_workflow
 
 __all__ = [
     'run_full_feature_workflow',
@@ -31,4 +32,5 @@ __all__ = [
     'run_kmer_assign_features_workflow',
     'kmer_assign_predict_workflow',
     'run_kmer_workflow',
+    'run_nested_cv_workflow',
 ]

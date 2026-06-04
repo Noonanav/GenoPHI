@@ -5,7 +5,7 @@ A Python package for whole-genome genotype-to-phenotype modeling with a focus
 on phage-host interaction prediction.
 """
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 __author__ = "Avery Noonan"
 __license__ = "MIT"
 __url__ = "https://github.com/Noonanav/genophi"
