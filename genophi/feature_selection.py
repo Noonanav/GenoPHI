@@ -16,6 +16,32 @@ from tqdm import tqdm
 from hdbscan import HDBSCAN
 import time
 
+
+def drop_single_class_columns(y_train, *other_frames):
+    """Drop multi-label/-target columns that are single-valued in y_train.
+
+    In a CV fold a rare target can end up all-zeros (or all-ones) in the training
+    split. CatBoost's MultiLogloss/MultiRMSE rejects such a column ("All train
+    targets are equal"). Drop those columns from y_train (and the same columns
+    from any other DataFrames passed, e.g. y_test) so the joint model trains on
+    the learnable targets for this fold. A no-op for a Series (single target).
+
+    Returns (y_train, *other_frames, dropped) with the dropped column names.
+    """
+    if not hasattr(y_train, 'columns'):
+        return (y_train, *other_frames, [])
+    keep = [c for c in y_train.columns if y_train[c].nunique(dropna=True) > 1]
+    dropped = [c for c in y_train.columns if c not in keep]
+    if dropped:
+        logging.warning(
+            f"Dropping single-class target column(s) for this split (unlearnable "
+            f"jointly here): {dropped}"
+        )
+    y_train = y_train[keep]
+    trimmed = tuple(f[keep] if hasattr(f, 'columns') else f for f in other_frames)
+    return (y_train, *trimmed, dropped)
+
+
 # Function to load and prepare data
 def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None, filter_type='none', task_type='classification'):
     """
@@ -672,6 +698,14 @@ def perform_rfe(
     """
     total_features = X_train.shape[1]
     step_size = max(1, int((total_features - num_features) / 10))  # Ensure step_size is at least 1
+
+    # Multi-output: drop any target column that is single-class in this split --
+    # MultiLogloss/MultiRMSE reject an all-equal column ("All train targets are
+    # equal"). Train jointly on the learnable targets for this split.
+    y_train, dropped = drop_single_class_columns(y_train)
+    if hasattr(y_train, 'columns') and y_train.shape[1] == 0:
+        raise ValueError("All target columns are single-class in this split; "
+                         "cannot run multi-output RFE.")
 
     # Detect multi-output y (DataFrame): RFE still applies because the CatBoost
     # MultiLogloss/MultiRMSE estimator exposes a single joint feature-importance
@@ -1331,6 +1365,13 @@ def grid_search_multilabel(
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # Drop labels that are single-class in this split (MultiLogloss rejects them);
+    # trim y_test to the same labels so the matrices stay aligned.
+    y_train, y_test, _ = drop_single_class_columns(y_train, y_test)
+    if y_train.shape[1] == 0:
+        logging.warning("All labels single-class in this split; no multilabel model.")
+        return None, None, -1.0, None
+
     label_names = list(y_train.columns)
     best_macro_f1 = -1.0
     best_model = None
@@ -1457,6 +1498,13 @@ def grid_search_multitarget(
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+
+    # Drop targets that are single-valued in this split (MultiRMSE rejects them);
+    # trim y_test to match.
+    y_train, y_test, _ = drop_single_class_columns(y_train, y_test)
+    if y_train.shape[1] == 0:
+        logging.warning("All targets single-valued in this split; no multitarget model.")
+        return None, None, -float('inf'), None
 
     target_names = list(y_train.columns)
     best_mean_r2 = -float('inf')
