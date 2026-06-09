@@ -3,13 +3,15 @@ import pandas as pd
 import numpy as np
 import itertools
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef, roc_curve, precision_recall_curve, mean_squared_error, r2_score
+from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef, roc_curve, precision_recall_curve, mean_squared_error, r2_score, average_precision_score
 from plotnine import ggplot, aes, geom_line, geom_abline, labs, theme, guides, guide_legend, element_rect, element_blank, element_line, geom_vline, geom_jitter, geom_point, geom_smooth
 from tqdm import tqdm
 import time
 import joblib
 import re
-from genophi.feature_selection import load_and_prepare_data, filter_data, train_and_evaluate, grid_search, save_feature_importances, grid_search_regressor, train_and_evaluate_regressor
+from genophi.feature_selection import load_and_prepare_data, filter_data, train_and_evaluate, grid_search, save_feature_importances, grid_search_regressor, train_and_evaluate_regressor, grid_search_multilabel, grid_search_multitarget
+from genophi.utils import detect_task_type, MULTILABEL_CLASSIFICATION, MULTITARGET_REGRESSION
+import json
 import shap
 import matplotlib.pyplot as plt
 import logging
@@ -90,7 +92,9 @@ def model_testing_select_MCC(
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
-    use_shap=False
+    use_shap=False,
+    target_mode='auto',
+    strategy='joint'
 ):
     """
     Runs a single experiment for feature table, training a CatBoost model with grid search and saving results.
@@ -134,8 +138,51 @@ def model_testing_select_MCC(
         logging.info("Skipping this run due to insufficient training data.")
         return  # Exit this function, skipping further processing for this run
 
+    # Resolve the specific task (binary / multiclass / multilabel / regression)
+    # and strategy. For a DataFrame y with strategy='joint', this routes to the
+    # joint multi-output trainer; single-target y is unchanged.
+    specific_task, resolved_strategy = detect_task_type(
+        y_train, task_type, target_mode=target_mode, strategy=strategy
+    )
+
+    metadata = None
+
     # Define task-specific grid search parameters
-    if task_type == 'classification':
+    if specific_task == MULTILABEL_CLASSIFICATION and resolved_strategy == 'joint':
+        param_grid = {
+            'iterations': [500, 1000],
+            'learning_rate': [0.05, 0.1],
+            'depth': [4, 6],
+            'loss_function': ['MultiLogloss'],
+            'thread_count': [threads]
+        }
+        best_model, best_params, best_macro_f1, metadata = grid_search_multilabel(
+            X_train, y_train, X_test, y_test,
+            X_train_sample_ids, X_test_sample_ids,
+            param_grid, output_dir,
+            phenotype_columns=list(y_train.columns),
+            max_ram=max_ram
+        )
+        best_metric = best_macro_f1
+
+    elif specific_task == MULTITARGET_REGRESSION and resolved_strategy == 'joint':
+        param_grid = {
+            'iterations': [500, 1000],
+            'learning_rate': [0.05, 0.1],
+            'depth': [4, 6],
+            'loss_function': ['MultiRMSE'],
+            'thread_count': [threads]
+        }
+        best_model, best_params, best_mean_r2, metadata = grid_search_multitarget(
+            X_train, y_train, X_test, y_test,
+            X_train_sample_ids, X_test_sample_ids,
+            param_grid, output_dir,
+            phenotype_columns=list(y_train.columns),
+            max_ram=max_ram
+        )
+        best_metric = best_mean_r2
+
+    elif task_type == 'classification':
         param_grid = {
             'iterations': [500, 1000],
             'learning_rate': [0.05, 0.1],
@@ -180,11 +227,17 @@ def model_testing_select_MCC(
         print(f"Skipping iteration: No model found with the best metric value: {best_metric}")
         return
 
-    print(f"Best Model Parameters: {best_params}, Best Metric ({task_type}): {best_metric}")
+    print(f"Best Model Parameters: {best_params}, Best Metric ({specific_task}): {best_metric}")
 
-    # Save feature importances
-    feature_importances_path = os.path.join(output_dir, "feature_importances.csv")
-    save_feature_importances(best_model, X_train, feature_importances_path)
+    is_multilabel = (specific_task == MULTILABEL_CLASSIFICATION and resolved_strategy == 'joint')
+    is_multitarget = (specific_task == MULTITARGET_REGRESSION and resolved_strategy == 'joint')
+    is_multi_output = is_multilabel or is_multitarget
+
+    # Save feature importances (single-output models only; multi-output SHAP/
+    # importances are per-target tensors handled separately and deferred).
+    if not is_multi_output:
+        feature_importances_path = os.path.join(output_dir, "feature_importances.csv")
+        save_feature_importances(best_model, X_train, feature_importances_path)
 
     # Save model
     best_model_path = os.path.join(output_dir, "best_model.pkl")
@@ -192,8 +245,15 @@ def model_testing_select_MCC(
         joblib.dump(best_model, f)
     print(f"Best model saved to {best_model_path}")
 
-    # Calculate and save SHAP values if required
-    if use_shap:
+    # Save metadata sidecar (joint multi-output): target names, thresholds, etc.
+    if metadata is not None:
+        metadata_path = os.path.join(output_dir, "best_model_metadata.json")
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        print(f"Model metadata saved to {metadata_path}")
+
+    # Calculate and save SHAP values if required (single-output only for now).
+    if use_shap and not is_multi_output:
         process_shap_values(best_model, X_train, X_train_sample_ids, output_dir, binary_data)
 
     end_time = time.time()
@@ -276,11 +336,13 @@ def parse_model_predictions_and_performance(model_dir, task_type='classification
     model_predictions_df = pd.DataFrame()
     model_performance_df = pd.DataFrame()
 
-    # Define the performance metric column based on task type
+    # Define the performance metric column based on task type. The actual
+    # metric is detected per top_models_summary below (joint multi-label runs
+    # write macro_f1 instead of mcc), so this is just the default expectation.
     if task_type == 'classification':
-        metric_column = 'mcc'  # For classification, assuming MCC as the metric
+        metric_column = 'mcc'  # For binary classification, MCC.
     elif task_type == 'regression':
-        metric_column = 'r2'  # For regression, assuming R² as the metric
+        metric_column = 'r2'  # For regression, R².
     else:
         raise ValueError("Invalid task_type. Must be 'classification' or 'regression'.")
 
@@ -308,11 +370,19 @@ def parse_model_predictions_and_performance(model_dir, task_type='classification
         top_models_file = os.path.join(cut_off_dir, 'top_models_summary.csv')
         if os.path.exists(top_models_file):
             top_models_temp = pd.read_csv(top_models_file)
-            if metric_column not in top_models_temp.columns:
-                raise ValueError(f"Expected metric '{metric_column}' not found in top_models_summary.csv")
-            top_models_temp = top_models_temp[[metric_column]].reset_index()
+            # Joint multi-label -> macro_f1; joint multi-target -> mean_r2;
+            # prefer those when present.
+            if 'macro_f1' in top_models_temp.columns:
+                this_metric = 'macro_f1'
+            elif 'mean_r2' in top_models_temp.columns:
+                this_metric = 'mean_r2'
+            else:
+                this_metric = metric_column
+            if this_metric not in top_models_temp.columns:
+                raise ValueError(f"Expected metric '{this_metric}' not found in top_models_summary.csv")
+            top_models_temp = top_models_temp[[this_metric]].reset_index()
             top_models_temp['index'] = ['_'.join(['run', str(x)]) for x in top_models_temp['index']]
-            top_models_temp = top_models_temp.rename(columns={'index': 'run', metric_column: 'performance_metric'})
+            top_models_temp = top_models_temp.rename(columns={'index': 'run', this_metric: 'performance_metric'})
             top_models_temp['cut_off'] = cut_off
             model_performance_df = pd.concat([model_performance_df, top_models_temp])
 
@@ -342,6 +412,25 @@ def evaluate_model_performance(predictions_file, output_dir, sample_column='stra
     model_predictions_df_full = pd.read_csv(predictions_file)
     model_predictions_df_full['cut_off'] = model_predictions_df_full['cut_off'].astype(str)
 
+    # Joint multi-output: predictions carry per-target columns rather than a
+    # single trio. Multi-label (classification) has Confidence_<t>; multi-target
+    # (regression) has Prediction_<t>/True_<t> only.
+    if isinstance(phenotype_column, (list, tuple)):
+        target_list = list(phenotype_column)
+        if task_type == 'regression':
+            evaluate_multitarget_performance(
+                model_predictions_df_full, model_performance_dir,
+                sample_column, target_list
+            )
+        else:
+            evaluate_multilabel_performance(
+                model_predictions_df_full, model_performance_dir,
+                sample_column, target_list
+            )
+        del model_predictions_df_full
+        gc.collect()
+        return
+
     grouping_columns = ['cut_off', sample_column, phenotype_column]
     if 'phage' in model_predictions_df_full.columns and 'phage' not in grouping_columns:
         grouping_columns.insert(2, 'phage')
@@ -355,6 +444,205 @@ def evaluate_model_performance(predictions_file, output_dir, sample_column='stra
 
     del model_predictions_df_full
     gc.collect()
+
+def evaluate_multilabel_performance(df, model_performance_dir, sample_column, target_names):
+    """
+    Evaluate joint multi-label predictions across runs and cutoffs.
+
+    Predictions carry Prediction_<label>, Confidence_<label>, and True_<label>
+    columns. For each (cut_off, sample), confidence is medianed across runs;
+    per-label predictions are then thresholded at 0.5 of the median confidence.
+    Per-label and aggregate (micro/macro-F1, Hamming, subset-accuracy) metrics
+    are written, one row per cutoff, sorted by macro_f1.
+
+    Args:
+        df (DataFrame): combined predictions across runs/cutoffs.
+        model_performance_dir (str): output directory for metrics.
+        sample_column (str): sample identifier column.
+        target_names (list[str]): the label column base names.
+    """
+    group_keys = ['cut_off', sample_column]
+    if 'phage' in df.columns and 'phage' not in group_keys:
+        group_keys.append('phage')
+
+    conf_cols = [f'Confidence_{t}' for t in target_names]
+    true_cols = [f'True_{t}' for t in target_names]
+
+    # Median confidence per (cut_off, sample); true labels are constant per sample.
+    agg_map = {c: 'median' for c in conf_cols}
+    agg_map.update({c: 'first' for c in true_cols})
+    df_calcs = df.groupby(group_keys).agg(agg_map).reset_index()
+
+    metrics_list = []
+    for cut_off, group in df_calcs.groupby('cut_off'):
+        y_true = group[true_cols].to_numpy().astype(int)
+        proba = group[conf_cols].to_numpy()
+        y_pred = (proba >= 0.5).astype(int)
+
+        row = {'cut_off': cut_off}
+        # Full per-receptor metric set (matches the independent path) so the
+        # joint vs. independent comparison is like-for-like. AUC/AUPR need both
+        # classes present in the fold; guard with NaN otherwise.
+        for k, t in enumerate(target_names):
+            yk, pk, pr = y_true[:, k], y_pred[:, k], proba[:, k]
+            both_classes = len(np.unique(yk)) > 1
+            row[f'AUC_{t}'] = roc_auc_score(yk, pr) if both_classes else float('nan')
+            row[f'AUPR_{t}'] = average_precision_score(yk, pr) if both_classes else float('nan')
+            row[f'Accuracy_{t}'] = accuracy_score(yk, pk)
+            row[f'Precision_{t}'] = precision_score(yk, pk, zero_division=0)
+            row[f'Recall_{t}'] = recall_score(yk, pk, zero_division=0)
+            row[f'F1_{t}'] = f1_score(yk, pk, zero_division=0)
+            row[f'MCC_{t}'] = matthews_corrcoef(yk, pk) if both_classes else float('nan')
+        # Aggregate (whole-matrix) metrics.
+        row['micro_f1'] = f1_score(y_true, y_pred, average='micro', zero_division=0)
+        row['macro_f1'] = f1_score(y_true, y_pred, average='macro', zero_division=0)
+        row['hamming_loss'] = float((y_pred != y_true).mean())
+        row['subset_accuracy'] = float((y_pred == y_true).all(axis=1).mean())
+        metrics_list.append(row)
+
+    metrics_df = pd.DataFrame(metrics_list)
+    try:
+        metrics_df['cutoff_int'] = metrics_df['cut_off'].str.split('_').str[-1].astype(int)
+        metrics_df = metrics_df.sort_values(['macro_f1', 'cutoff_int'], ascending=[False, True])
+        metrics_df = metrics_df.drop('cutoff_int', axis=1)
+    except (ValueError, TypeError):
+        metrics_df = metrics_df.sort_values(['macro_f1'], ascending=[False])
+
+    metrics_df.to_csv(os.path.join(model_performance_dir, 'model_performance_metrics.csv'), index=False)
+    print(f"Multi-label performance metrics saved to "
+          f"{os.path.join(model_performance_dir, 'model_performance_metrics.csv')}")
+
+    del df_calcs, metrics_list, metrics_df
+    gc.collect()
+
+
+def _strong_responder_detection(yt, yp, top_frac=0.2):
+    """Detection metrics for 'does the model rank strong-responder samples high'.
+
+    For zero-inflated / heavy-tailed continuous targets (e.g. CRISPRi fitness),
+    R2/Spearman are dominated by the un-rankable near-zero bulk and understate
+    the model. The biological question is usually 'which samples have a STRONG
+    effect', i.e. a top-K retrieval / detection problem. We label the top
+    ``top_frac`` of samples by TRUE value as 'strong' and score how well the
+    PREDICTED value ranks them.
+
+    Args:
+        yt (np.ndarray): true continuous values.
+        yp (np.ndarray): predicted continuous values.
+        top_frac (float): fraction of samples (by true value) treated as strong.
+
+    Returns:
+        dict with keys: n_strong, detect_AUPR, detect_AUROC, precision_at_k,
+        recall_at_k (k = number of strong samples). NaN where undefined.
+    """
+    n = len(yt)
+    k = max(1, int(round(n * top_frac)))
+    # 'strong' = the k samples with the highest TRUE value.
+    thresh = np.sort(yt)[-k]
+    strong = (yt >= thresh).astype(int)
+    n_strong = int(strong.sum())
+    out = {'n_strong': n_strong, 'detect_AUPR': float('nan'),
+           'detect_AUROC': float('nan'), 'precision_at_k': float('nan'),
+           'recall_at_k': float('nan')}
+    # Need both classes present and >1 strong for meaningful detection scoring.
+    if n_strong == 0 or n_strong == n:
+        return out
+    out['detect_AUPR'] = float(average_precision_score(strong, yp))
+    out['detect_AUROC'] = float(roc_auc_score(strong, yp))
+    # Top-k by PREDICTED value; how many are truly strong.
+    top_pred = np.argsort(yp)[::-1][:n_strong]
+    n_hit = int(strong[top_pred].sum())
+    out['precision_at_k'] = n_hit / n_strong
+    out['recall_at_k'] = n_hit / n_strong  # equal when k == n_strong
+    return out
+
+
+def evaluate_multitarget_performance(df, model_performance_dir, sample_column,
+                                     target_names, strong_top_frac=0.2):
+    """
+    Evaluate joint multi-target (MultiRMSE) predictions across runs and cutoffs.
+
+    Predictions carry Prediction_<target> and True_<target> columns. For each
+    (cut_off, sample), predictions are medianed across runs. Two metric families
+    are written per target, one row per cutoff:
+
+      - Regression fit: R2, RMSE, MAE, normalized-RMSE (+ aggregate mean_r2,
+        mean_normalized_rmse). Sorted by mean_r2 descending.
+      - Strong-responder DETECTION: detect_AUPR, detect_AUROC, precision@k for
+        the top ``strong_top_frac`` of samples by true value (+ aggregate
+        mean_detect_AUPR, mean_detect_AUROC). Appropriate for zero-inflated /
+        heavy-tailed fitness targets where R2 understates the model.
+
+    Args:
+        df (DataFrame): combined predictions across runs/cutoffs.
+        model_performance_dir (str): output directory for metrics.
+        sample_column (str): sample identifier column.
+        target_names (list[str]): the target column base names.
+        strong_top_frac (float): fraction of samples (by true value) treated as
+            'strong responders' for the detection metrics (default 0.2).
+    """
+    group_keys = ['cut_off', sample_column]
+    if 'phage' in df.columns and 'phage' not in group_keys:
+        group_keys.append('phage')
+
+    pred_cols = [f'Prediction_{t}' for t in target_names]
+    true_cols = [f'True_{t}' for t in target_names]
+
+    agg_map = {c: 'median' for c in pred_cols}
+    agg_map.update({c: 'first' for c in true_cols})
+    df_calcs = df.groupby(group_keys).agg(agg_map).reset_index()
+
+    metrics_list = []
+    for cut_off, group in df_calcs.groupby('cut_off'):
+        row = {'cut_off': cut_off}
+        r2s, nrmses, dauprs, daurocs = [], [], [], []
+        for k, t in enumerate(target_names):
+            yt = group[true_cols[k]].to_numpy()
+            yp = group[pred_cols[k]].to_numpy()
+            rmse = float(np.sqrt(mean_squared_error(yt, yp)))
+            mae = float(np.mean(np.abs(yt - yp)))
+            r2 = float(r2_score(yt, yp)) if len(np.unique(yt)) > 1 else float('nan')
+            spread = float(yt.max() - yt.min())
+            nrmse = rmse / spread if spread > 0 else float('nan')
+            row[f'R2_{t}'] = r2
+            row[f'RMSE_{t}'] = rmse
+            row[f'MAE_{t}'] = mae
+            row[f'normalized_RMSE_{t}'] = nrmse
+            if not np.isnan(r2):
+                r2s.append(r2)
+            if not np.isnan(nrmse):
+                nrmses.append(nrmse)
+            # Strong-responder detection (top-K retrieval) metrics.
+            det = _strong_responder_detection(yt, yp, top_frac=strong_top_frac)
+            row[f'detect_AUPR_{t}'] = det['detect_AUPR']
+            row[f'detect_AUROC_{t}'] = det['detect_AUROC']
+            row[f'precision_at_k_{t}'] = det['precision_at_k']
+            row[f'n_strong_{t}'] = det['n_strong']
+            if not np.isnan(det['detect_AUPR']):
+                dauprs.append(det['detect_AUPR'])
+            if not np.isnan(det['detect_AUROC']):
+                daurocs.append(det['detect_AUROC'])
+        row['mean_r2'] = float(np.mean(r2s)) if r2s else float('nan')
+        row['mean_normalized_rmse'] = float(np.mean(nrmses)) if nrmses else float('nan')
+        row['mean_detect_AUPR'] = float(np.mean(dauprs)) if dauprs else float('nan')
+        row['mean_detect_AUROC'] = float(np.mean(daurocs)) if daurocs else float('nan')
+        metrics_list.append(row)
+
+    metrics_df = pd.DataFrame(metrics_list)
+    try:
+        metrics_df['cutoff_int'] = metrics_df['cut_off'].str.split('_').str[-1].astype(int)
+        metrics_df = metrics_df.sort_values(['mean_r2', 'cutoff_int'], ascending=[False, True])
+        metrics_df = metrics_df.drop('cutoff_int', axis=1)
+    except (ValueError, TypeError):
+        metrics_df = metrics_df.sort_values(['mean_r2'], ascending=[False])
+
+    metrics_df.to_csv(os.path.join(model_performance_dir, 'model_performance_metrics.csv'), index=False)
+    print(f"Multi-target performance metrics saved to "
+          f"{os.path.join(model_performance_dir, 'model_performance_metrics.csv')}")
+
+    del df_calcs, metrics_list, metrics_df
+    gc.collect()
+
 
 def evaluate_classifier_performance(df, model_performance_dir, grouping_columns, phenotype_column):
     """
@@ -377,6 +665,7 @@ def evaluate_classifier_performance(df, model_performance_dir, grouping_columns,
         
         metrics = {
             'AUC': roc_auc_score(y_true, y_pred_prob),
+            'AUPR': average_precision_score(y_true, y_pred_prob),
             'Accuracy': accuracy_score(y_true, y_pred),
             'Precision': precision_score(y_true, y_pred),
             'Recall': recall_score(y_true, y_pred),
@@ -527,7 +816,9 @@ def run_experiments(
     min_cluster_size=5,
     min_samples=None,
     cluster_selection_epsilon=0.0,
-    use_shap=False
+    use_shap=False,
+    target_mode='auto',
+    strategy='joint'
 ):
     """
     Iterates through feature tables in a directory, running the model testing process for each.
@@ -614,7 +905,9 @@ def run_experiments(
                         min_cluster_size=min_cluster_size,
                         min_samples=min_samples,
                         cluster_selection_epsilon=cluster_selection_epsilon,
-                        use_shap=use_shap
+                        use_shap=use_shap,
+                        target_mode=target_mode,
+                        strategy=strategy
                     )
                 else:
                     logging.info(f"Model performance already saved to {model_performance_path}")
@@ -622,8 +915,14 @@ def run_experiments(
                 # Load model performance data for the best model selection
                 if os.path.exists(model_performance_path):
                     run_results = pd.read_csv(model_performance_path)
-                    # Select the best metric based on task type
-                    if task_type == 'classification':
+                    # Select the best metric based on what the run actually wrote.
+                    # Joint multi-label -> macro_f1; joint multi-target -> mean_r2;
+                    # binary -> mcc; single regression -> r2.
+                    if 'macro_f1' in run_results.columns:
+                        top_model = run_results.nlargest(1, 'macro_f1')
+                    elif 'mean_r2' in run_results.columns:
+                        top_model = run_results.nlargest(1, 'mean_r2')
+                    elif task_type == 'classification':
                         top_model = run_results.nlargest(1, 'mcc')
                     elif task_type == 'regression':
                         top_model = run_results.nlargest(1, 'r2')

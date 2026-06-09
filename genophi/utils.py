@@ -20,11 +20,16 @@ def validate_phenotype_task_type(y, task_type, phenotype_column='interaction'):
     a mismatch. This prevents users from accidentally running classification
     on continuous data or vice versa.
 
+    Accepts either a single-column ``pd.Series`` (single-target) or a
+    ``pd.DataFrame`` (multi-target). For a DataFrame, each column is validated
+    independently with the same Series logic.
+
     Args:
-        y (pd.Series): The phenotype/target variable to validate.
+        y (pd.Series or pd.DataFrame): The phenotype/target variable(s) to validate.
         task_type (str): The task type - must be 'classification' or 'regression'.
         phenotype_column (str): Name of the phenotype column for error messages.
-            Default is 'interaction'.
+            Default is 'interaction'. Ignored for DataFrame input (column names
+            are used instead).
 
     Raises:
         ValueError: If task_type is invalid or if the phenotype data type doesn't
@@ -40,6 +45,10 @@ def validate_phenotype_task_type(y, task_type, phenotype_column='interaction'):
         >>> y = pd.Series([0, 1, 0, 1, 1])
         >>> validate_phenotype_task_type(y, 'classification', 'label')
 
+        >>> # Multi-target: validate each column independently
+        >>> y = pd.DataFrame({'res_A': [0, 1, 1], 'res_B': [1, 0, 1]})
+        >>> validate_phenotype_task_type(y, 'classification')
+
         >>> # Continuous data with classification - should raise error
         >>> y = pd.Series([1.5, 2.3, 4.7, 3.2])
         >>> validate_phenotype_task_type(y, 'classification', 'score')
@@ -47,12 +56,33 @@ def validate_phenotype_task_type(y, task_type, phenotype_column='interaction'):
             ...
         ValueError: Task type is set to 'classification', but the phenotype column...
     """
-    # Validate task_type parameter
+    # Validate task_type parameter (do this once, before per-column dispatch)
     if task_type not in ['classification', 'regression']:
         raise ValueError(
             f"Invalid task_type '{task_type}'. Must be 'classification' or 'regression'."
         )
 
+    # Multi-target: validate each column independently with the Series logic.
+    if isinstance(y, pd.DataFrame):
+        for column in y.columns:
+            _validate_phenotype_series(y[column], task_type, str(column))
+        logging.info(
+            f"Validation passed: {len(y.columns)} phenotype columns suitable for "
+            f"{task_type} ({list(y.columns)})"
+        )
+        return
+
+    _validate_phenotype_series(y, task_type, phenotype_column)
+
+
+def _validate_phenotype_series(y, task_type, phenotype_column='interaction'):
+    """
+    Validate a single phenotype Series against a task type.
+
+    Contains the original single-column validation logic, factored out so that
+    both Series and per-column DataFrame validation share identical behavior.
+    Assumes ``task_type`` has already been validated by the caller.
+    """
     # Get basic statistics about the data
     unique_values = y.nunique()
 
@@ -128,6 +158,111 @@ def validate_phenotype_task_type(y, task_type, phenotype_column='interaction'):
             f"Validation passed: Phenotype data is suitable for regression "
             f"(unique values: {unique_values}, dtype: {y.dtype})"
         )
+
+
+# Resolved task identifiers returned by detect_task_type().
+BINARY_CLASSIFICATION = 'binary_classification'
+MULTICLASS_CLASSIFICATION = 'multiclass_classification'
+MULTILABEL_CLASSIFICATION = 'multilabel_classification'
+SINGLE_REGRESSION = 'single_regression'
+MULTITARGET_REGRESSION = 'multitarget_regression'
+
+VALID_TARGET_MODES = (
+    'auto', 'binary', 'multiclass', 'multilabel', 'single', 'multitarget'
+)
+VALID_STRATEGIES = ('joint', 'independent')
+
+
+def detect_task_type(y, task_type, target_mode='auto', strategy='joint'):
+    """
+    Resolve the specific modeling task from the target data and user overrides.
+
+    This determines *what* the targets are (binary/multiclass/multilabel/
+    single/multitarget regression). It is orthogonal to ``strategy``, which
+    determines *how* multiple targets are modeled ('joint' single multi-output
+    model vs. 'independent' one model per target). ``strategy`` is echoed back
+    unchanged for single-target tasks (where it is irrelevant).
+
+    Args:
+        y (pd.Series or pd.DataFrame): Target variable(s). A Series is treated
+            as single-target; a DataFrame as multi-target.
+        task_type (str): 'classification' or 'regression'.
+        target_mode (str): One of 'auto', 'binary', 'multiclass', 'multilabel',
+            'single', 'multitarget'. 'auto' (default) infers from the data.
+        strategy (str): 'joint' or 'independent'. Echoed back; only meaningful
+            for multi-target tasks.
+
+    Returns:
+        tuple[str, str]: ``(specific_task, strategy)`` where ``specific_task`` is
+        one of the module-level ``*_CLASSIFICATION`` / ``*_REGRESSION`` constants.
+
+    Raises:
+        ValueError: If task_type, target_mode, or strategy is invalid, or if an
+            explicit target_mode is incompatible with the shape of ``y``.
+    """
+    if task_type not in ('classification', 'regression'):
+        raise ValueError(
+            f"Invalid task_type '{task_type}'. Must be 'classification' or 'regression'."
+        )
+    if target_mode not in VALID_TARGET_MODES:
+        raise ValueError(
+            f"Invalid target_mode '{target_mode}'. Must be one of {VALID_TARGET_MODES}."
+        )
+    if strategy not in VALID_STRATEGIES:
+        raise ValueError(
+            f"Invalid strategy '{strategy}'. Must be one of {VALID_STRATEGIES}."
+        )
+
+    is_multi = isinstance(y, pd.DataFrame) and y.shape[1] > 1
+
+    # --- Explicit target_mode override (skip auto-detection) ---
+    if target_mode != 'auto':
+        explicit = {
+            'binary': (BINARY_CLASSIFICATION, 'classification', False),
+            'multiclass': (MULTICLASS_CLASSIFICATION, 'classification', False),
+            'multilabel': (MULTILABEL_CLASSIFICATION, 'classification', True),
+            'single': (SINGLE_REGRESSION, 'regression', False),
+            'multitarget': (MULTITARGET_REGRESSION, 'regression', True),
+        }
+        specific_task, expected_task, expects_multi = explicit[target_mode]
+        if task_type != expected_task:
+            raise ValueError(
+                f"target_mode '{target_mode}' implies task_type '{expected_task}', "
+                f"but task_type='{task_type}' was given."
+            )
+        if expects_multi and not is_multi:
+            raise ValueError(
+                f"target_mode '{target_mode}' requires multiple target columns, "
+                f"but a single target was provided."
+            )
+        if not expects_multi and is_multi:
+            raise ValueError(
+                f"target_mode '{target_mode}' expects a single target, but "
+                f"multiple target columns were provided."
+            )
+        return specific_task, strategy
+
+    # --- Auto-detection ---
+    if is_multi:
+        # Multiple columns: multilabel (classification) or multitarget (regression).
+        specific_task = (
+            MULTILABEL_CLASSIFICATION if task_type == 'classification'
+            else MULTITARGET_REGRESSION
+        )
+        return specific_task, strategy
+
+    # Single target: collapse a 1-column DataFrame to a Series for inspection.
+    y_series = y.iloc[:, 0] if isinstance(y, pd.DataFrame) else y
+
+    if task_type == 'regression':
+        return SINGLE_REGRESSION, strategy
+
+    # Single-column classification: binary vs. multiclass by unique count.
+    n_unique = y_series.nunique()
+    specific_task = (
+        BINARY_CLASSIFICATION if n_unique <= 2 else MULTICLASS_CLASSIFICATION
+    )
+    return specific_task, strategy
 
 
 def validate_file(path, name):

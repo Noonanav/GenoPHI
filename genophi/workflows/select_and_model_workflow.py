@@ -67,8 +67,10 @@ def run_modeling_workflow_from_feature_table(
     check_feature_presence=False,
     filter_by_cluster_presence=False,
     min_cluster_presence=2,
-    max_ram=8, 
-    use_shap=False
+    max_ram=8,
+    use_shap=False,
+    target_mode='auto',
+    strategy='joint'
 ):
     """
     Workflow for feature selection, modeling, and predictive protein extraction starting from a pre-generated full feature table.
@@ -110,6 +112,16 @@ def run_modeling_workflow_from_feature_table(
         check_feature_presence (bool): If True, only include features present in both train and test sets.
     """
     setup_logging(output_dir)
+
+    # Joint multi-label is signalled by a list of phenotype columns. Guard the
+    # one feature-selection method we don't support there yet (custom SHAP-RFE).
+    is_multi_target = isinstance(phenotype_column, (list, tuple))
+    if is_multi_target and strategy == 'joint' and method == 'shap_rfe':
+        raise NotImplementedError(
+            "method='shap_rfe' is not yet supported for joint multi-label "
+            "feature selection. Use method='rfe' (default) for the joint "
+            "multi-label strategy."
+        )
 
     # Step 1: Feature Selection
     logging.info("Step : Running feature selection iterations...")
@@ -181,7 +193,9 @@ def run_modeling_workflow_from_feature_table(
         min_samples=min_samples,
         cluster_selection_epsilon=cluster_selection_epsilon,
         max_ram=max_ram,
-        use_shap=use_shap
+        use_shap=use_shap,
+        target_mode=target_mode,
+        strategy=strategy
     )
 
     # Conditional Step 4: Predictive Proteins Workflow

@@ -379,7 +379,9 @@ def run_kmer_workflow(
     feature_n_clusters=20,
     feature_min_cluster_presence=2,
     remove_suffix=False,
-    run_predictive_analysis=False
+    run_predictive_analysis=False,
+    target_mode='auto',
+    strategy='joint'
 ):
     """
     Complete k-mer workflow: K-mer feature generation, feature selection, modeling, and analysis.
@@ -496,6 +498,8 @@ def run_kmer_workflow(
             remove_suffix=remove_suffix,
             sample_column=sample_column,
             phenotype_column=phenotype_column,
+            target_mode=target_mode,
+            strategy=strategy,
             modeling=modeling,
             filter_type=filter_type,  # Essential for train-test split functionality
             num_features=num_features,

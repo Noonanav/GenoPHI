@@ -423,11 +423,18 @@ def run_kmer_table_workflow(
     use_feature_clustering=False,
     feature_cluster_method='hierarchical',
     feature_n_clusters=20,
-    feature_min_cluster_presence=2
+    feature_min_cluster_presence=2,
+    target_mode='auto',
+    strategy='joint'
 ):
     """
     Executes a full workflow for k-mer-based feature table construction, including strain and phage clustering,
     feature selection, phenotype merging, and optional modeling.
+
+    phenotype_column may be a single column name (single-target, unchanged) or a
+    list of names (multi-target). For a list, all target columns are merged into
+    the feature table and the modeling step routes by strategy ('joint' single
+    multi-output model, or 'independent' one model per target) and target_mode.
 
     Args:
         strain_fasta (str): Path to the FASTA file containing strain amino acid sequences.
@@ -649,6 +656,7 @@ def run_kmer_table_workflow(
                     sample_column=sample_column,
                     phage_features=phage_final_feature_table_output,
                     remove_suffix=remove_suffix,
+                    phenotype_column=phenotype_column,
                     use_feature_clustering=use_feature_clustering,
                     feature_cluster_method=feature_cluster_method,
                     feature_n_clusters=feature_n_clusters,
@@ -688,34 +696,73 @@ def run_kmer_table_workflow(
                 logging.info("Running modeling workflow...")
                 modeling_output_dir = os.path.join(output_dir, "modeling")
                 os.makedirs(modeling_output_dir, exist_ok=True)
-                run_modeling_workflow_from_feature_table(
-                    full_feature_table=merged_table_path,
-                    output_dir=modeling_output_dir,
-                    threads=threads,
-                    num_features=num_features,
-                    filter_type=filter_type,
-                    num_runs_fs=num_runs_fs,
-                    num_runs_modeling=num_runs_modeling,
-                    sample_column=sample_column,
-                    phenotype_column=phenotype_column,
-                    method=method,
-                    task_type=task_type,
-                    binary_data=True,
-                    max_features=max_features,
-                    max_ram=max_ram,
-                    use_shap=use_shap,
-                    use_clustering=use_clustering,
-                    cluster_method=cluster_method,
-                    n_clusters=n_clusters,
-                    min_cluster_size=min_cluster_size,
-                    min_samples=min_samples,
-                    cluster_selection_epsilon=cluster_selection_epsilon,
-                    use_dynamic_weights=use_dynamic_weights,
-                    weights_method=weights_method,
-                    check_feature_presence=check_feature_presence,
-                    filter_by_cluster_presence=filter_by_cluster_presence,
-                    min_cluster_presence=min_cluster_presence   
-                )
+
+                is_multi_target = isinstance(phenotype_column, (list, tuple))
+                if is_multi_target and strategy == 'independent':
+                    # One independent model per target (per-target feature selection).
+                    from genophi.workflows.independent_multioutput_workflow import (
+                        run_independent_multioutput_workflow,
+                    )
+                    run_independent_multioutput_workflow(
+                        full_feature_table=merged_table_path,
+                        output_dir=modeling_output_dir,
+                        phenotype_columns=list(phenotype_column),
+                        task_type=task_type,
+                        threads=threads,
+                        num_features=num_features,
+                        filter_type=filter_type,
+                        num_runs_fs=num_runs_fs,
+                        num_runs_modeling=num_runs_modeling,
+                        sample_column=sample_column,
+                        method=method,
+                        max_features=max_features,
+                        max_ram=max_ram,
+                        binary_data=True,
+                        use_clustering=use_clustering,
+                        cluster_method=cluster_method,
+                        n_clusters=n_clusters,
+                        min_cluster_size=min_cluster_size,
+                        min_samples=min_samples,
+                        cluster_selection_epsilon=cluster_selection_epsilon,
+                        use_dynamic_weights=use_dynamic_weights,
+                        weights_method=weights_method,
+                        check_feature_presence=check_feature_presence,
+                        filter_by_cluster_presence=filter_by_cluster_presence,
+                        min_cluster_presence=min_cluster_presence,
+                    )
+                else:
+                    # Single-target, or joint multi-output (a target list with
+                    # strategy='joint'): the modeling workflow routes internally.
+                    run_modeling_workflow_from_feature_table(
+                        full_feature_table=merged_table_path,
+                        output_dir=modeling_output_dir,
+                        threads=threads,
+                        num_features=num_features,
+                        filter_type=filter_type,
+                        num_runs_fs=num_runs_fs,
+                        num_runs_modeling=num_runs_modeling,
+                        sample_column=sample_column,
+                        phenotype_column=phenotype_column,
+                        target_mode=target_mode,
+                        strategy=strategy,
+                        method=method,
+                        task_type=task_type,
+                        binary_data=True,
+                        max_features=max_features,
+                        max_ram=max_ram,
+                        use_shap=use_shap,
+                        use_clustering=use_clustering,
+                        cluster_method=cluster_method,
+                        n_clusters=n_clusters,
+                        min_cluster_size=min_cluster_size,
+                        min_samples=min_samples,
+                        cluster_selection_epsilon=cluster_selection_epsilon,
+                        use_dynamic_weights=use_dynamic_weights,
+                        weights_method=weights_method,
+                        check_feature_presence=check_feature_presence,
+                        filter_by_cluster_presence=filter_by_cluster_presence,
+                        min_cluster_presence=min_cluster_presence
+                    )
             else:
                 logging.info(f"Reusing existing modeling results: {modeling_performance_path}")
 

@@ -984,14 +984,19 @@ def merge_feature_tables(
     phenotype_matrix_df = read_csv_with_check(phenotype_matrix)
     phenotype_matrix_df[sample_column] = phenotype_matrix_df[sample_column].astype(str)
 
-    # Filter phenotype matrix to only essential columns if phenotype_column is specified
-    # This prevents metadata columns from leaking into the feature table
+    # Filter phenotype matrix to only essential columns if phenotype_column is specified.
+    # This prevents metadata columns from leaking into the feature table.
+    # phenotype_column may be a single name (str) or a list (multi-target):
+    # keep ALL specified target columns so multi-label / multi-target tables
+    # carry every target.
     if phenotype_column is not None:
+        target_cols = phenotype_column if isinstance(phenotype_column, (list, tuple)) else [phenotype_column]
         essential_cols = [sample_column]
         if phage_features:
             essential_cols.append('phage')
-        if phenotype_column not in essential_cols:
-            essential_cols.append(phenotype_column)
+        for tcol in target_cols:
+            if tcol not in essential_cols:
+                essential_cols.append(tcol)
 
         # Keep only essential columns that exist in the phenotype matrix
         cols_to_keep = [col for col in essential_cols if col in phenotype_matrix_df.columns]

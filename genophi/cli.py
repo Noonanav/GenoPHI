@@ -42,10 +42,64 @@ def validate_directory(path, name, create=False):
 
 def add_common_args(parser):
     """Add common arguments shared across commands."""
-    parser.add_argument('--threads', type=int, default=4, 
+    parser.add_argument('--threads', type=int, default=4,
                        help='Number of threads to use (default: 4)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose logging')
+
+
+def add_multioutput_args(parser):
+    """Add multi-output (target_mode / strategy) arguments shared across modeling commands.
+
+    Two orthogonal axes:
+      --target_mode  : what the targets are (auto-detected by default).
+      --strategy     : how multiple targets are modeled (joint single multi-output
+                       model vs. one independent model per target). Ignored when a
+                       single target is given.
+
+    Also enables multiple targets via a repeatable --phenotype_column, a
+    comma-separated value, or a file of column names. A single target keeps the
+    existing single-target (Series) behavior unchanged.
+    """
+    parser.add_argument('--target_mode', default='auto',
+                        choices=['auto', 'binary', 'multiclass', 'multilabel',
+                                 'single', 'multitarget'],
+                        help='Target task mode (default: auto-detect from data)')
+    parser.add_argument('--strategy', default='joint',
+                        choices=['joint', 'independent'],
+                        help='Multi-target strategy: one joint multi-output model '
+                             'or independent per-target models (default: joint). '
+                             'Ignored for single-target tasks.')
+    parser.add_argument('--phenotype_columns_file',
+                        help='Path to a file with one phenotype column name per line '
+                             '(for multi-target). Overrides --phenotype_column.')
+
+
+def resolve_phenotype_columns(args):
+    """Resolve the phenotype target(s) into a scalar (single) or list (multi-target).
+
+    Priority: --phenotype_columns_file > comma-separated --phenotype_column > single.
+    Returns a str for a single target (backward-compatible Series behavior) or a
+    list of str for multiple targets. Returns the raw --phenotype_column value
+    untouched if multi-output args are not present on this command.
+    """
+    phenotype_column = getattr(args, 'phenotype_column', None)
+
+    columns_file = getattr(args, 'phenotype_columns_file', None)
+    if columns_file:
+        if not os.path.exists(columns_file):
+            raise FileNotFoundError(f"Phenotype columns file not found: {columns_file}")
+        with open(columns_file) as f:
+            cols = [line.strip() for line in f if line.strip()]
+        if not cols:
+            raise ValueError(f"Phenotype columns file is empty: {columns_file}")
+        return cols[0] if len(cols) == 1 else cols
+
+    if isinstance(phenotype_column, str) and ',' in phenotype_column:
+        cols = [c.strip() for c in phenotype_column.split(',') if c.strip()]
+        return cols[0] if len(cols) == 1 else cols
+
+    return phenotype_column
 
 
 def create_parser():
@@ -173,8 +227,9 @@ def create_parser():
                    help='Minimum cluster presence for filtering (default: 2)')
     p.add_argument('--max_ram', type=float, default=16,
                    help='Maximum RAM usage in GB (default: 16)')
+    add_multioutput_args(p)
     add_common_args(p)
-    
+
     # TRAIN - Model training
     p = subparsers.add_parser(
         'train',
@@ -218,8 +273,9 @@ def create_parser():
                    help='Minimum samples for HDBSCAN')
     p.add_argument('--cluster_selection_epsilon', type=float, default=0.0,
                    help='Epsilon for HDBSCAN (default: 0.0)')
+    add_multioutput_args(p)
     add_common_args(p)
-    
+
     # PREDICT - Make predictions
     p = subparsers.add_parser(
         'predict',
@@ -391,6 +447,7 @@ def create_parser():
                    help='Path to annotation table CSV')
     p.add_argument('--protein_id_col', default='protein_ID',
                    help='Protein ID column name (default: protein_ID)')
+    add_multioutput_args(p)
     add_common_args(p)
 
     # PROTEIN-FAMILY-WORKFLOW - Complete protein family workflow
@@ -523,8 +580,9 @@ def create_parser():
     # System parameters
     p.add_argument('--max_ram', type=int, default=8,
                 help='Maximum RAM usage in GB (default: 8)')
+    add_multioutput_args(p)
     add_common_args(p)
-    
+
     # FULL-WORKFLOW - Complete protein family workflow
     p = subparsers.add_parser(
         'full-workflow',
@@ -613,8 +671,9 @@ def create_parser():
     p.add_argument('--k_range', action='store_true')
     p.add_argument('--remove_suffix', action='store_true')
     p.add_argument('--one_gene', action='store_true')
+    add_multioutput_args(p)
     add_common_args(p)
-    
+
     # ==================== K-MER WORKFLOWS ====================
     
     # KMER-WORKFLOW - Complete k-mer analysis
@@ -687,8 +746,9 @@ def create_parser():
     p.add_argument('--filter_by_cluster_presence', action='store_true')
     p.add_argument('--min_cluster_presence', type=int, default=2)
     p.set_defaults(modeling=True)
+    add_multioutput_args(p)
     add_common_args(p)
-    
+
     # KMER-ASSIGN-FEATURES - Assign k-mer features to new genomes
     p = subparsers.add_parser(
         'kmer-assign-features',
@@ -847,7 +907,89 @@ def create_parser():
     p.add_argument('--ignore_families', action='store_true',
                    help='Set if k-mer table was generated with ignore_families=True')
     add_common_args(p)
-    
+
+    # BENCHMARK - Reconcile joint vs. independent multi-output runs
+    p = subparsers.add_parser(
+        'benchmark',
+        help='Compare joint vs. independent multi-output runs into one per-target table',
+        description='Reconcile a joint multi-output run and an independent run '
+                    '(same targets) into a per-target comparison table with '
+                    'joint-minus-independent deltas.'
+    )
+    p.add_argument('--joint_out', required=True,
+                   help='Joint run output directory (contains modeling_results/...)')
+    p.add_argument('--independent_out', required=True,
+                   help='Independent run output directory (contains independent_summary.csv)')
+    p.add_argument('--output', '-o', required=True,
+                   help='Path for the long-format benchmark CSV (a _wide.csv is also written)')
+    p.add_argument('--task_type', default='classification',
+                   choices=['classification', 'regression'],
+                   help='Selects per-target metric set (default: classification)')
+    add_common_args(p)
+
+    # MULTIOUTPUT-PREDICT - Apply a trained joint multi-output model to new samples
+    p = subparsers.add_parser(
+        'multioutput-predict',
+        help='Apply a trained joint multi-output model to a feature table of new samples',
+        description='Load an ensemble of trained joint multi-output models (with '
+                    'metadata sidecars) and emit per-target predictions for new '
+                    'samples. Handles multilabel/multiclass/multitarget.'
+    )
+    p.add_argument('--model_dir', required=True,
+                   help='Directory with run* model subdirs (a cutoff dir from training)')
+    p.add_argument('--feature_table', required=True,
+                   help='Feature table for the samples to predict (sample col + features)')
+    p.add_argument('--output_dir', '-o', required=True,
+                   help='Output directory for multioutput_predictions.csv')
+    p.add_argument('--sample_column', default='phage',
+                   help='Sample identifier column (default: phage)')
+    add_common_args(p)
+
+    # MULTIOUTPUT-CV - K-fold CV for multi-output models (phage -> target vector)
+    p = subparsers.add_parser(
+        'multioutput-cv',
+        help='K-fold cross-validation for multi-output models, from FASTAs',
+        description='Per fold: build a fold-specific feature table on the modeling '
+                    'genomes, run full FS + ensemble modeling, then assign + '
+                    'ensemble-predict held-out genomes. Aggregates per-target '
+                    'metrics across folds. No leakage (held-out excluded from FS).'
+    )
+    p.add_argument('--input_strain_dir', '-is', required=True,
+                   help='Directory of per-genome FASTA files (the modeled genomes)')
+    p.add_argument('--phenotype_matrix', '-pm', required=True,
+                   help='Phenotype matrix CSV (sample column + target columns)')
+    p.add_argument('--output_dir', '-o', required=True, help='Output directory')
+    p.add_argument('--phenotype_column', required=True,
+                   help='Target column name(s): comma-separated for multi-target')
+    p.add_argument('--phenotype_columns_file',
+                   help='File with one target column name per line (overrides --phenotype_column)')
+    p.add_argument('--task_type', default='classification',
+                   choices=['classification', 'regression'],
+                   help='Task type (default: classification)')
+    p.add_argument('--target_mode', default='auto',
+                   choices=['auto', 'binary', 'multiclass', 'multilabel', 'single', 'multitarget'],
+                   help='Target mode (default: auto)')
+    p.add_argument('--strategy', default='joint', choices=['joint', 'independent'],
+                   help='Multi-target strategy (default: joint)')
+    p.add_argument('--n_folds', type=int, default=5, help='Number of folds (default: 5)')
+    p.add_argument('--cv_rounds', type=int, default=1,
+                   help='Repeated k-fold rounds (default: 1)')
+    p.add_argument('--sample_column', default='phage',
+                   help='Sample identifier column (default: phage)')
+    p.add_argument('--suffix', default='faa', help='FASTA suffix (default: faa)')
+    p.add_argument('--k', type=int, default=5, help='K-mer size (default: 5)')
+    p.add_argument('--num_runs_fs', type=int, default=25,
+                   help='Feature selection runs (default: 25)')
+    p.add_argument('--num_runs_modeling', type=int, default=50,
+                   help='Modeling runs (default: 50)')
+    p.add_argument('--method', default='rfe', help='Feature selection method (default: rfe)')
+    p.add_argument('--max_features', default='none', help='Max features (default: none)')
+    p.add_argument('--max_ram', type=float, default=8, help='Max RAM in GB (default: 8)')
+    p.add_argument('--strong_top_frac', type=float, default=0.2,
+                   help='For regression: top fraction by true value treated as '
+                        'strong responders for detection metrics (default: 0.2)')
+    add_common_args(p)
+
     return parser
 
 
@@ -1030,12 +1172,67 @@ def run_annotate(args):
 
 
 def run_select_and_train(args):
-    """Run combined feature selection and training workflow."""
+    """Run combined feature selection and training workflow.
+
+    Routes by target count and strategy:
+      - single target            -> existing single-target workflow (unchanged)
+      - multiple + independent   -> per-target loop (one model per target)
+      - multiple + joint         -> joint multi-output (not yet implemented)
+    """
     from genophi.workflows.select_and_model_workflow import run_modeling_workflow_from_feature_table
-    
+
     validate_file(args.full_feature_table, "Full feature table")
     validate_directory(args.output, "Output directory", create=True)
-    
+
+    targets = resolve_phenotype_columns(args)
+    is_multi = isinstance(targets, list)
+
+    if is_multi:
+        strategy = getattr(args, 'strategy', 'joint')
+        if strategy == 'independent':
+            from genophi.workflows.independent_multioutput_workflow import (
+                run_independent_multioutput_workflow,
+            )
+            logging.info(
+                f"Running independent multi-output ({len(targets)} targets): {targets}"
+            )
+            run_independent_multioutput_workflow(
+                full_feature_table=args.full_feature_table,
+                output_dir=args.output,
+                phenotype_columns=targets,
+                task_type=args.task_type,
+                threads=args.threads,
+                num_features=args.num_features,
+                filter_type=args.filter_type,
+                num_runs_fs=args.num_runs_fs,
+                num_runs_modeling=args.num_runs_modeling,
+                sample_column=args.sample_column,
+                phage_column=args.phage_column,
+                method=args.method,
+                annotation_table_path=args.annotation_table_path,
+                protein_id_col=args.protein_id_col,
+                max_features=args.max_features,
+                min_features=args.min_features,
+                max_ram=args.max_ram,
+                binary_data=args.binary_data,
+                use_dynamic_weights=args.use_dynamic_weights,
+                weights_method=args.weights_method,
+                use_clustering=args.use_clustering,
+                cluster_method=args.cluster_method,
+                n_clusters=args.n_clusters,
+                min_cluster_size=args.min_cluster_size,
+                min_samples=args.min_samples,
+                cluster_selection_epsilon=args.cluster_selection_epsilon,
+                check_feature_presence=args.check_feature_presence,
+                filter_by_cluster_presence=args.filter_by_cluster_presence,
+                min_cluster_presence=args.min_cluster_presence,
+            )
+            return
+        # else: joint -> fall through to the single workflow with a target LIST,
+        # which routes to the joint MultiLogloss multi-label path internally.
+
+    # Single target (Series) OR joint multi-target (list): the workflow handles
+    # both -- a list phenotype_column triggers the joint multi-output path.
     run_modeling_workflow_from_feature_table(
         full_feature_table=args.full_feature_table,
         output_dir=args.output,
@@ -1046,7 +1243,9 @@ def run_select_and_train(args):
         num_runs_modeling=args.num_runs_modeling,
         sample_column=args.sample_column,
         phage_column=args.phage_column,
-        phenotype_column=args.phenotype_column,
+        phenotype_column=targets,
+        target_mode=getattr(args, 'target_mode', 'auto'),
+        strategy=getattr(args, 'strategy', 'joint'),
         method=args.method,
         annotation_table_path=args.annotation_table_path,
         protein_id_col=args.protein_id_col,
@@ -1150,7 +1349,10 @@ def run_kmer_workflow(args):
         validate_directory(args.input_phage_dir, "Phage input directory")
     validate_file(args.phenotype_matrix, "Phenotype matrix")
     validate_directory(args.output, "Output directory", create=True)
-    
+
+    # Resolve single vs. multi target; multi-target enables joint/independent.
+    targets = resolve_phenotype_columns(args)
+
     run_kmer_workflow(
         input_strain_dir=args.input_strain_dir,
         input_phage_dir=args.input_phage_dir,
@@ -1166,7 +1368,9 @@ def run_kmer_workflow(args):
         strain_column=args.strain_column,
         phage_column=args.phage_column,
         sample_column=args.sample_column,
-        phenotype_column=args.phenotype_column,
+        phenotype_column=targets,
+        target_mode=getattr(args, 'target_mode', 'auto'),
+        strategy=getattr(args, 'strategy', 'joint'),
         num_features=args.num_features,
         filter_type=args.filter_type,
         num_runs_fs=args.num_runs_fs,
@@ -1389,6 +1593,78 @@ def run_kmer_analysis(args):
         genome_mapping_file=args.genome_mapping_file
     )
 
+def run_multioutput_predict(args):
+    """Apply a trained joint multi-output model to new samples."""
+    from genophi.workflows.multioutput_prediction_workflow import (
+        run_multioutput_prediction_workflow,
+    )
+    validate_directory(args.model_dir, "Model directory")
+    validate_file(args.feature_table, "Feature table")
+    validate_directory(args.output_dir, "Output directory", create=True)
+
+    out = run_multioutput_prediction_workflow(
+        model_dir=args.model_dir,
+        feature_table=args.feature_table,
+        output_dir=args.output_dir,
+        sample_column=args.sample_column,
+        threads=args.threads,
+    )
+    print(f"Multi-output predictions written to: {out}")
+
+
+def run_multioutput_cv(args):
+    """K-fold cross-validation for multi-output models from FASTAs."""
+    from genophi.workflows.multioutput_cv_workflow import run_multioutput_cv_workflow
+
+    validate_directory(args.input_strain_dir, "Strain/genome input directory")
+    validate_file(args.phenotype_matrix, "Phenotype matrix")
+    validate_directory(args.output_dir, "Output directory", create=True)
+
+    targets = resolve_phenotype_columns(args)
+    res = run_multioutput_cv_workflow(
+        input_strain_dir=args.input_strain_dir,
+        phenotype_matrix=args.phenotype_matrix,
+        output_dir=args.output_dir,
+        phenotype_column=targets,
+        task_type=args.task_type,
+        target_mode=args.target_mode,
+        strategy=args.strategy,
+        n_folds=args.n_folds,
+        cv_rounds=args.cv_rounds,
+        sample_column=args.sample_column,
+        suffix=args.suffix,
+        k=args.k,
+        num_runs_fs=args.num_runs_fs,
+        num_runs_modeling=args.num_runs_modeling,
+        method=args.method,
+        max_features=args.max_features,
+        threads=args.threads,
+        max_ram=args.max_ram,
+        strong_top_frac=args.strong_top_frac,
+    )
+    print(f"CV predictions: {res['predictions']}")
+    print(f"CV per-target metrics: {res['metrics']}")
+
+
+def run_benchmark(args):
+    """Reconcile joint vs. independent multi-output runs into a comparison table."""
+    from genophi.workflows.benchmark_workflow import run_benchmark_workflow
+
+    validate_directory(args.joint_out, "Joint output directory")
+    validate_directory(args.independent_out, "Independent output directory")
+
+    long_df = run_benchmark_workflow(
+        joint_out=args.joint_out,
+        independent_out=args.independent_out,
+        output_path=args.output,
+        task_type=args.task_type,
+    )
+    print(long_df.to_string(index=False))
+    print(f"\nBenchmark written to: {args.output}")
+    stem, ext = os.path.splitext(args.output)
+    print(f"Wide table (with deltas): {stem}_wide{ext or '.csv'}")
+
+
 def main():
     """Main entry point for the CLI."""
     parser = create_parser()
@@ -1430,6 +1706,12 @@ def main():
             run_assign_predict(args)
         elif args.command == 'kmer-analysis':
             run_kmer_analysis(args)
+        elif args.command == 'benchmark':
+            run_benchmark(args)
+        elif args.command == 'multioutput-predict':
+            run_multioutput_predict(args)
+        elif args.command == 'multioutput-cv':
+            run_multioutput_cv(args)
         else:
             parser.print_help()
             sys.exit(1)

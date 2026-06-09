@@ -8,7 +8,7 @@ from sklearn.cluster import AgglomerativeClustering
 import shap
 from sklearn.model_selection import train_test_split
 from catboost import CatBoostClassifier, CatBoostRegressor
-from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef, confusion_matrix, roc_curve, auc, precision_recall_curve, average_precision_score, mean_squared_error, r2_score
+from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef, confusion_matrix, roc_curve, auc, precision_recall_curve, average_precision_score, mean_squared_error, r2_score, hamming_loss, precision_recall_fscore_support
 import matplotlib.pyplot as plt
 import seaborn as sns
 import itertools
@@ -49,18 +49,35 @@ def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None,
         print("No missing values found.")
     full_feature_table = full_feature_table.reset_index(drop=True)
 
-    # 1. Identify Target Column First
-    target_column = phenotype_column if phenotype_column else 'interaction'
-    if target_column not in full_feature_table.columns:
-         raise ValueError(f"Target column '{target_column}' not found in input data.")
-    y = full_feature_table[target_column]
+    # 1. Identify Target Column(s) First.
+    #    phenotype_column may be a single name (str -> Series y, single-target)
+    #    or a list of names (-> DataFrame y, multi-target / multi-label).
+    if phenotype_column is None:
+        target_columns = ['interaction']
+        multi_target = False
+    elif isinstance(phenotype_column, (list, tuple)):
+        target_columns = list(phenotype_column)
+        multi_target = True
+    else:
+        target_columns = [phenotype_column]
+        multi_target = False
 
-    # 2. Validate that phenotype data type matches task type
-    validate_phenotype_task_type(y, task_type, target_column)
+    missing = [c for c in target_columns if c not in full_feature_table.columns]
+    if missing:
+        raise ValueError(f"Target column(s) {missing} not found in input data.")
 
-    # 3. Define Columns to Drop (Metadata + Target)
-    drop_columns = ['strain', 'phage', 'header', 'contig_id', 'orf_ko', filter_type, target_column]
-    
+    if multi_target:
+        y = full_feature_table[target_columns]            # DataFrame (N x K)
+    else:
+        y = full_feature_table[target_columns[0]]         # Series (single target)
+
+    # 2. Validate that phenotype data type matches task type (Series or DataFrame).
+    validate_phenotype_task_type(y, task_type,
+                                 target_columns[0] if not multi_target else None)
+
+    # 3. Define Columns to Drop (Metadata + ALL target columns to prevent leakage).
+    drop_columns = ['strain', 'phage', 'header', 'contig_id', 'orf_ko', filter_type] + target_columns
+
     # Handle sample column logic
     if sample_column and sample_column != 'strain':
         drop_columns.append(sample_column)
@@ -70,11 +87,23 @@ def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None,
     X = full_feature_table.drop(columns=drop_columns, errors='ignore')
     X = X.select_dtypes(include=[np.number])
 
-    print(f"Number of positive samples: {y.sum()}")
-    print(f"Number of negative samples: {len(y) - y.sum()}")
+    # Leakage guard: no target column may survive in the feature matrix.
+    leaked = [c for c in target_columns if c in X.columns]
+    if leaked:
+        raise ValueError(
+            f"Target column(s) {leaked} leaked into the feature matrix X. "
+            f"This must not happen; aborting to avoid label leakage."
+        )
+
+    if multi_target:
+        print(f"Targets ({len(target_columns)}): {target_columns}")
+        print(f"Per-target positive counts:\n{y.sum().to_string()}")
+    else:
+        print(f"Number of positive samples: {y.sum()}")
+        print(f"Number of negative samples: {len(y) - y.sum()}")
     print(f"Final feature count: {X.shape[1]}")
     print("Data loaded and prepared, split into features and target.")
-    
+
     return X, y, full_feature_table
 
 # Function to filter the data based on strain or phage
@@ -121,14 +150,23 @@ def filter_data(
     Returns:
         X_train, X_test, y_train, y_test, X_test_sample_ids, X_train_sample_ids
     """
-    # Check if y is binary (contains only 0s and 1s)
-    is_binary = ((y == 0) | (y == 1)).all()
-    
-    # Only apply balanced split logic if y is binary and ensure_balanced_split is True
-    apply_balanced_split = ensure_balanced_split and is_binary
-    
-    if ensure_balanced_split and not is_binary:
-        logging.warning("ensure_balanced_split is set to True but y is not binary (0s and 1s only). Balanced split logic will be skipped.")
+    # Check if y is binary (contains only 0s and 1s). For multi-target y
+    # (DataFrame), require EVERY column to be binary for the binary-only
+    # balanced-split logic to apply; otherwise skip it. Reduce to a scalar bool
+    # so the conditionals below are unambiguous for both Series and DataFrame.
+    binary_mask = ((y == 0) | (y == 1)).all()
+    is_binary = bool(binary_mask.all()) if hasattr(binary_mask, 'all') else bool(binary_mask)
+
+    # The balanced-split positive-coverage check below is written for a single
+    # binary Series; only apply it when y is a single-column (Series) binary target.
+    is_multi_target = hasattr(y, 'columns')
+    apply_balanced_split = ensure_balanced_split and is_binary and not is_multi_target
+
+    if ensure_balanced_split and not apply_balanced_split:
+        if is_multi_target:
+            logging.warning("ensure_balanced_split is True but y is multi-target (DataFrame). Per-column balanced split is not applied here; relying on the multi-label split path.")
+        else:
+            logging.warning("ensure_balanced_split is set to True but y is not binary (0s and 1s only). Balanced split logic will be skipped.")
     
     # ---- 1️⃣ Standard Random Split if No Clustering ----
     if not use_clustering or filter_type == 'none':
@@ -635,8 +673,40 @@ def perform_rfe(
     total_features = X_train.shape[1]
     step_size = max(1, int((total_features - num_features) / 10))  # Ensure step_size is at least 1
 
+    # Detect multi-output y (DataFrame): RFE still applies because the CatBoost
+    # MultiLogloss/MultiRMSE estimator exposes a single joint feature-importance
+    # vector; only the loss function / y shape differs. Classification ->
+    # MultiLogloss; regression -> MultiRMSE.
+    is_multi_output = hasattr(y_train, 'columns')
+    is_multilabel = is_multi_output and task_type == 'classification'
+    is_multitarget = is_multi_output and task_type == 'regression'
+
     # Initialize model based on task type
-    if task_type == 'classification':
+    if is_multilabel:
+        model = CatBoostClassifier(
+            iterations=500,
+            learning_rate=0.1,
+            depth=4,
+            loss_function='MultiLogloss',
+            verbose=10,
+            thread_count=threads,
+            train_dir=os.path.join(output_dir, '..', 'catboost_info'),
+            used_ram_limit=f"{max_ram}gb",
+            random_seed=random_state
+        )
+    elif is_multitarget:
+        model = CatBoostRegressor(
+            iterations=500,
+            learning_rate=0.1,
+            depth=4,
+            loss_function='MultiRMSE',
+            verbose=10,
+            thread_count=threads,
+            train_dir=os.path.join(output_dir, '..', 'catboost_info'),
+            used_ram_limit=f"{max_ram}gb",
+            random_seed=random_state
+        )
+    elif task_type == 'classification':
         model = CatBoostClassifier(
             iterations=500,
             learning_rate=0.1,
@@ -663,9 +733,12 @@ def perform_rfe(
 
     print(f"Performing Recursive Feature Elimination (RFE) with step_size: {step_size} for {task_type}...")
 
-    # If requested, build sample weights for each row
+    # If requested, build sample weights for each row. Dynamic phage weights are
+    # defined for a single binary target; skip them for multi-label y.
     sample_weight = None
-    if use_dynamic_weights and phage_column and (phage_column in X_train_sample_ids.columns):
+    if is_multi_output and use_dynamic_weights:
+        logging.warning("Dynamic phage weights are not supported for multi-output RFE; proceeding without them.")
+    if (not is_multi_output) and use_dynamic_weights and phage_column and (phage_column in X_train_sample_ids.columns):
         print('Length X_train_sample_ids: ', len(X_train_sample_ids))
         print('Length y_train: ', len(y_train))
         phage_weights = compute_phage_weights(X_train_sample_ids, y_train, phage_column, method=weights_method)
@@ -1141,8 +1214,291 @@ def grid_search(
     # Return None if no model is found
     if best_model is None:
         logging.warning("No valid model was found in grid search.")
-    
+
     return best_model, best_params, best_mcc
+
+
+def _tune_per_label_thresholds(y_true, proba, label_names):
+    """Pick the decision threshold per label that maximizes F1 on the given set.
+
+    Args:
+        y_true (np.ndarray): N x K binary ground-truth matrix.
+        proba (np.ndarray): N x K predicted-probability matrix (P(label=1)).
+        label_names (list[str]): K label column names.
+
+    Returns:
+        dict[str, float]: label name -> chosen threshold (defaults to 0.5).
+    """
+    thresholds = {}
+    candidate_grid = np.linspace(0.05, 0.95, 19)
+    for k, name in enumerate(label_names):
+        yk = np.asarray(y_true)[:, k]
+        pk = np.asarray(proba)[:, k]
+        # If a label has no positives in this set, F1 tuning is undefined; use 0.5.
+        if yk.sum() == 0:
+            thresholds[name] = 0.5
+            continue
+        best_t, best_f1 = 0.5, -1.0
+        for t in candidate_grid:
+            preds = (pk >= t).astype(int)
+            f1 = f1_score(yk, preds, zero_division=0)
+            if f1 > best_f1:
+                best_f1, best_t = f1, float(t)
+        thresholds[name] = best_t
+    return thresholds
+
+
+def _multilabel_proba(model, X):
+    """Extract an N x K P(label=1) matrix from a CatBoost MultiLogloss model.
+
+    CatBoost's predict_proba for MultiLogloss returns a list/array shaped per
+    label; normalize it to a dense N x K array of positive-class probabilities.
+    """
+    proba = model.predict_proba(X)
+    proba = np.asarray(proba)
+    # Some CatBoost versions return (K, N, 2); others (N, K). Normalize to (N, K).
+    if proba.ndim == 3:
+        # (K, N, 2) -> take positive class, transpose to (N, K)
+        proba = proba[:, :, 1].T
+    return proba
+
+
+def train_and_evaluate_multilabel(
+    X_train, y_train, X_test, y_test, params, output_dir,
+    max_ram=8, random_state=42,
+):
+    """Train a single CatBoost MultiLogloss model over all labels jointly.
+
+    Args:
+        X_train, X_test (DataFrame): Features.
+        y_train, y_test (DataFrame): N x K binary label matrices.
+        params (dict): CatBoost hyperparameters (must request MultiLogloss).
+        output_dir (str): Directory for CatBoost train_dir.
+
+    Returns:
+        model: the trained CatBoostClassifier.
+        metrics (dict): aggregate metrics (micro/macro F1, Hamming loss, subset acc).
+        thresholds (dict): per-label tuned thresholds (from the TEST set here;
+            in production tune on a validation split).
+        proba (np.ndarray): N x K probability matrix on X_test.
+    """
+    label_names = list(y_train.columns)
+    train_dir = os.path.join(output_dir, '..', 'catboost_info')
+    model = CatBoostClassifier(
+        **params, train_dir=train_dir,
+        used_ram_limit=f"{max_ram}gb", random_seed=random_state,
+    )
+    print(f"Training MultiLogloss model ({len(label_names)} labels) with params: {params}")
+    model.fit(X_train, y_train, eval_set=(X_test, y_test),
+              plot=False, verbose=10, early_stopping_rounds=100)
+
+    proba = _multilabel_proba(model, X_test)
+    thresholds = _tune_per_label_thresholds(y_test.values, proba, label_names)
+
+    thresh_vec = np.array([thresholds[n] for n in label_names])
+    y_pred = (proba >= thresh_vec).astype(int)
+    y_true = y_test.values
+
+    micro_f1 = f1_score(y_true, y_pred, average='micro', zero_division=0)
+    macro_f1 = f1_score(y_true, y_pred, average='macro', zero_division=0)
+    h_loss = hamming_loss(y_true, y_pred)
+    subset_acc = float((y_pred == y_true).all(axis=1).mean())
+
+    metrics = {
+        'micro_f1': micro_f1, 'macro_f1': macro_f1,
+        'hamming_loss': h_loss, 'subset_accuracy': subset_acc,
+    }
+    print(f"Multilabel done. micro-F1={micro_f1:.3f} macro-F1={macro_f1:.3f} "
+          f"hamming={h_loss:.3f} subset_acc={subset_acc:.3f}")
+    return model, metrics, thresholds, proba
+
+
+def grid_search_multilabel(
+    X_train, y_train, X_test, y_test,
+    X_train_sample_ids, X_test_sample_ids,
+    param_grid, output_dir, phenotype_columns,
+    max_ram=8, random_state=42,
+):
+    """Grid search for a joint multi-label CatBoost (MultiLogloss) model.
+
+    Ranks models on macro-F1 (handles label imbalance better than micro for the
+    receptor-profile use case). Returns the single best model plus a metadata
+    dict (target_names + per-label thresholds) for the sidecar JSON.
+
+    Returns:
+        best_model, best_params, best_macro_f1, metadata
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    label_names = list(y_train.columns)
+    best_macro_f1 = -1.0
+    best_model = None
+    best_params = None
+    best_thresholds = None
+    results = []
+
+    print("Starting MultiLogloss grid search...")
+    for idx, values in enumerate(itertools.product(*param_grid.values()), start=1):
+        params = dict(zip(param_grid.keys(), values))
+        model, metrics, thresholds, proba = train_and_evaluate_multilabel(
+            X_train, y_train, X_test, y_test, params, output_dir,
+            max_ram=max_ram, random_state=random_state,
+        )
+        results.append({**params, **metrics})
+
+        if metrics['macro_f1'] >= best_macro_f1:
+            best_macro_f1 = metrics['macro_f1']
+            best_model = model
+            best_params = params
+            best_thresholds = thresholds
+
+            # Save per-sample predictions using actual label names.
+            thresh_vec = np.array([thresholds[n] for n in label_names])
+            y_pred = (proba >= thresh_vec).astype(int)
+            preds_df = X_test_sample_ids.copy().reset_index(drop=True)
+            for k, name in enumerate(label_names):
+                preds_df[f'Prediction_{name}'] = y_pred[:, k]
+                preds_df[f'Confidence_{name}'] = proba[:, k]
+                preds_df[f'True_{name}'] = y_test[name].values
+            preds_df.to_csv(os.path.join(output_dir, 'best_model_predictions.csv'), index=False)
+
+    pd.DataFrame(results).to_csv(os.path.join(output_dir, 'model_performance.csv'), index=False)
+
+    if best_model is None:
+        logging.warning("No valid multilabel model was found in grid search.")
+        return None, None, best_macro_f1, None
+
+    metadata = {
+        'specific_task': 'multilabel_classification',
+        'strategy': 'joint',
+        'task_type': 'classification',
+        'target_names': label_names,
+        'per_label_thresholds': best_thresholds,
+        'feature_names': list(X_train.columns),
+    }
+    return best_model, best_params, best_macro_f1, metadata
+
+
+def train_and_evaluate_multitarget(
+    X_train, y_train, X_test, y_test, params, output_dir,
+    max_ram=8, random_state=42,
+):
+    """Train a single CatBoost MultiRMSE model over all targets jointly.
+
+    Args:
+        X_train, X_test (DataFrame): Features.
+        y_train, y_test (DataFrame): N x T continuous target matrices.
+        params (dict): CatBoost hyperparameters (must request MultiRMSE).
+        output_dir (str): Directory for CatBoost train_dir.
+
+    Returns:
+        model: trained CatBoostRegressor.
+        metrics (dict): per-target R2/RMSE/MAE + aggregate mean_r2,
+            mean_normalized_rmse.
+        y_pred (np.ndarray): N x T prediction matrix on X_test.
+    """
+    target_names = list(y_train.columns)
+    train_dir = os.path.join(output_dir, '..', 'catboost_info')
+    model = CatBoostRegressor(
+        **params, train_dir=train_dir,
+        used_ram_limit=f"{max_ram}gb", random_seed=random_state,
+    )
+    print(f"Training MultiRMSE model ({len(target_names)} targets) with params: {params}")
+    model.fit(X_train, y_train, eval_set=(X_test, y_test),
+              plot=False, verbose=10, early_stopping_rounds=100)
+
+    y_pred = np.asarray(model.predict(X_test))
+    y_true = y_test.values
+
+    per_target = {}
+    norm_rmses = []
+    r2s = []
+    for t_idx, name in enumerate(target_names):
+        yt = y_true[:, t_idx]
+        yp = y_pred[:, t_idx]
+        rmse = float(np.sqrt(mean_squared_error(yt, yp)))
+        mae = float(np.mean(np.abs(yt - yp)))
+        r2 = float(r2_score(yt, yp))
+        # Normalize RMSE by target spread so targets on different scales are
+        # comparable (avoids large-scale targets dominating the aggregate).
+        spread = float(yt.max() - yt.min())
+        nrmse = rmse / spread if spread > 0 else float('nan')
+        per_target[name] = {'r2': r2, 'rmse': rmse, 'mae': mae, 'normalized_rmse': nrmse}
+        r2s.append(r2)
+        if not np.isnan(nrmse):
+            norm_rmses.append(nrmse)
+
+    metrics = {f'r2_{n}': per_target[n]['r2'] for n in target_names}
+    metrics.update({f'rmse_{n}': per_target[n]['rmse'] for n in target_names})
+    metrics.update({f'mae_{n}': per_target[n]['mae'] for n in target_names})
+    metrics.update({f'normalized_rmse_{n}': per_target[n]['normalized_rmse'] for n in target_names})
+    metrics['mean_r2'] = float(np.mean(r2s))
+    metrics['mean_normalized_rmse'] = float(np.mean(norm_rmses)) if norm_rmses else float('nan')
+
+    print(f"Multitarget done. mean_R2={metrics['mean_r2']:.3f} "
+          f"mean_nRMSE={metrics['mean_normalized_rmse']:.3f}")
+    return model, metrics, y_pred
+
+
+def grid_search_multitarget(
+    X_train, y_train, X_test, y_test,
+    X_train_sample_ids, X_test_sample_ids,
+    param_grid, output_dir, phenotype_columns,
+    max_ram=8, random_state=42,
+):
+    """Grid search for a joint multi-target CatBoost (MultiRMSE) model.
+
+    Ranks models on mean per-target R2 (the higher-is-better counterpart of the
+    binary path's r2). Returns the single best model plus a metadata dict.
+
+    Returns:
+        best_model, best_params, best_mean_r2, metadata
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    target_names = list(y_train.columns)
+    best_mean_r2 = -float('inf')
+    best_model = None
+    best_params = None
+    results = []
+
+    print("Starting MultiRMSE grid search...")
+    for idx, values in enumerate(itertools.product(*param_grid.values()), start=1):
+        params = dict(zip(param_grid.keys(), values))
+        model, metrics, y_pred = train_and_evaluate_multitarget(
+            X_train, y_train, X_test, y_test, params, output_dir,
+            max_ram=max_ram, random_state=random_state,
+        )
+        results.append({**params, **metrics})
+
+        if metrics['mean_r2'] >= best_mean_r2:
+            best_mean_r2 = metrics['mean_r2']
+            best_model = model
+            best_params = params
+
+            preds_df = X_test_sample_ids.copy().reset_index(drop=True)
+            for k, name in enumerate(target_names):
+                preds_df[f'Prediction_{name}'] = y_pred[:, k]
+                preds_df[f'True_{name}'] = y_test[name].values
+            preds_df.to_csv(os.path.join(output_dir, 'best_model_predictions.csv'), index=False)
+
+    pd.DataFrame(results).to_csv(os.path.join(output_dir, 'model_performance.csv'), index=False)
+
+    if best_model is None:
+        logging.warning("No valid multitarget model was found in grid search.")
+        return None, None, best_mean_r2, None
+
+    metadata = {
+        'specific_task': 'multitarget_regression',
+        'strategy': 'joint',
+        'task_type': 'regression',
+        'target_names': target_names,
+        'feature_names': list(X_train.columns),
+    }
+    return best_model, best_params, best_mean_r2, metadata
+
 
 def grid_search_regressor(
     X_train, 
@@ -1484,6 +1840,15 @@ def run_feature_selection_iterations(
                 logging.info("Skipping this run due to insufficient training data.")
                 continue  # Skip this iteration and proceed to the next
 
+            # Multi-label y (DataFrame): only the default 'rfe' method is
+            # supported for joint multi-label feature selection (it uses a
+            # CatBoost MultiLogloss estimator whose joint importances drive RFE).
+            if hasattr(y_train, 'columns') and method != 'rfe':
+                raise NotImplementedError(
+                    f"Feature selection method '{method}' is not supported for "
+                    f"joint multi-label targets. Use method='rfe' (default)."
+                )
+
             # Apply selected feature selection method
             if method == 'rfe':
                 _, selected_features = perform_rfe(X_train, y_train, X_train_sample_ids, num_features, threads, output_dir, task_type=task_type, phage_column=phage_column, use_dynamic_weights=use_dynamic_weights, max_ram=max_ram, random_state=random_state)
@@ -1510,17 +1875,53 @@ def run_feature_selection_iterations(
                 'thread_count': [threads]
             }
 
-            if task_type == 'classification':
+            if hasattr(y_train, 'columns') and task_type == 'classification':
+                # Joint multi-label: evaluate selected features with a single
+                # MultiLogloss model (ranked on macro-F1).
+                param_grid['loss_function'] = ['MultiLogloss']
+                best_model, best_params, best_macro_f1, _meta = grid_search_multilabel(
+                    X_train_selected,
+                    y_train,
+                    X_test_selected,
+                    y_test,
+                    X_train_sample_ids,
+                    X_test_sample_ids,
+                    param_grid,
+                    output_dir,
+                    phenotype_columns=list(y_train.columns),
+                    max_ram=max_ram,
+                    random_state=random_state
+                )
+                best_metric = best_macro_f1
+            elif hasattr(y_train, 'columns') and task_type == 'regression':
+                # Joint multi-target: evaluate with a single MultiRMSE model
+                # (ranked on mean per-target R2).
+                param_grid['loss_function'] = ['MultiRMSE']
+                best_model, best_params, best_mean_r2, _meta = grid_search_multitarget(
+                    X_train_selected,
+                    y_train,
+                    X_test_selected,
+                    y_test,
+                    X_train_sample_ids,
+                    X_test_sample_ids,
+                    param_grid,
+                    output_dir,
+                    phenotype_columns=list(y_train.columns),
+                    max_ram=max_ram,
+                    random_state=random_state
+                )
+                best_metric = best_mean_r2
+            elif task_type == 'classification':
                 param_grid['loss_function'] = ['Logloss']
                 best_model, best_params, best_mcc = grid_search(
-                    X_train_selected, 
-                    y_train, 
-                    X_test_selected, 
-                    y_test, 
+                    X_train_selected,
+                    y_train,
+                    X_test_selected,
+                    y_test,
                     X_train_sample_ids,
-                    X_test_sample_ids, 
-                    param_grid, 
-                    output_dir, 
+                    X_test_sample_ids,
+                    param_grid,
+                    output_dir,
                     phenotype_column=phenotype_column,
                     phage_column=phage_column,
                     use_dynamic_weights=use_dynamic_weights,
@@ -1647,8 +2048,12 @@ def generate_feature_tables(
             id_vars = [sample_column]
             if 'phage' in full_feature_table.columns:
                 id_vars.append('phage')
-            if phenotype_column in full_feature_table.columns:
-                id_vars.append(phenotype_column)
+            # phenotype_column may be a single name or a list (multi-target);
+            # keep ALL present target columns in the per-cutoff feature table.
+            target_cols = phenotype_column if isinstance(phenotype_column, (list, tuple)) else [phenotype_column]
+            for tcol in target_cols:
+                if tcol in full_feature_table.columns:
+                    id_vars.append(tcol)
             if filter_type in full_feature_table.columns:
                 id_vars.append(filter_type)
 

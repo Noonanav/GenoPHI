@@ -108,3 +108,5 @@ data/test_data/test_shap_output/
 
 # Planning documents
 PLAN_*.md
+# CatBoost training artifacts
+catboost_info/
