@@ -210,7 +210,8 @@ def predict_multioutput(model_dir, feature_table, sample_column='phage', threads
         raise ValueError(f"No run* model subdirectories found in {model_dir}.")
 
     metadata = None
-    per_run = []   # list of dicts of column->array, one per run
+    per_run = []            # list of dicts of column->array, one per run
+    per_run_metadata = []   # each run's metadata (target_names can differ)
     for rd in run_dirs:
         run_path = os.path.join(model_dir, rd)
         model_file = os.path.join(run_path, 'best_model.pkl')
@@ -226,6 +227,7 @@ def predict_multioutput(model_dir, feature_table, sample_column='phage', threads
                 f"trained as multi-output. Use the standard prediction workflow."
             )
         metadata = md
+        per_run_metadata.append(md)
         model = load_model(model_file)
         aligned = align_feature_names(model, X_full)
         per_run.append(_predict_one_model(model, metadata, aligned))
@@ -234,22 +236,36 @@ def predict_multioutput(model_dir, feature_table, sample_column='phage', threads
         raise ValueError(f"No usable models found in {model_dir}.")
 
     task = metadata['specific_task']
-    targets = metadata['target_names']
+    # Use the UNION of target names across runs: per-run models may have dropped
+    # different single-class targets in their internal splits, so no single
+    # model's metadata is authoritative for the ensemble.
+    targets = list(dict.fromkeys(
+        t for md in per_run_metadata for t in md.get('target_names', [])
+    )) or metadata['target_names']
     result = pd.DataFrame({sample_column: sample_ids})
 
     if task == 'multilabel_classification':
         thresholds = metadata.get('per_label_thresholds') or {}
         for t in targets:
-            # median confidence across runs, then re-threshold.
-            conf = np.median(np.column_stack([r[f'Confidence_{t}'] for r in per_run]), axis=1)
+            # A target can be absent from some ensemble runs (dropped as
+            # single-class in that run's internal split). Median over only the
+            # runs that actually predicted it; skip a target no run produced.
+            cols = [r[f'Confidence_{t}'] for r in per_run if f'Confidence_{t}' in r]
+            if not cols:
+                logger.warning(f"Target '{t}' absent from all runs; skipping.")
+                continue
+            conf = np.median(np.column_stack(cols), axis=1)
             thr = thresholds.get(t, 0.5)
             result[f'Confidence_{t}'] = conf
             result[f'Prediction_{t}'] = (conf >= thr).astype(int)
 
     elif task == 'multitarget_regression':
         for t in targets:
-            pred = np.median(np.column_stack([r[f'Prediction_{t}'] for r in per_run]), axis=1)
-            result[f'Prediction_{t}'] = pred
+            cols = [r[f'Prediction_{t}'] for r in per_run if f'Prediction_{t}' in r]
+            if not cols:
+                logger.warning(f"Target '{t}' absent from all runs; skipping.")
+                continue
+            result[f'Prediction_{t}'] = np.median(np.column_stack(cols), axis=1)
 
     elif task == 'multiclass_classification':
         # Average class probabilities across runs, argmax for the label.

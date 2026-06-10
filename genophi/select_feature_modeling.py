@@ -465,8 +465,15 @@ def evaluate_multilabel_performance(df, model_performance_dir, sample_column, ta
     if 'phage' in df.columns and 'phage' not in group_keys:
         group_keys.append('phage')
 
-    conf_cols = [f'Confidence_{t}' for t in target_names]
-    true_cols = [f'True_{t}' for t in target_names]
+    # Only score targets whose columns are actually present (a target dropped in
+    # every fold -- e.g. too sparse to ever model -- won't have columns here).
+    present = [t for t in target_names
+               if f'Confidence_{t}' in df.columns and f'True_{t}' in df.columns]
+    missing = [t for t in target_names if t not in present]
+    if missing:
+        logging.warning(f"Targets absent from all pooled predictions; not scored: {missing}")
+    conf_cols = [f'Confidence_{t}' for t in present]
+    true_cols = [f'True_{t}' for t in present]
 
     # Median confidence per (cut_off, sample); true labels are constant per sample.
     agg_map = {c: 'median' for c in conf_cols}
@@ -475,29 +482,43 @@ def evaluate_multilabel_performance(df, model_performance_dir, sample_column, ta
 
     metrics_list = []
     for cut_off, group in df_calcs.groupby('cut_off'):
-        y_true = group[true_cols].to_numpy().astype(int)
-        proba = group[conf_cols].to_numpy()
-        y_pred = (proba >= 0.5).astype(int)
-
         row = {'cut_off': cut_off}
-        # Full per-receptor metric set (matches the independent path) so the
-        # joint vs. independent comparison is like-for-like. AUC/AUPR need both
-        # classes present in the fold; guard with NaN otherwise.
-        for k, t in enumerate(target_names):
-            yk, pk, pr = y_true[:, k], y_pred[:, k], proba[:, k]
-            both_classes = len(np.unique(yk)) > 1
-            row[f'AUC_{t}'] = roc_auc_score(yk, pr) if both_classes else float('nan')
-            row[f'AUPR_{t}'] = average_precision_score(yk, pr) if both_classes else float('nan')
+        # Per-receptor metrics, each computed over only the samples where that
+        # receptor was predicted (a fold that dropped it as single-class leaves
+        # NaN for its held-out rows -> excluded from that receptor's metric, and
+        # n_folds_<t> records the coverage). AUC/AUPR/MCC need both classes.
+        valid_masks = {}
+        for t in present:
+            pr = group[f'Confidence_{t}'].to_numpy()
+            yt_raw = group[f'True_{t}'].to_numpy()
+            mask = ~(np.isnan(pr) | pd.isna(yt_raw))
+            valid_masks[t] = mask
+            if mask.sum() == 0:
+                continue
+            yk = yt_raw[mask].astype(int)
+            pk = (pr[mask] >= 0.5).astype(int)
+            prk = pr[mask]
+            both = len(np.unique(yk)) > 1
+            row[f'AUC_{t}'] = roc_auc_score(yk, prk) if both else float('nan')
+            row[f'AUPR_{t}'] = average_precision_score(yk, prk) if both else float('nan')
             row[f'Accuracy_{t}'] = accuracy_score(yk, pk)
             row[f'Precision_{t}'] = precision_score(yk, pk, zero_division=0)
             row[f'Recall_{t}'] = recall_score(yk, pk, zero_division=0)
             row[f'F1_{t}'] = f1_score(yk, pk, zero_division=0)
-            row[f'MCC_{t}'] = matthews_corrcoef(yk, pk) if both_classes else float('nan')
-        # Aggregate (whole-matrix) metrics.
-        row['micro_f1'] = f1_score(y_true, y_pred, average='micro', zero_division=0)
-        row['macro_f1'] = f1_score(y_true, y_pred, average='macro', zero_division=0)
-        row['hamming_loss'] = float((y_pred != y_true).mean())
-        row['subset_accuracy'] = float((y_pred == y_true).all(axis=1).mean())
+            row[f'MCC_{t}'] = matthews_corrcoef(yk, pk) if both else float('nan')
+            row[f'n_samples_{t}'] = int(mask.sum())
+        # Aggregate (whole-matrix) metrics over samples where ALL present targets
+        # were predicted (complete rows), so the matrix is well-defined.
+        complete = np.all(np.column_stack([valid_masks[t] for t in present]), axis=1) if present else np.array([])
+        if complete.sum() > 0:
+            yt_m = group[true_cols].to_numpy()[complete].astype(int)
+            pr_m = group[conf_cols].to_numpy()[complete]
+            yp_m = (pr_m >= 0.5).astype(int)
+            row['micro_f1'] = f1_score(yt_m, yp_m, average='micro', zero_division=0)
+            row['macro_f1'] = f1_score(yt_m, yp_m, average='macro', zero_division=0)
+            row['hamming_loss'] = float((yp_m != yt_m).mean())
+            row['subset_accuracy'] = float((yp_m == yt_m).all(axis=1).mean())
+            row['n_complete_samples'] = int(complete.sum())
         metrics_list.append(row)
 
     metrics_df = pd.DataFrame(metrics_list)
@@ -585,6 +606,14 @@ def evaluate_multitarget_performance(df, model_performance_dir, sample_column,
     if 'phage' in df.columns and 'phage' not in group_keys:
         group_keys.append('phage')
 
+    # Only score targets present in the pooled predictions (a target dropped in
+    # every fold won't have columns here).
+    present = [t for t in target_names
+               if f'Prediction_{t}' in df.columns and f'True_{t}' in df.columns]
+    missing = [t for t in target_names if t not in present]
+    if missing:
+        logging.warning(f"Targets absent from all pooled predictions; not scored: {missing}")
+    target_names = present
     pred_cols = [f'Prediction_{t}' for t in target_names]
     true_cols = [f'True_{t}' for t in target_names]
 
