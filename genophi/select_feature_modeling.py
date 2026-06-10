@@ -305,6 +305,88 @@ def process_shap_values(best_model, X_train, X_train_sample_ids, output_dir, bin
     del explainer, shap_values, shap_values_df, X_train_df
     gc.collect()
 
+
+def process_multilabel_shap_values(joint_model, X, X_sample_ids, target_names,
+                                   output_dir, binary_data=False):
+    """Per-receptor SHAP for a joint MultiLogloss model.
+
+    A joint model predicts all receptors from one shared ensemble, so a feature's
+    attribution is decomposed PER receptor: receptor k's SHAP reflects what the
+    joint model uses to predict k *given it also models the others*, which
+    partials out shared/co-occurrence signal and surfaces receptor-SPECIFIC
+    features (vs. independent SHAP, which includes correlated/confounded signal).
+
+    Writes one ``<receptor>/shap_importances.csv`` per receptor, in the SAME
+    long format as process_shap_values (columns: <sample_ids>, feature,
+    shap_value, value), so the existing kmer-analysis / annotation pipeline runs
+    per receptor unchanged. Also writes a combined mean|SHAP| ranking.
+
+    Args:
+        joint_model: trained CatBoostClassifier(loss_function='MultiLogloss').
+        X (DataFrame): feature matrix (the model's feature set, correct column order).
+        X_sample_ids (DataFrame): sample identifier columns to carry through.
+        target_names (list[str]): receptor names, in the model's label order.
+        output_dir (str): base dir; per-receptor subdirs are created.
+    """
+    from catboost import Pool
+
+    X = X.reset_index(drop=True)
+    X_sample_ids = X_sample_ids.reset_index(drop=True)
+    X_sample_ids = X_sample_ids.loc[:, ~X_sample_ids.columns.duplicated()]
+    id_cols = list(X_sample_ids.columns)
+    feature_cols = list(X.columns)
+
+    # CatBoost native per-output SHAP: shape (n_samples, n_labels, n_features + 1)
+    # (last column per label is the base/expected-value term).
+    shap = np.asarray(joint_model.get_feature_importance(type='ShapValues', data=Pool(X)))
+    if shap.ndim != 3:
+        raise ValueError(
+            f"Expected a 3-D multi-output SHAP tensor (samples, labels, features+1); "
+            f"got shape {shap.shape}. Is this a joint MultiLogloss model?")
+    n_labels = shap.shape[1]
+    if n_labels != len(target_names):
+        logging.warning(
+            f"SHAP has {n_labels} labels but {len(target_names)} target_names; "
+            f"using the model's label order.")
+
+    # Long-format feature values, shared across receptors (melt once).
+    X_val = X.copy()
+    X_val[id_cols] = X_sample_ids
+    val_long = X_val.melt(id_vars=id_cols, var_name='feature', value_name='value')
+
+    combined = []
+    for k, receptor in enumerate(target_names[:n_labels]):
+        rec_dir = os.path.join(output_dir, receptor)
+        os.makedirs(rec_dir, exist_ok=True)
+
+        sv = shap[:, k, :-1]   # (n_samples, n_features) -- drop base term
+        sv_df = pd.DataFrame(sv, columns=feature_cols)
+        sv_df[id_cols] = X_sample_ids
+        sv_long = sv_df.melt(id_vars=id_cols, var_name='feature', value_name='shap_value')
+        sv_long = sv_long.merge(val_long, on=id_cols + ['feature'], how='left')
+
+        out_csv = os.path.join(rec_dir, 'shap_importances.csv')
+        sv_long.to_csv(out_csv, index=False)
+        logging.info(f"[SHAP] {receptor}: per-sample SHAP -> {out_csv}")
+
+        # mean|SHAP| ranking for this receptor (the interpretable summary).
+        rank = (pd.Series(np.abs(sv).mean(axis=0), index=feature_cols)
+                .sort_values(ascending=False))
+        rank.to_csv(os.path.join(rec_dir, 'mean_abs_shap_ranking.csv'),
+                    header=['mean_abs_shap'])
+        top = rank.head(1)
+        combined.append(pd.DataFrame({'receptor': receptor,
+                                      'feature': rank.index,
+                                      'mean_abs_shap': rank.values}))
+
+    # One combined long table: receptor x feature x mean|SHAP| (for cross-receptor views).
+    combined_df = pd.concat(combined, ignore_index=True)
+    combined_df.to_csv(os.path.join(output_dir, 'per_receptor_mean_abs_shap.csv'), index=False)
+    logging.info(f"[SHAP] combined per-receptor ranking -> "
+                 f"{os.path.join(output_dir, 'per_receptor_mean_abs_shap.csv')}")
+    gc.collect()
+    return combined_df
+
 def extract_cutoff_from_filename(filename):
     """
     Extracts the numeric cutoff value from the filename (e.g., 7 from select_feature_table_cutoff_7.csv).
