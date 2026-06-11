@@ -173,6 +173,9 @@ def main():
     p.add_argument('--max_ram', type=int, default=60)
     p.add_argument('--mem_fold', type=int, default=64, help='Mem per fold job (GB)')
     p.add_argument('--time_fold', default='24:00:00')
+    p.add_argument('--run_dir', default=None,
+                   help='Where to write the run dir (scripts + logs). Default: '
+                        'under --output_dir (on scratch), NOT the cwd/home.')
     p.add_argument('--dry_run', action='store_true')
     args = p.parse_args()
 
@@ -185,8 +188,12 @@ def main():
             print(f"Error: {name} not found: {pth}"); return 1
     os.makedirs(args.output_dir, exist_ok=True)
 
+    # Run dir (scripts + logs) defaults UNDER output_dir (scratch), so logs never
+    # land in home/cwd by accident. SLURM --output paths are relative to the
+    # submit cwd, so we chdir into run_dir before sbatch (done below).
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    run_dir = f"mo_cv_run_{timestamp}"
+    base = args.run_dir if args.run_dir else args.output_dir
+    run_dir = os.path.join(base, f"mo_cv_run_{timestamp}")
     os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
 
     n_jobs = args.n_folds * args.cv_rounds

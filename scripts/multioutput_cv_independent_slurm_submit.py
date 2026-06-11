@@ -200,6 +200,9 @@ def main():
     p.add_argument('--time_table', default='8:00:00')
     p.add_argument('--mem_train', type=int, default=120, help='Mem per (fold,target) train job (GB)')
     p.add_argument('--time_train', default='12:00:00')
+    p.add_argument('--run_dir', default=None,
+                   help='Where to write the run dir (scripts + logs). Default: '
+                        'under --output_dir (on scratch), NOT the cwd/home.')
     p.add_argument('--dry_run', action='store_true')
     args = p.parse_args()
 
@@ -211,7 +214,10 @@ def main():
             print(f"Error: {name} not found: {pth}"); return 1
     os.makedirs(args.output_dir, exist_ok=True)
 
-    run_dir = f"mo_cv_indep_run_{time.strftime('%Y%m%d_%H%M%S')}"
+    # Run dir (scripts + logs) defaults UNDER output_dir (scratch), so logs never
+    # land in home/cwd by accident.
+    base = args.run_dir if args.run_dir else args.output_dir
+    run_dir = os.path.join(base, f"mo_cv_indep_run_{time.strftime('%Y%m%d_%H%M%S')}")
     os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
 
     n_folds_total = args.n_folds * args.cv_rounds
