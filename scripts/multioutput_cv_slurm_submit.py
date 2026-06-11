@@ -46,7 +46,13 @@ def _common_kwargs_literal(args, targets):
         f"sample_column={args.sample_column!r}, suffix={args.suffix!r}, k={args.k}, "
         f"num_runs_fs={args.num_runs_fs}, num_runs_modeling={args.num_runs_modeling}, "
         f"method={args.method!r}, max_features={args.max_features!r}, "
-        f"threads={args.threads}, max_ram={args.max_ram}"
+        f"threads={args.threads}, max_ram={args.max_ram}, "
+        f"use_clustering={args.use_clustering}, "
+        f"use_feature_clustering={args.use_feature_clustering}, "
+        f"feature_n_clusters={args.feature_n_clusters}, "
+        f"feature_min_cluster_presence={args.feature_min_cluster_presence}, "
+        f"filter_by_cluster_presence={args.filter_by_cluster_presence}, "
+        f"min_cluster_presence={args.min_cluster_presence}"
     )
 
 
@@ -173,6 +179,17 @@ def main():
     p.add_argument('--max_ram', type=int, default=60)
     p.add_argument('--mem_fold', type=int, default=64, help='Mem per fold job (GB)')
     p.add_argument('--time_fold', default='24:00:00')
+    # Anti-overfitting: cluster-aware split + phylogenetic feature filtering
+    p.add_argument('--use_clustering', action='store_true',
+                   help='Cluster-aware train/test split (group related phages)')
+    p.add_argument('--use_feature_clustering', action='store_true',
+                   help='Remove phylogenetically-linked features (clade markers) at table build')
+    p.add_argument('--feature_n_clusters', type=int, default=20)
+    p.add_argument('--feature_min_cluster_presence', type=int, default=2,
+                   help='Min feature-clusters a feature must span to be kept')
+    p.add_argument('--filter_by_cluster_presence', action='store_true',
+                   help='Filter features by how many sample-clusters they appear in')
+    p.add_argument('--min_cluster_presence', type=int, default=2)
     p.add_argument('--run_dir', default=None,
                    help='Where to write the run dir (scripts + logs). Default: '
                         'under --output_dir (on scratch), NOT the cwd/home.')

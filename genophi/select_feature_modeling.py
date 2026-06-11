@@ -959,8 +959,22 @@ def run_experiments(
     start_total_time = time.time()
     if os.path.isdir(input_dir):
         feature_tables = sorted(os.listdir(input_dir))
-    else:
+    elif os.path.isfile(input_dir):
         feature_tables = [os.path.basename(input_dir)]
+    else:
+        # No feature tables to model: feature selection produced 0 features that
+        # survived the cutoff filter (e.g. a target with too little learnable
+        # signal in this split). Skip this target/run cleanly instead of crashing.
+        logging.warning(
+            f"No feature tables to model at '{input_dir}' (feature selection "
+            f"yielded no features past the cutoff filter). Skipping modeling.")
+        return
+
+    if not feature_tables:
+        logging.warning(
+            f"Feature-table directory '{input_dir}' is empty (0 features survived "
+            f"the cutoff filter). Skipping modeling.")
+        return
 
     for feature_table in feature_tables:
         if os.path.isdir(input_dir):

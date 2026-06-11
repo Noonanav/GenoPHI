@@ -88,7 +88,10 @@ import logging, os
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 from genophi.workflows.multioutput_cv_parallel import build_fold_table
 fold = int(os.environ['SLURM_ARRAY_TASK_ID'])
-build_fold_table(fold_idx=fold, {common}, k={args.k}, threads={args.threads}, max_ram={args.max_ram})
+build_fold_table(fold_idx=fold, {common}, k={args.k}, threads={args.threads}, max_ram={args.max_ram},
+    use_feature_clustering={args.use_feature_clustering},
+    feature_n_clusters={args.feature_n_clusters},
+    feature_min_cluster_presence={args.feature_min_cluster_presence})
 print(f"Fold {{fold}} table built.")
 PYTHON_SCRIPT
 echo "$(date)"
@@ -133,6 +136,9 @@ train_fold_target(
     num_runs_fs={args.num_runs_fs}, num_runs_modeling={args.num_runs_modeling},
     method={args.method!r}, max_features={args.max_features!r},
     threads={args.threads}, max_ram={args.max_ram},
+    use_clustering={args.use_clustering},
+    filter_by_cluster_presence={args.filter_by_cluster_presence},
+    min_cluster_presence={args.min_cluster_presence},
 )
 print(f"fold {{fold}} target {{target}} done.")
 PYTHON_SCRIPT
@@ -189,6 +195,16 @@ def main():
     p.add_argument('--method', default='rfe')
     p.add_argument('--max_features', default='none')
     p.add_argument('--strong_top_frac', type=float, default=0.2)
+    # Anti-overfitting: cluster-aware split + phylogenetic feature filtering
+    p.add_argument('--use_clustering', action='store_true',
+                   help='Cluster-aware train/test split (group related phages)')
+    p.add_argument('--use_feature_clustering', action='store_true',
+                   help='Remove phylogenetically-linked features (clade markers) at table build')
+    p.add_argument('--feature_n_clusters', type=int, default=20)
+    p.add_argument('--feature_min_cluster_presence', type=int, default=2)
+    p.add_argument('--filter_by_cluster_presence', action='store_true',
+                   help='Filter features by how many sample-clusters they appear in')
+    p.add_argument('--min_cluster_presence', type=int, default=2)
     # SLURM
     p.add_argument('--account', default='pc_crispriart')
     p.add_argument('--partition', default='lr7')

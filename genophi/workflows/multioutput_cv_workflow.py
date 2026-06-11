@@ -168,6 +168,16 @@ def run_multioutput_cv_workflow(
     threads=4,
     max_ram=8,
     strong_top_frac=0.2,
+    use_clustering=False,
+    cluster_method='hierarchical',
+    n_clusters=20,
+    min_cluster_size=5,
+    use_feature_clustering=False,
+    feature_cluster_method='hierarchical',
+    feature_n_clusters=20,
+    feature_min_cluster_presence=2,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
 ):
     """Run k-fold CV for a multi-output model (in-process loop over all folds).
 
@@ -193,6 +203,14 @@ def run_multioutput_cv_workflow(
             cv_rounds=cv_rounds, sample_column=sample_column, suffix=suffix, k=k,
             num_runs_fs=num_runs_fs, num_runs_modeling=num_runs_modeling,
             method=method, max_features=max_features, threads=threads, max_ram=max_ram,
+            use_clustering=use_clustering, cluster_method=cluster_method,
+            n_clusters=n_clusters, min_cluster_size=min_cluster_size,
+            use_feature_clustering=use_feature_clustering,
+            feature_cluster_method=feature_cluster_method,
+            feature_n_clusters=feature_n_clusters,
+            feature_min_cluster_presence=feature_min_cluster_presence,
+            filter_by_cluster_presence=filter_by_cluster_presence,
+            min_cluster_presence=min_cluster_presence,
         )
 
     return aggregate_cv_results(
@@ -269,6 +287,16 @@ def run_one_cv_fold(
     max_features='none',
     threads=4,
     max_ram=8,
+    use_clustering=False,
+    cluster_method='hierarchical',
+    n_clusters=20,
+    min_cluster_size=5,
+    use_feature_clustering=False,
+    feature_cluster_method='hierarchical',
+    feature_n_clusters=20,
+    feature_min_cluster_presence=2,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
 ):
     """Run ONE CV fold end-to-end and write its held-out predictions.
 
@@ -337,7 +365,16 @@ def run_one_cv_fold(
             max_features=max_features,
             threads=threads,
             max_ram=max_ram,
-            use_clustering=False,
+            use_clustering=use_clustering,
+            cluster_method=cluster_method,
+            n_clusters=n_clusters,
+            min_cluster_size=min_cluster_size,
+            use_feature_clustering=use_feature_clustering,
+            feature_cluster_method=feature_cluster_method,
+            feature_n_clusters=feature_n_clusters,
+            feature_min_cluster_presence=feature_min_cluster_presence,
+            filter_by_cluster_presence=filter_by_cluster_presence,
+            min_cluster_presence=min_cluster_presence,
         )
 
     # --- Held-out assignment + ensemble prediction ---

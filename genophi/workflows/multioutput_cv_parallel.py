@@ -73,6 +73,10 @@ def build_fold_table(
     k=5,
     threads=4,
     max_ram=8,
+    use_feature_clustering=False,
+    feature_cluster_method='hierarchical',
+    feature_n_clusters=20,
+    feature_min_cluster_presence=2,
 ):
     """Stage A: build fold ``fold_idx``'s k-mer feature table (no modeling).
 
@@ -108,6 +112,10 @@ def build_fold_table(
             threads=threads,
             max_ram=max_ram,
             use_clustering=False,
+            use_feature_clustering=use_feature_clustering,
+            feature_cluster_method=feature_cluster_method,
+            feature_n_clusters=feature_n_clusters,
+            feature_min_cluster_presence=feature_min_cluster_presence,
         )
     logger.info(f"[fold {it}] feature table built -> {fold_dir}")
     return fold_dir
@@ -140,6 +148,12 @@ def train_fold_target(
     max_features='none',
     threads=4,
     max_ram=8,
+    use_clustering=False,
+    cluster_method='hierarchical',
+    n_clusters=20,
+    min_cluster_size=5,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
 ):
     """Stage B: FS + ensemble modeling for ONE target on a fold's table.
 
@@ -188,7 +202,12 @@ def train_fold_target(
         max_features=max_features,
         min_features='none',
         binary_data=True,
-        use_clustering=False,
+        use_clustering=use_clustering,
+        cluster_method=cluster_method,
+        n_clusters=n_clusters,
+        min_cluster_size=min_cluster_size,
+        filter_by_cluster_presence=filter_by_cluster_presence,
+        min_cluster_presence=min_cluster_presence,
         max_ram=max_ram,
     )
     logger.info(f"[fold {fold_idx}/{target}] done -> {target_out}")
