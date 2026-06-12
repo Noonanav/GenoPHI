@@ -431,9 +431,15 @@ def select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv):
     assigned_df = pd.read_csv(assigned_tsv, sep='\t', header=None, 
                             names=list(dtype_dict.keys()), dtype=dtype_dict)
 
-    # Confirm assigned_df is not empty
+    # Confirm assigned_df is not empty. If NO sequence matched any cluster
+    # (e.g. a divergent genome under the coverage/identity thresholds), write an
+    # EMPTY best_hits file rather than bailing -- downstream map_features then
+    # produces an all-zero feature row per genome instead of crashing.
     if assigned_df.empty:
-        logging.error(f"No data found in assigned clusters file: {assigned_tsv}")
+        logging.warning(f"No data in assigned clusters file: {assigned_tsv} -- "
+                        f"writing empty best_hits (genomes will get all-zero features).")
+        pd.DataFrame(columns=['Query', 'Cluster']).to_csv(
+            best_hits_tsv, sep='\t', index=False, header=False)
         return
 
     # Sort by Query, then by SeqIdentity and E-value to find the best hits

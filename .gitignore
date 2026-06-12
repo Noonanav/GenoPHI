@@ -108,3 +108,10 @@ data/test_data/test_shap_output/
 
 # Planning documents
 PLAN_*.md
+# CatBoost training artifacts
+catboost_info/
+
+# Local analysis scratch (not versioned)
+cv_plots/
+tnseq_fitness_matrix.csv
+.codex
