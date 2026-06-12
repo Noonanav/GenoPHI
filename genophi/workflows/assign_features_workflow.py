@@ -165,7 +165,16 @@ def map_features(best_hits_tsv, feature_map, genome_contig_mapping, genome_type)
         if feature not in feature_presence.columns:
             feature_presence[feature] = 0
 
-    feature_presence = feature_presence.reindex(columns=all_features, fill_value=0).reset_index()
+    feature_presence = feature_presence.reindex(columns=all_features, fill_value=0)
+
+    # Zero-fill genomes that matched NO cluster: a divergent genome with no
+    # known protein families is a valid all-zero feature vector, not an error.
+    # Without this, such genomes are silently dropped (missing rows), which
+    # downstream code then can't predict. Reindex rows to ALL requested genomes.
+    all_genomes = pd.Index(sorted(set(genome_contig_mapping.values())), name=genome_type)
+    feature_presence = feature_presence.reindex(index=all_genomes, fill_value=0)
+
+    feature_presence = feature_presence.reset_index()
 
     return feature_presence
 
