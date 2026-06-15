@@ -254,7 +254,7 @@ GenoPHI provides the following main commands:
 | `kmer-assign-features` | Assign _k_-mer features to new genomes |
 | `kmer-assign-predict` | Assign _k_-mer features and predict |
 | `kmer-analysis` | Analyze _k_-mer composition and diversity |
-| `nested-cv` | Nested k-fold cross-validation (train per fold, predict held-out strains) |
+| `nested-cv` | Nested cross-validation: k-fold or leave-one-group-out (e.g. leave-one-serotype-out) over held-out strains |
 
 ## Workflows
 

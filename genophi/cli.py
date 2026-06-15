@@ -866,12 +866,19 @@ def create_parser():
     p.add_argument('--output_dir', '-o', required=True,
                    help='Output directory (per-fold results under iteration_N/)')
     # Cross-validation parameters
+    p.add_argument('--cv_mode', default='kfold', choices=['kfold', 'group'],
+                   help="Split mode: 'kfold' (default) or 'group' "
+                        "(leave-one-group-out, e.g. leave-one-serotype-out)")
     p.add_argument('--n_folds', type=int, default=10,
-                   help='Number of folds per round (default: 10)')
+                   help='Number of folds per round, kfold mode (default: 10)')
     p.add_argument('--cv_rounds', type=int, default=1,
-                   help='Number of repeated k-fold rounds; total fits = n_folds * cv_rounds (default: 1)')
+                   help='Number of repeated k-fold rounds, kfold mode; total fits = n_folds * cv_rounds (default: 1)')
+    p.add_argument('--group_metadata',
+                   help="Path to a strain->group CSV (required for --cv_mode group)")
+    p.add_argument('--group_column',
+                   help="Group/serotype column name in --group_metadata (required for --cv_mode group)")
     p.add_argument('--strain_column', default='strain',
-                   help='Strain identifier column in the matrix (default: strain)')
+                   help='Strain identifier column in the matrix and group metadata (default: strain)')
     p.add_argument('--suffix', default='faa',
                    help='FASTA file suffix for strain files (default: faa)')
     # MMseqs2 clustering/assignment parameters
@@ -1472,7 +1479,7 @@ def run_kmer_analysis(args):
     )
 
 def run_nested_cv(args):
-    """Run nested k-fold cross-validation workflow."""
+    """Run nested cross-validation workflow (k-fold or leave-one-group-out)."""
     from genophi.workflows.nested_cv_workflow import run_nested_cv_workflow
 
     validate_directory(args.input_strain_dir, "Strain input directory")
@@ -1480,13 +1487,23 @@ def run_nested_cv(args):
     validate_file(args.interaction_matrix, "Interaction matrix")
     validate_directory(args.output_dir, "Output directory", create=True)
 
+    if args.cv_mode == 'group':
+        if not args.group_metadata or not args.group_column:
+            raise ValueError(
+                "--cv_mode group requires both --group_metadata and --group_column."
+            )
+        validate_file(args.group_metadata, "Group metadata")
+
     run_nested_cv_workflow(
         input_strain_dir=args.input_strain_dir,
         input_phage_dir=args.input_phage_dir,
         interaction_matrix=args.interaction_matrix,
         output_dir=args.output_dir,
+        cv_mode=args.cv_mode,
         n_folds=args.n_folds,
         cv_rounds=args.cv_rounds,
+        group_metadata=args.group_metadata,
+        group_column=args.group_column,
         strain_column=args.strain_column,
         suffix=args.suffix,
         min_seq_id=args.min_seq_id,

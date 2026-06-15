@@ -149,6 +149,79 @@ def test_kfold_split_properties():
 
 
 @pytest.mark.smoke
+def test_group_splits_leave_one_out(tmp_path):
+    """Test leave-one-group-out splitting: each group held out once, NA excluded."""
+    from genophi.workflows.nested_cv_workflow import (
+        split_strains_by_group, _load_group_map,
+    )
+    import pandas as pd
+
+    full = ['s1', 's2', 's3', 's4', 's5', 's6']
+    group_map = {
+        's1': 'O157', 's2': 'O157',
+        's3': 'O26', 's4': 'O26',
+        's5': 'O111', 's6': 'O111',
+    }
+
+    splits = split_strains_by_group(full, group_map)
+
+    # One fold per unique group, sorted by group name.
+    assert [label for label, _, _ in splits] == ['O111', 'O157', 'O26']
+
+    for label, modeling, validation in splits:
+        # Validation = exactly the held-out group's strains.
+        assert set(validation) == {s for s, g in group_map.items() if g == label}
+        # Modeling = all other grouped strains, disjoint from validation.
+        assert set(modeling).isdisjoint(set(validation))
+        assert set(modeling) | set(validation) == set(full)
+
+    # Each strain is held out exactly once across all folds.
+    all_val = [s for _, _, v in splits for s in v]
+    assert sorted(all_val) == sorted(full)
+
+    # _load_group_map excludes strains with missing/NA group labels.
+    meta = tmp_path / "groups.csv"
+    pd.DataFrame({
+        'strain': ['s1', 's2', 's3', 's7'],   # s7 not in full -> ignored
+        'serotype': ['O157', None, 'O26', 'O55'],  # s2 has NA -> excluded
+    }).to_csv(meta, index=False)
+
+    loaded = _load_group_map(str(meta), full, strain_column='strain', group_column='serotype')
+    assert loaded == {'s1': 'O157', 's3': 'O26'}  # s2 (NA) and s7 (not usable) dropped
+
+
+@pytest.mark.smoke
+def test_modeling_matrix_filtering(tmp_path):
+    """Test that filtering to modeling strains drops phages with no remaining interactions."""
+    from genophi.workflows.nested_cv_workflow import _write_modeling_matrix
+    import pandas as pd
+
+    # p_only_held appears ONLY with the held-out strain s3.
+    matrix = tmp_path / "interactions.csv"
+    pd.DataFrame({
+        'strain': ['s1', 's2', 's3', 's1', 's3'],
+        'phage':  ['pA', 'pA', 'pA', 'pB', 'p_only_held'],
+        'interaction': [1, 0, 1, 1, 0],
+    }).to_csv(matrix, index=False)
+
+    out = tmp_path / "modeling_matrix.csv"
+    modeling = ['s1', 's2']  # s3 held out
+
+    path, n_rows, n_phages, dropped = _write_modeling_matrix(
+        str(matrix), modeling, str(out),
+    )
+
+    result = pd.read_csv(path)
+    # Only modeling-strain rows survive.
+    assert set(result['strain']) == {'s1', 's2'}
+    # p_only_held dropped (its only interactions were with held-out s3); pA, pB kept.
+    assert set(result['phage']) == {'pA', 'pB'}
+    assert dropped == ['p_only_held']
+    assert n_phages == 2
+    assert n_rows == 3
+
+
+@pytest.mark.smoke
 def test_global_metrics_and_curves(tmp_path):
     """Test pooled outer-test metrics + PR/ROC curve generation from synthetic data."""
     from genophi.workflows.nested_cv_workflow import _compute_global_metrics

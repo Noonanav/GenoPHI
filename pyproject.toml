@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "genophi"
-version = "1.1.0"
+version = "1.2.0"
 description = "Whole-genome genotype-to-phenotype modeling with focus on phage-host interaction prediction"
 readme = "README.md"
 requires-python = ">=3.8"

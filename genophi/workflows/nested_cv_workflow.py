@@ -67,6 +67,40 @@ def _get_full_strain_list(interaction_matrix, input_strain_dir, strain_column, s
     return full_strain_list
 
 
+def _write_modeling_matrix(interaction_matrix, modeling_strains, output_path,
+                           strain_column='strain', phage_column='phage'):
+    """Write an interaction matrix filtered to the modeling strains.
+
+    Subsetting to the modeling strains' rows means any phage that only appeared
+    with held-out strains drops out entirely. Passing this filtered matrix to
+    training ensures phage features (and phage clustering) are built only from
+    phages present in the remaining interactions -- important for group CV where
+    a held-out group (e.g. a dataset) may take the only strains a phage was
+    tested against.
+
+    Returns (output_path, n_rows, n_phages, dropped_phages).
+    """
+    df = pd.read_csv(interaction_matrix)
+    if strain_column not in df.columns:
+        raise ValueError(
+            f"Column '{strain_column}' not found in interaction matrix "
+            f"({list(df.columns)})."
+        )
+    modeling_set = {str(s) for s in modeling_strains}
+    df[strain_column] = df[strain_column].astype(str)
+    filtered = df[df[strain_column].isin(modeling_set)].copy()
+
+    dropped_phages = []
+    if phage_column in df.columns:
+        before = set(df[phage_column].astype(str).unique())
+        after = set(filtered[phage_column].astype(str).unique())
+        dropped_phages = sorted(before - after)
+
+    filtered.to_csv(output_path, index=False)
+    n_phages = filtered[phage_column].nunique() if phage_column in filtered.columns else 0
+    return output_path, len(filtered), n_phages, dropped_phages
+
+
 def split_strains_kfold(full_strain_list, iteration, n_folds=10):
     """Deterministically split strains into modeling/validation sets for one fold.
 
@@ -117,6 +151,93 @@ def split_strains_kfold(full_strain_list, iteration, n_folds=10):
     return modeling_strains, validation_strains
 
 
+def _load_group_map(group_metadata, full_strain_list, strain_column='strain', group_column='group'):
+    """Read a strain -> group mapping CSV, restricted to the usable strains.
+
+    Strains that are absent from the metadata, or whose group value is missing
+    (NaN/empty), are logged and excluded from cross-validation (they cannot be
+    held out as part of any group).
+
+    Returns ``{strain: group}`` for strains that have a valid group AND appear
+    in ``full_strain_list``.
+    """
+    logger.info(f"Reading group metadata: {group_metadata}")
+    meta = pd.read_csv(group_metadata)
+
+    for col in (strain_column, group_column):
+        if col not in meta.columns:
+            raise ValueError(
+                f"Column '{col}' not found in group metadata. "
+                f"Available columns: {list(meta.columns)}"
+            )
+
+    full_set = set(full_strain_list)
+    group_map = {}
+    missing_group = []
+    for _, row in meta.iterrows():
+        strain = str(row[strain_column])
+        if strain not in full_set:
+            continue  # not a usable strain (no FASTA/phenotype); ignore silently
+        group = row[group_column]
+        if pd.isna(group) or str(group).strip() == '':
+            missing_group.append(strain)
+            continue
+        group_map[strain] = str(group)
+
+    # Strains usable for CV but with no group entry at all.
+    no_metadata = sorted(full_set - set(group_map) - set(missing_group))
+
+    excluded = sorted(set(missing_group) | set(no_metadata))
+    if excluded:
+        logger.warning(
+            f"{len(excluded)} strain(s) excluded from group CV (missing or empty "
+            f"group label): {excluded}"
+        )
+    logger.info(
+        f"Group map covers {len(group_map)} strain(s) across "
+        f"{len(set(group_map.values()))} group(s)."
+    )
+    return group_map
+
+
+def split_strains_by_group(full_strain_list, group_map):
+    """Build leave-one-group-out splits: one fold per unique group.
+
+    For each group (sorted by name for determinism), the validation set is every
+    strain in that group and the modeling set is every other grouped strain.
+    Strains absent from ``group_map`` are excluded entirely.
+
+    Returns an ordered list of ``(group_name, modeling_strains, validation_strains)``.
+    """
+    if not group_map:
+        raise ValueError("Cannot build group splits from an empty group map.")
+
+    grouped = sorted(set(full_strain_list) & set(group_map))
+    groups = {}
+    for strain in grouped:
+        groups.setdefault(group_map[strain], []).append(strain)
+
+    splits = []
+    for group_name in sorted(groups):
+        validation_strains = sorted(groups[group_name])
+        modeling_strains = sorted(s for s in grouped if group_map[s] != group_name)
+        if not modeling_strains:
+            logger.warning(
+                f"Group '{group_name}': no modeling strains remain (all strains "
+                f"belong to this group); skipping this fold."
+            )
+            continue
+        splits.append((group_name, modeling_strains, validation_strains))
+        logger.info(
+            f"Group '{group_name}': {len(modeling_strains)} modeling, "
+            f"{len(validation_strains)} validation strain(s)."
+        )
+
+    if not splits:
+        raise ValueError("No usable leave-one-group-out folds could be built.")
+    return splits
+
+
 def _select_best_cutoff(iteration_output_dir):
     """Return the cutoff with the highest MCC (tie-break on higher cut_off)."""
     metrics_file = os.path.join(
@@ -130,12 +251,12 @@ def _select_best_cutoff(iteration_output_dir):
 
 def _run_single_fold(
     iteration,
-    full_strain_list,
+    modeling_strains,
+    validation_strains,
     input_strain_dir,
     input_phage_dir,
     interaction_matrix,
     output_dir,
-    n_folds,
     min_seq_id,
     coverage,
     sensitivity,
@@ -179,23 +300,38 @@ def _run_single_fold(
     os.makedirs(iteration_output_dir, exist_ok=True)
     modeling_tmp_dir = os.path.join(iteration_output_dir, 'tmp')
 
-    # --- Strain split (deterministic k-fold) ---
+    # --- Write the (precomputed) strain split for this fold ---
     modeling_strains_path = os.path.join(iteration_output_dir, 'modeling_strains.csv')
     validation_strains_path = os.path.join(iteration_output_dir, 'validation_strains.csv')
 
-    if not os.path.exists(modeling_strains_path) or not os.path.exists(validation_strains_path):
-        modeling_strains, validation_strains = split_strains_kfold(
-            full_strain_list, iteration=iteration, n_folds=n_folds
+    if not modeling_strains or not validation_strains:
+        raise RuntimeError(
+            f"Empty strain split for iteration {iteration}: "
+            f"{len(modeling_strains)} modeling, {len(validation_strains)} validation"
         )
-        if not modeling_strains or not validation_strains:
-            raise RuntimeError(
-                f"Empty strain split for iteration {iteration}: "
-                f"{len(modeling_strains)} modeling, {len(validation_strains)} validation"
-            )
+
+    if not os.path.exists(modeling_strains_path) or not os.path.exists(validation_strains_path):
         pd.DataFrame(modeling_strains, columns=['strain']).to_csv(modeling_strains_path, index=False)
         pd.DataFrame(validation_strains, columns=['strain']).to_csv(validation_strains_path, index=False)
     else:
-        logger.info(f"Strain lists already exist for iteration {iteration}; loading.")
+        logger.info(f"Strain lists already exist for iteration {iteration}; reusing.")
+
+    # --- Filter the interaction matrix to the modeling strains ---
+    # Training builds phage features only from phages present in these remaining
+    # interactions; phages tested solely against held-out strains drop out.
+    modeling_matrix_path = os.path.join(iteration_output_dir, 'modeling_interaction_matrix.csv')
+    _, n_rows, n_phages, dropped_phages = _write_modeling_matrix(
+        interaction_matrix, modeling_strains, modeling_matrix_path,
+    )
+    logger.info(
+        f"Iteration {iteration}: modeling interaction matrix has {n_rows} rows "
+        f"across {n_phages} phage(s)."
+    )
+    if dropped_phages:
+        logger.info(
+            f"Iteration {iteration}: {len(dropped_phages)} phage(s) absent from "
+            f"modeling interactions, excluded from feature building: {dropped_phages}"
+        )
 
     # --- Step 1: train protein-family models on the modeling strains ---
     metrics_file = os.path.join(
@@ -207,7 +343,7 @@ def _run_single_fold(
         run_protein_family_workflow(
             input_path_strain=input_strain_dir,
             input_path_phage=input_phage_dir,
-            phenotype_matrix=interaction_matrix,
+            phenotype_matrix=modeling_matrix_path,
             output_dir=iteration_output_dir,
             tmp_dir=modeling_tmp_dir,
             min_seq_id=min_seq_id,
@@ -217,7 +353,7 @@ def _run_single_fold(
             phenotype_column='interaction',
             phage_column='phage',
             strain_list=modeling_strains_path,
-            phage_list=interaction_matrix,
+            phage_list=modeling_matrix_path,
             filter_type='strain',
             num_runs_fs=num_runs_fs,
             num_runs_modeling=num_runs_modeling,
@@ -358,6 +494,17 @@ def _aggregate_results(output_dir, total_iterations):
     return completed
 
 
+def _read_fold_label(output_dir, iteration):
+    """Return the held-out fold/group label for an iteration, or a default."""
+    label_file = os.path.join(output_dir, f'iteration_{iteration}', 'fold_group.txt')
+    if os.path.exists(label_file):
+        with open(label_file) as fh:
+            label = fh.read().strip()
+            if label:
+                return label
+    return f'fold_{iteration}'
+
+
 def _compute_global_metrics(
     output_dir,
     interaction_matrix,
@@ -433,35 +580,56 @@ def _compute_global_metrics(
             f"labels; unmatched pairs are excluded from global metrics."
         )
 
+    def _metrics_for(sub):
+        """Classification metrics for one prediction subset (a DataFrame)."""
+        yt = sub[phenotype_column].astype(int)
+        ys = sub[_SCORE_COL].astype(float)
+        yp = sub[_PRED_COL].astype(int) if _PRED_COL in sub.columns else (ys > 0.5).astype(int)
+        both = yt.nunique() > 1
+        return {
+            'n_predictions': len(sub),
+            'n_positive': int(yt.sum()),
+            'n_negative': int((1 - yt).sum()),
+            'AUC': roc_auc_score(yt, ys) if both else float('nan'),
+            'AP': average_precision_score(yt, ys) if both else float('nan'),
+            'Accuracy': accuracy_score(yt, yp),
+            'Precision': precision_score(yt, yp, zero_division=0),
+            'Recall': recall_score(yt, yp, zero_division=0),
+            'F1': f1_score(yt, yp, zero_division=0),
+            'MCC': matthews_corrcoef(yt, yp),
+        }
+
     y_true = merged[phenotype_column].astype(int)
     y_score = merged[_SCORE_COL].astype(float)
-    if _PRED_COL in merged.columns:
-        y_pred = merged[_PRED_COL].astype(int)
-    else:
-        y_pred = (y_score > 0.5).astype(int)
 
     perf_dir = os.path.join(output_dir, 'performance')
     os.makedirs(perf_dir, exist_ok=True)
 
-    # AUC/AP need both classes present; guard so a degenerate pool doesn't crash.
+    # --- Global (pooled outer-test) metrics ---
     both_classes = y_true.nunique() > 1
-    metrics = {
-        'n_predictions': n_matched,
-        'n_positive': int(y_true.sum()),
-        'n_negative': int((1 - y_true).sum()),
-        'AUC': roc_auc_score(y_true, y_score) if both_classes else float('nan'),
-        'AP': average_precision_score(y_true, y_score) if both_classes else float('nan'),
-        'Accuracy': accuracy_score(y_true, y_pred),
-        'Precision': precision_score(y_true, y_pred, zero_division=0),
-        'Recall': recall_score(y_true, y_pred, zero_division=0),
-        'F1': f1_score(y_true, y_pred, zero_division=0),
-        'MCC': matthews_corrcoef(y_true, y_pred),
-    }
+    metrics = _metrics_for(merged)
     pd.DataFrame([metrics]).to_csv(os.path.join(perf_dir, 'global_metrics.csv'), index=False)
     logger.info(
         f"Global metrics over {n_matched} pooled outer-test predictions: "
         f"AUC={metrics['AUC']:.3f}, AP={metrics['AP']:.3f}, MCC={metrics['MCC']:.3f}"
     )
+
+    # --- Per-fold / per-group metrics ---
+    # Each iteration held out one fold (a group in cv_mode='group'); label it
+    # from fold_group.txt when available so the breakdown is by serotype name.
+    if 'iteration' in merged.columns:
+        fold_rows = []
+        for it, sub in merged.groupby('iteration'):
+            label = _read_fold_label(output_dir, int(it))
+            row = {'iteration': int(it), 'fold': label}
+            row.update(_metrics_for(sub))
+            fold_rows.append(row)
+        if fold_rows:
+            per_fold = pd.DataFrame(fold_rows).sort_values('iteration')
+            per_fold.to_csv(os.path.join(perf_dir, 'per_fold_metrics.csv'), index=False)
+            logger.info(
+                f"Saved per_fold_metrics.csv for {len(per_fold)} held-out fold(s)."
+            )
 
     if not both_classes:
         logger.warning(
@@ -502,8 +670,11 @@ def run_nested_cv_workflow(
     input_phage_dir,
     interaction_matrix,
     output_dir,
+    cv_mode='kfold',
     n_folds=10,
     cv_rounds=1,
+    group_metadata=None,
+    group_column=None,
     strain_column='strain',
     suffix='faa',
     min_seq_id=0.4,
@@ -531,12 +702,21 @@ def run_nested_cv_workflow(
     duplicate_all=False,
     clear_tmp=False,
 ):
-    """Run deterministic (repeated) k-fold nested cross-validation.
+    """Run nested cross-validation (deterministic k-fold or leave-one-group-out).
 
-    Folds run sequentially in this process. The total number of folds trained
-    is ``n_folds * cv_rounds`` (each round reshuffles the fold assignment with a
-    new seed). A failing fold is logged and skipped; the run continues and
-    aggregates whatever folds completed.
+    Folds run sequentially in this process. Two split modes:
+
+    - cv_mode='kfold' (default): deterministic (repeated) k-fold. The total
+      number of folds is ``n_folds * cv_rounds`` (each round reshuffles the fold
+      assignment with a new seed).
+    - cv_mode='group': leave-one-group-out. One fold per unique group value in
+      ``group_metadata[group_column]``; the held-out group is the validation set
+      and all other grouped strains are the modeling set. ``n_folds``/
+      ``cv_rounds`` are ignored. Strains missing a group label are excluded.
+
+    A failing fold is logged and skipped; the run continues and aggregates
+    whatever folds completed. Each iteration_N/ records its held-out fold/group
+    name in ``fold_group.txt``.
 
     After aggregation, global performance metrics and pooled outer-test PR/ROC
     curves are written to ``output_dir/performance/`` (global_metrics.csv,
@@ -548,9 +728,12 @@ def run_nested_cv_workflow(
         input_phage_dir (str): Directory of phage FASTA files.
         interaction_matrix (str): Path to the interaction/phenotype matrix CSV.
         output_dir (str): Directory for all results (per-fold under iteration_N/).
-        n_folds (int): Number of folds per round (default: 10).
-        cv_rounds (int): Number of repeated k-fold rounds (default: 1).
-        strain_column (str): Strain identifier column in the matrix (default: 'strain').
+        cv_mode (str): 'kfold' (default) or 'group' (leave-one-group-out).
+        n_folds (int): Number of folds per round, kfold mode (default: 10).
+        cv_rounds (int): Number of repeated k-fold rounds, kfold mode (default: 1).
+        group_metadata (str): Path to a strain->group CSV (required for cv_mode='group').
+        group_column (str): Group/serotype column in group_metadata (required for cv_mode='group').
+        strain_column (str): Strain identifier column (in the matrix and group metadata; default: 'strain').
         suffix (str): FASTA file suffix for strain files (default: 'faa').
         min_seq_id (float): Minimum sequence identity for MMseqs2 (default: 0.4).
         coverage (float): Minimum coverage for MMseqs2 (default: 0.8).
@@ -563,13 +746,12 @@ def run_nested_cv_workflow(
     Returns:
         int: Number of folds successfully aggregated.
     """
-    total_iterations = n_folds * cv_rounds
+    if cv_mode not in ('kfold', 'group'):
+        raise ValueError(f"cv_mode must be 'kfold' or 'group', got '{cv_mode}'.")
 
-    logger.info("=== GenoPHI nested k-fold cross-validation ===")
+    logger.info("=== GenoPHI nested cross-validation ===")
     logger.info(f"Output directory: {output_dir}")
-    logger.info(
-        f"Folds: {n_folds} x {cv_rounds} round(s) = {total_iterations} total fits"
-    )
+    logger.info(f"CV mode: {cv_mode}")
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -581,22 +763,60 @@ def run_nested_cv_workflow(
             "No valid strains found (intersection of interaction matrix and "
             "strain directory is empty). Cannot run cross-validation."
         )
-    if len(full_strain_list) < n_folds:
-        raise ValueError(
-            f"Cannot create {n_folds} folds from {len(full_strain_list)} strains."
+
+    # Build the ordered split plan: a list of (fold_label, modeling, validation).
+    if cv_mode == 'group':
+        if not group_metadata or not group_column:
+            raise ValueError(
+                "cv_mode='group' requires both group_metadata and group_column."
+            )
+        group_map = _load_group_map(
+            group_metadata, full_strain_list, strain_column, group_column
+        )
+        raw_splits = split_strains_by_group(full_strain_list, group_map)
+        split_plan = [
+            (label, modeling, validation)
+            for (label, modeling, validation) in raw_splits
+        ]
+        logger.info(
+            f"Leave-one-group-out: {len(split_plan)} fold(s), one per group."
+        )
+    else:
+        if len(full_strain_list) < n_folds:
+            raise ValueError(
+                f"Cannot create {n_folds} folds from {len(full_strain_list)} strains."
+            )
+        total_iterations = n_folds * cv_rounds
+        split_plan = []
+        for iteration in range(1, total_iterations + 1):
+            modeling, validation = split_strains_kfold(
+                full_strain_list, iteration=iteration, n_folds=n_folds
+            )
+            split_plan.append((f"fold_{iteration}", modeling, validation))
+        logger.info(
+            f"K-fold: {n_folds} x {cv_rounds} round(s) = {total_iterations} total fits"
         )
 
+    total_iterations = len(split_plan)
+
     succeeded, failed = [], []
-    for iteration in range(1, total_iterations + 1):
+    for iteration, (fold_label, modeling_strains, validation_strains) in enumerate(split_plan, start=1):
         try:
+            # Record which group/fold this iteration holds out (self-documenting,
+            # resume-safe).
+            iteration_dir = os.path.join(output_dir, f'iteration_{iteration}')
+            os.makedirs(iteration_dir, exist_ok=True)
+            with open(os.path.join(iteration_dir, 'fold_group.txt'), 'w') as fh:
+                fh.write(f"{fold_label}\n")
+
             _run_single_fold(
                 iteration=iteration,
-                full_strain_list=full_strain_list,
+                modeling_strains=modeling_strains,
+                validation_strains=validation_strains,
                 input_strain_dir=input_strain_dir,
                 input_phage_dir=input_phage_dir,
                 interaction_matrix=interaction_matrix,
                 output_dir=output_dir,
-                n_folds=n_folds,
                 min_seq_id=min_seq_id,
                 coverage=coverage,
                 sensitivity=sensitivity,
@@ -626,7 +846,9 @@ def run_nested_cv_workflow(
                 _clear_fold_tmp(output_dir, iteration)
         except Exception as e:  # noqa: BLE001 - keep going across folds
             failed.append(iteration)
-            logger.error(f"Iteration {iteration} failed: {e}", exc_info=True)
+            logger.error(
+                f"Iteration {iteration} ({fold_label}) failed: {e}", exc_info=True
+            )
 
     logger.info(
         f"Folds complete: {len(succeeded)} succeeded, {len(failed)} failed."
