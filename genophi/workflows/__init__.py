@@ -22,6 +22,8 @@ from .nested_cv_workflow import (
     run_shared_clustering,
     run_fold_from_shared,
     load_predefined_folds,
+    run_predefined_fold,
+    aggregate_predefined_folds,
 )
 
 __all__ = [
@@ -41,4 +43,6 @@ __all__ = [
     'run_shared_clustering',
     'run_fold_from_shared',
     'load_predefined_folds',
+    'run_predefined_fold',
+    'aggregate_predefined_folds',
 ]

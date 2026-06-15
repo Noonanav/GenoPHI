@@ -844,6 +844,161 @@ def _run_fold_shared_wrapper(
     )
 
 
+def _read_fold_label_dir(fold_dir, default):
+    """Return the fold label written in fold_group.txt, else the default."""
+    label_file = os.path.join(fold_dir, 'fold_group.txt')
+    if os.path.exists(label_file):
+        with open(label_file) as fh:
+            t = fh.read().strip()
+            if t:
+                return t
+    return default
+
+
+def run_predefined_fold(
+    fold_label,
+    folds_file,
+    shared_dir,
+    interaction_matrix,
+    input_strain_dir,
+    fold_output_dir,
+    strain_column='strain',
+    **fold_kwargs
+):
+    """Run ONE predefined fold (by label) against shared clustering artifacts.
+
+    Standalone entrypoint for SLURM fan-out: a single fold job reads its fold's
+    modeling/validation strains from ``folds_file``, writes the per-fold split +
+    filtered interaction matrix into ``fold_output_dir``, and runs
+    ``run_fold_from_shared`` against the already-built ``shared_dir``.
+
+    ``fold_output_dir`` is keyed by the caller (e.g. .../folds/<label>/) so each
+    job is independent and resumable. Returns the median-predictions path, or the
+    existing path if the fold is already complete.
+    """
+    median_predictions_file = os.path.join(
+        fold_output_dir, 'model_validation', 'predict_results',
+        'strain_median_predictions.csv',
+    )
+    if os.path.exists(median_predictions_file):
+        logger.info(f"Fold '{fold_label}' already complete, skipping.")
+        return median_predictions_file
+
+    # Pull this fold's split from the folds file (validates roles/disjointness).
+    df = pd.read_csv(folds_file)
+    df['fold_label'] = df['fold_label'].astype(str)
+    df['role'] = df['role'].astype(str).str.strip().str.lower()
+    df[strain_column] = df[strain_column].astype(str)
+    sub = df[df['fold_label'] == str(fold_label)]
+    if sub.empty:
+        raise ValueError(
+            f"Fold label '{fold_label}' not found in {folds_file}. "
+            f"Available: {sorted(df['fold_label'].unique())}"
+        )
+    modeling = sorted(set(sub.loc[sub['role'] == 'modeling', strain_column]))
+    validation = sorted(set(sub.loc[sub['role'] == 'validation', strain_column]))
+    overlap = set(modeling) & set(validation)
+    if overlap:
+        raise ValueError(
+            f"Fold '{fold_label}': strain(s) in both roles: {sorted(overlap)}."
+        )
+    if not modeling or not validation:
+        raise ValueError(
+            f"Fold '{fold_label}': {len(modeling)} modeling / {len(validation)} "
+            f"validation strain(s); both required."
+        )
+
+    os.makedirs(fold_output_dir, exist_ok=True)
+    with open(os.path.join(fold_output_dir, 'fold_group.txt'), 'w') as fh:
+        fh.write(f"{fold_label}\n")
+
+    modeling_strains_path = os.path.join(fold_output_dir, 'modeling_strains.csv')
+    validation_strains_path = os.path.join(fold_output_dir, 'validation_strains.csv')
+    pd.DataFrame(modeling, columns=['strain']).to_csv(modeling_strains_path, index=False)
+    pd.DataFrame(validation, columns=['strain']).to_csv(validation_strains_path, index=False)
+
+    modeling_matrix_path = os.path.join(fold_output_dir, 'modeling_interaction_matrix.csv')
+    _, n_rows, n_phages, dropped_phages = _write_modeling_matrix(
+        interaction_matrix, modeling, modeling_matrix_path,
+    )
+    logger.info(
+        f"Fold '{fold_label}': {len(modeling)} modeling / {len(validation)} validation "
+        f"strain(s); matrix {n_rows} rows / {n_phages} phage(s)."
+    )
+    if dropped_phages:
+        logger.info(
+            f"Fold '{fold_label}': {len(dropped_phages)} phage(s) excluded "
+            f"(no modeling interactions)."
+        )
+
+    return run_fold_from_shared(
+        shared_dir=shared_dir,
+        iteration_output_dir=fold_output_dir,
+        modeling_strains_path=modeling_strains_path,
+        validation_strains_path=validation_strains_path,
+        modeling_matrix_path=modeling_matrix_path,
+        input_strain_dir=input_strain_dir,
+        **fold_kwargs,
+    )
+
+
+def aggregate_predefined_folds(folds_dir, interaction_matrix, output_dir=None,
+                               strain_column='strain', phage_column='phage',
+                               phenotype_column='interaction'):
+    """Aggregate per-fold predictions from a SLURM fan-out + compute metrics.
+
+    Scans ``folds_dir`` for subdirectories each containing a completed fold
+    (model_validation/predict_results/strain_median_predictions.csv + a
+    fold_group.txt label), pools them, and writes final_predictions.csv,
+    prediction_summary.csv, and performance/ (global + per-fold metrics, curves).
+
+    ``output_dir`` defaults to ``folds_dir``. Returns the number of folds pooled.
+    """
+    output_dir = output_dir or folds_dir
+    os.makedirs(output_dir, exist_ok=True)
+
+    final_predictions = []
+    pooled = 0
+    for name in sorted(os.listdir(folds_dir)):
+        fold_dir = os.path.join(folds_dir, name)
+        if not os.path.isdir(fold_dir):
+            continue
+        pred_file = os.path.join(
+            fold_dir, 'model_validation', 'predict_results',
+            'strain_median_predictions.csv',
+        )
+        if not os.path.exists(pred_file):
+            continue
+        label = _read_fold_label_dir(fold_dir, name)
+        df = pd.read_csv(pred_file)
+        df['fold'] = label
+        df['iteration'] = name
+        final_predictions.append(df)
+        pooled += 1
+
+    if not final_predictions:
+        logger.error(f"No completed folds found under {folds_dir}.")
+        return 0
+
+    final_df = pd.concat(final_predictions, ignore_index=True)
+    final_df.to_csv(os.path.join(output_dir, 'final_predictions.csv'), index=False)
+    logger.info(f"Pooled {pooled} fold(s) into final_predictions.csv.")
+
+    # Reuse the metrics path (it reads final_predictions.csv + merges truth).
+    try:
+        _compute_global_metrics(
+            output_dir=output_dir,
+            interaction_matrix=interaction_matrix,
+            strain_column=strain_column,
+            phage_column=phage_column,
+            phenotype_column=phenotype_column,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Failed to compute global metrics: {e}", exc_info=True)
+
+    return pooled
+
+
 def _aggregate_results(output_dir, total_iterations):
     """Concatenate per-fold predictions and write summary statistics.
 
