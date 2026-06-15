@@ -24,7 +24,7 @@ import pandas as pd
 # Inputs (paths as they exist on the Lawrencium compute nodes)
 input_strain_dir = "/global/scratch/users/anoonan/BRaVE/manuscript/ecoli/strain_AAs_update"
 input_phage_dir = "/global/scratch/users/anoonan/BRaVE/manuscript/ecoli/phage_AAs"
-interaction_matrix = "/global/scratch/users/anoonan/BRaVE/LOSO/tables/Gaborieau_interaction_matrix_long_mod.csv"
+interaction_matrix = "/global/scratch/users/anoonan/BRaVE/manuscript/ecoli/Gaborieau_interaction_matrix_long_mod.csv"
 folds_file = "/global/scratch/users/anoonan/BRaVE/LOSO/tables/folds_loso_O.csv"
 
 # Output root for this experiment
@@ -70,26 +70,15 @@ def header(f, job, dep=None, array=None, time_lim=time_limit):
     f.write(f"conda activate {environment}\n\n")
 
 
-def main():
-    os.makedirs(logs_dir, exist_ok=True)
-    os.makedirs(folds_out_dir, exist_ok=True)
+def submit(sh_path):
+    return subprocess.check_output(["sbatch", "--parsable", sh_path]).decode().strip()
 
-    # Fold labels, in file order.
-    folds = pd.read_csv(folds_file)
-    fold_labels = list(dict.fromkeys(folds['fold_label'].astype(str)))
-    n_folds = len(fold_labels)
-    print(f"{n_folds} folds: {fold_labels}")
 
-    # A label->index file so the array task can map SLURM_ARRAY_TASK_ID -> label.
-    labels_file = os.path.join(base_output_dir, "fold_labels.txt")
-    with open(labels_file, 'w') as fh:
-        fh.write("\n".join(fold_labels) + "\n")
-
-    # ---- Job 1: shared clustering (once) ----
-    j1 = "LOSO_cluster"
-    w1 = os.path.join(logs_dir, f"{j1}.sh")
-    with open(w1, 'w') as f:
-        header(f, j1, time_lim=cluster_time_limit)
+def write_cluster_job():
+    """Write + return the path to the shared-clustering job script."""
+    w = os.path.join(logs_dir, "LOSO_cluster.sh")
+    with open(w, 'w') as f:
+        header(f, "LOSO_cluster", time_lim=cluster_time_limit)
         f.write(
             "python -c \""
             "from genophi.workflows import run_shared_clustering; "
@@ -99,15 +88,37 @@ def main():
             f"output_dir='{shared_dir}', threads={threads}, "
             f"strain_column='{strain_column}')\"\n"
         )
-    cl_id = subprocess.check_output(["sbatch", "--parsable", w1]).decode().strip()
-    print(f"  clustering job: {cl_id}")
+    return w
 
-    # ---- Job 2: fold array (afterok clustering) ----
-    j2 = "LOSO_fold"
-    w2 = os.path.join(logs_dir, f"{j2}.sh")
-    with open(w2, 'w') as f:
-        header(f, j2, dep=cl_id, array=f"1-{n_folds}")
-        # Map array index (1-based) -> fold label, then run that fold.
+
+def write_single_fold_job(label, dep):
+    """Write + return a job script that runs ONE fold by label (afterok dep)."""
+    w = os.path.join(logs_dir, f"LOSO_fold_{label}.sh")
+    with open(w, 'w') as f:
+        header(f, f"LOSO_fold_{label}", dep=dep)
+        f.write(
+            "python -c \""
+            "import sys; from genophi.workflows import run_predefined_fold; "
+            f"run_predefined_fold("
+            "fold_label=sys.argv[1], "
+            f"folds_file='{folds_file}', "
+            f"shared_dir='{shared_dir}', "
+            f"interaction_matrix='{interaction_matrix}', "
+            f"input_strain_dir='{input_strain_dir}', "
+            f"fold_output_dir='{folds_out_dir}/' + sys.argv[1], "
+            f"strain_column='{strain_column}', "
+            f"num_runs_fs={num_runs_fs}, num_runs_modeling={num_runs_modeling}, "
+            f"threads={threads})\" "
+            f"\"{label}\"\n"
+        )
+    return w
+
+
+def write_fold_array_job(labels_file, n_folds, dep):
+    """Write + return the array job script (one task per fold)."""
+    w = os.path.join(logs_dir, "LOSO_fold.sh")
+    with open(w, 'w') as f:
+        header(f, "LOSO_fold", dep=dep, array=f"1-{n_folds}")
         f.write(f'LABEL=$(sed -n "${{SLURM_ARRAY_TASK_ID}}p" {labels_file})\n')
         f.write('echo "Running fold: $LABEL"\n\n')
         f.write(
@@ -124,15 +135,14 @@ def main():
             f"num_runs_fs={num_runs_fs}, num_runs_modeling={num_runs_modeling}, "
             f"threads={threads})\" \"$LABEL\"\n"
         )
-    arr_id = subprocess.check_output(["sbatch", "--parsable", w2]).decode().strip()
-    print(f"  fold array: {arr_id} (1-{n_folds})")
+    return w
 
-    # ---- Job 3: aggregate (afterok whole array) ----
-    j3 = "LOSO_aggregate"
-    w3 = os.path.join(logs_dir, f"{j3}.sh")
-    with open(w3, 'w') as f:
-        # afterok on an array job id waits for ALL tasks to succeed.
-        header(f, j3, dep=arr_id, time_lim="2:00:00")
+
+def write_aggregate_job(dep):
+    """Write + return the aggregation job script (afterok the fold array)."""
+    w = os.path.join(logs_dir, "LOSO_aggregate.sh")
+    with open(w, 'w') as f:
+        header(f, "LOSO_aggregate", dep=dep, time_lim="2:00:00")
         f.write(
             "python -c \""
             "from genophi.workflows import aggregate_predefined_folds; "
@@ -142,7 +152,52 @@ def main():
             f"output_dir='{base_output_dir}', "
             f"strain_column='{strain_column}')\"\n"
         )
-    agg_id = subprocess.check_output(["sbatch", "--parsable", w3]).decode().strip()
+    return w
+
+
+def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="Submit the LOSO nested-CV experiment to SLURM.")
+    ap.add_argument('--test-fold', metavar='LABEL',
+                    help="Submit ONLY the clustering job + one fold (by label, e.g. O6) "
+                         "as batch jobs. Use to validate the pipeline end-to-end before "
+                         "the full array. No array, no aggregation.")
+    args = ap.parse_args()
+
+    os.makedirs(logs_dir, exist_ok=True)
+    os.makedirs(folds_out_dir, exist_ok=True)
+
+    folds = pd.read_csv(folds_file)
+    fold_labels = list(dict.fromkeys(folds['fold_label'].astype(str)))
+    n_folds = len(fold_labels)
+
+    # Shared clustering is always step 1 (reused/resumed if already done).
+    cl_id = submit(write_cluster_job())
+    print(f"  clustering job: {cl_id}")
+
+    if args.test_fold:
+        if args.test_fold not in fold_labels:
+            raise SystemExit(f"--test-fold '{args.test_fold}' not in folds file. "
+                             f"Available: {fold_labels}")
+        fold_id = submit(write_single_fold_job(args.test_fold, dep=cl_id))
+        print(f"  test fold '{args.test_fold}': {fold_id} (afterok {cl_id})")
+        print(f"\n=== Test submitted ===")
+        print(f"  cluster {cl_id} -> fold {args.test_fold} {fold_id}")
+        print(f"  Result: {folds_out_dir}/{args.test_fold}/model_validation/predict_results/")
+        print(f"  Monitor: squeue -u $USER ; "
+              f"tail -f {logs_dir}/LOSO_fold_{args.test_fold}_*.out")
+        return
+
+    # Full run: array over all folds, then aggregate.
+    labels_file = os.path.join(base_output_dir, "fold_labels.txt")
+    with open(labels_file, 'w') as fh:
+        fh.write("\n".join(fold_labels) + "\n")
+    print(f"{n_folds} folds: {fold_labels}")
+
+    arr_id = submit(write_fold_array_job(labels_file, n_folds, dep=cl_id))
+    print(f"  fold array: {arr_id} (1-{n_folds})")
+
+    agg_id = submit(write_aggregate_job(dep=arr_id))
     print(f"  aggregate job: {agg_id}")
 
     print(f"\n=== Submitted ===")
