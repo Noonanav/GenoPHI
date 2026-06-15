@@ -935,6 +935,10 @@ def create_parser():
                    help='Process all validation genomes even if duplicates are found')
     p.add_argument('--clear_tmp', action='store_true',
                    help='Delete per-fold tmp directories after each fold completes successfully')
+    p.add_argument('--shared_clustering', action='store_true',
+                   help='Run MMseqs2 clustering once over all genomes and reuse it across '
+                        'folds (per-fold feature collapse stays training-only; leakage-free). '
+                        'Saves compute vs. clustering each fold separately.')
     add_common_args(p)
 
     return parser
@@ -1530,6 +1534,7 @@ def run_nested_cv(args):
         feature_min_cluster_presence=args.feature_min_cluster_presence,
         duplicate_all=args.duplicate_all,
         clear_tmp=args.clear_tmp,
+        shared_clustering=args.shared_clustering,
     )
 
 

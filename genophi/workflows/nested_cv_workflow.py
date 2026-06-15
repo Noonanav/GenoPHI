@@ -11,8 +11,19 @@ predictions table plus summary statistics.
 
 This is the portable, scheduler-agnostic equivalent of the SLURM job-array
 submission script: folds run sequentially in this process rather than as
-parallel SLURM array tasks. Only deterministic k-fold splitting is supported
-(no random/bootstrap resampling).
+parallel SLURM array tasks.
+
+Two split modes are supported: deterministic (repeated) k-fold, and
+leave-one-group-out (e.g. leave-one-serotype-out) driven by a strain->group
+metadata CSV.
+
+Optionally (shared_clustering=True), MMseqs2 clustering is run ONCE over all
+genomes and reused across folds. Clustering is sequence-only and
+label-independent, so this is leakage-free as long as the hash-based feature
+collapse stays per-fold on the training-only (filtered) presence/absence
+matrix -- which it does. The functions run_shared_clustering() and
+run_fold_from_shared() are exposed so a SLURM submitter can run one shared
+clustering job and fan out one fold job per fold as dependencies.
 """
 
 import os
@@ -23,6 +34,12 @@ import pandas as pd
 
 from genophi.workflows.protein_family_workflow import run_protein_family_workflow
 from genophi.workflows.assign_predict_workflow import assign_predict_workflow
+from genophi.workflows.select_and_model_workflow import run_modeling_workflow_from_feature_table
+from genophi.mmseqs2_clustering import (
+    run_clustering_workflow,
+    run_feature_assignment,
+    merge_feature_tables,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -440,6 +457,287 @@ def _run_single_fold(
     return median_predictions_file
 
 
+def run_shared_clustering(
+    input_strain_dir,
+    input_phage_dir,
+    output_dir,
+    min_seq_id=0.4,
+    coverage=0.8,
+    sensitivity=7.5,
+    suffix='faa',
+    threads=4,
+    strain_column='strain',
+    phage_column='phage',
+    force_restart=False,
+):
+    """Cluster ALL strains and phages once; produce shared artifacts for every fold.
+
+    MMseqs2 clustering is sequence-only and label-independent, so it can be run
+    a single time over the full dataset and reused across folds. This writes the
+    raw presence/absence matrices, cluster TSVs, and MMseqs2 databases that each
+    fold then filters (per-fold) into training-only feature tables.
+
+    Runs with bootstrapping=True so duplicate protein IDs are resolved across ALL
+    genomes (so held-out strains carry the same 'strain::protein' namespace the
+    cluster DB uses, which validation feature-assignment depends on).
+
+    Returns a dict of shared artifact paths::
+
+        {
+          'strain': {'presence_absence': ..., 'clusters_tsv': ..., 'mmseqs_db': ...},
+          'phage':  {'presence_absence': ..., 'clusters_tsv': ..., 'mmseqs_db': ...},
+        }
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    artifacts = {}
+
+    for genome_type, input_dir, column in (
+        ('strain', input_strain_dir, strain_column),
+        ('phage', input_phage_dir, phage_column),
+    ):
+        logger.info(f"Shared clustering: {genome_type}s (once, over all genomes)...")
+        type_output_dir = os.path.join(output_dir, genome_type)
+        type_tmp_dir = os.path.join(output_dir, 'tmp', genome_type)
+
+        run_clustering_workflow(
+            input_dir, type_output_dir, type_tmp_dir,
+            min_seq_id, coverage, sensitivity, suffix, threads,
+            'none', column, False, bootstrapping=True, clear_tmp=False,
+            force_restart=force_restart,
+        )
+
+        artifacts[genome_type] = {
+            'presence_absence': os.path.join(type_output_dir, 'presence_absence_matrix.csv'),
+            'clusters_tsv': os.path.join(type_output_dir, 'clusters.tsv'),
+            'mmseqs_db': os.path.join(type_tmp_dir, 'mmseqs_db'),
+        }
+
+    logger.info(f"Shared clustering complete. Artifacts under {output_dir}/")
+    return artifacts
+
+
+def run_fold_from_shared(
+    shared_dir,
+    iteration_output_dir,
+    modeling_strains_path,
+    validation_strains_path,
+    modeling_matrix_path,
+    input_strain_dir,
+    threads=4,
+    num_runs_fs=25,
+    num_runs_modeling=50,
+    min_seq_id=0.4,
+    coverage=0.8,
+    sensitivity=7.5,
+    use_dynamic_weights=False,
+    weights_method='log10',
+    use_clustering=False,
+    cluster_method='hdbscan',
+    n_clusters=20,
+    min_cluster_size=2,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
+    max_ram=40,
+    use_feature_clustering=False,
+    feature_cluster_method='hierarchical',
+    feature_n_clusters=20,
+    feature_min_cluster_presence=2,
+    duplicate_all=True,
+):
+    """Run one fold using shared clustering artifacts (no per-fold MMseqs2).
+
+    Given the shared presence/absence matrices + MMseqs2 DBs from
+    ``run_shared_clustering``, this performs, for a single fold:
+
+      B. filter the shared presence/absence matrix to the modeling strains and
+         re-derive the hash-collapsed features (per-fold, training rows only --
+         this is where leakage would occur if shared, so it is NOT shared);
+      C. merge strain + phage features with the fold's modeling interaction matrix;
+      D. feature selection + modeling on that merged table;
+      E. assign + predict the held-out strains against the SHARED MMseqs2 DB,
+         mapped through the fold's (per-fold) selected_features.csv.
+
+    This is a standalone function so a SLURM submitter can call it as one job per
+    fold, depending on a single shared-clustering job.
+
+    Returns the path to the fold's median-predictions CSV.
+    """
+    shared = {
+        gt: {
+            'presence_absence': os.path.join(shared_dir, gt, 'presence_absence_matrix.csv'),
+            'clusters_tsv': os.path.join(shared_dir, gt, 'clusters.tsv'),
+            'mmseqs_db': os.path.join(shared_dir, 'tmp', gt, 'mmseqs_db'),
+        }
+        for gt in ('strain', 'phage')
+    }
+
+    os.makedirs(iteration_output_dir, exist_ok=True)
+
+    # --- B. Per-fold filter -> hash-collapse -> assign (strain and phage) ---
+    # Strain features are filtered to the modeling strains; phage features are
+    # filtered to the phages present in the modeling interaction matrix.
+    strain_features_dir = os.path.join(iteration_output_dir, 'strain', 'features')
+    run_feature_assignment(
+        shared['strain']['presence_absence'], strain_features_dir,
+        source='strain', select=modeling_strains_path, select_column='strain',
+        max_ram=max_ram,
+    )
+
+    # Build a phage list (phages present in the modeling interaction matrix).
+    modeling_phages_path = os.path.join(iteration_output_dir, 'modeling_phages.csv')
+    mm = pd.read_csv(modeling_matrix_path)
+    pd.DataFrame({'phage': sorted(mm['phage'].astype(str).unique())}).to_csv(
+        modeling_phages_path, index=False
+    )
+    phage_features_dir = os.path.join(iteration_output_dir, 'phage', 'features')
+    run_feature_assignment(
+        shared['phage']['presence_absence'], phage_features_dir,
+        source='phage', select=modeling_phages_path, select_column='phage',
+        max_ram=max_ram,
+    )
+
+    # --- C. Merge features with the fold's modeling interaction matrix ---
+    merged_dir = os.path.join(iteration_output_dir, 'merged')
+    os.makedirs(merged_dir, exist_ok=True)
+    merged_table = merge_feature_tables(
+        strain_features=os.path.join(strain_features_dir, 'feature_table.csv'),
+        phenotype_matrix=modeling_matrix_path,
+        output_dir=merged_dir,
+        sample_column='strain',
+        phage_features=os.path.join(phage_features_dir, 'feature_table.csv'),
+        remove_suffix=False,
+        use_feature_clustering=use_feature_clustering,
+        feature_cluster_method=feature_cluster_method,
+        feature_n_clusters=feature_n_clusters,
+        feature_min_cluster_presence=feature_min_cluster_presence,
+        phenotype_column='interaction',
+    )
+
+    # --- D. Feature selection + modeling (no clustering) ---
+    run_modeling_workflow_from_feature_table(
+        full_feature_table=merged_table,
+        output_dir=iteration_output_dir,
+        threads=threads,
+        filter_type='strain',
+        num_runs_fs=num_runs_fs,
+        num_runs_modeling=num_runs_modeling,
+        sample_column='strain',
+        phage_column='phage',
+        phenotype_column='interaction',
+        task_type='classification',
+        max_ram=max_ram,
+        use_dynamic_weights=use_dynamic_weights,
+        weights_method=weights_method,
+        use_clustering=use_clustering,
+        cluster_method=cluster_method,
+        n_clusters=n_clusters,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
+        check_feature_presence=check_feature_presence,
+        filter_by_cluster_presence=filter_by_cluster_presence,
+        min_cluster_presence=min_cluster_presence,
+    )
+
+    # --- E. Assign + predict held-out strains against the SHARED DB ---
+    best_cutoff = _select_best_cutoff(iteration_output_dir)
+    model_dir = os.path.join(iteration_output_dir, 'modeling_results', f'{best_cutoff}')
+
+    validation_output_dir = os.path.join(iteration_output_dir, 'model_validation')
+    os.makedirs(validation_output_dir, exist_ok=True)
+    validation_tmp_dir = os.path.join(validation_output_dir, 'tmp')
+
+    select_feature_table = os.path.join(
+        iteration_output_dir, 'feature_selection', 'filtered_feature_tables',
+        f'select_feature_table_{best_cutoff}.csv',
+    )
+
+    logger.info("Fold (shared): assigning + predicting held-out strains against shared DB...")
+    assign_predict_workflow(
+        input_dir=input_strain_dir,
+        genome_list=validation_strains_path,
+        mmseqs_db=shared['strain']['mmseqs_db'],
+        clusters_tsv=shared['strain']['clusters_tsv'],
+        feature_map=os.path.join(strain_features_dir, 'selected_features.csv'),
+        tmp_dir=validation_tmp_dir,
+        suffix='faa',
+        model_dir=model_dir,
+        feature_table=select_feature_table,
+        phage_feature_table_path=os.path.join(phage_features_dir, 'feature_table.csv'),
+        output_dir=validation_output_dir,
+        threads=threads,
+        genome_type='strain',
+        sensitivity=sensitivity,
+        coverage=coverage,
+        min_seq_id=min_seq_id,
+        duplicate_all=duplicate_all,
+    )
+
+    median_predictions_file = os.path.join(
+        validation_output_dir, 'predict_results', 'strain_median_predictions.csv',
+    )
+    return median_predictions_file
+
+
+def _run_fold_shared_wrapper(
+    iteration, modeling_strains, validation_strains, shared_dir,
+    input_strain_dir, interaction_matrix, output_dir, **fold_kwargs
+):
+    """Prepare per-fold split/matrix files, then run the shared-clustering fold.
+
+    Mirrors the pre-steps of _run_single_fold (write split CSVs, write the
+    modeling-strain-filtered interaction matrix, idempotency skip) so the
+    shared-clustering path produces the same per-fold layout.
+    """
+    iteration_output_dir = os.path.join(output_dir, f'iteration_{iteration}')
+    median_predictions_file = os.path.join(
+        iteration_output_dir, 'model_validation', 'predict_results',
+        'strain_median_predictions.csv',
+    )
+    if os.path.exists(median_predictions_file):
+        logger.info(f"Iteration {iteration} already complete, skipping.")
+        return median_predictions_file
+
+    os.makedirs(iteration_output_dir, exist_ok=True)
+
+    if not modeling_strains or not validation_strains:
+        raise RuntimeError(
+            f"Empty strain split for iteration {iteration}: "
+            f"{len(modeling_strains)} modeling, {len(validation_strains)} validation"
+        )
+
+    modeling_strains_path = os.path.join(iteration_output_dir, 'modeling_strains.csv')
+    validation_strains_path = os.path.join(iteration_output_dir, 'validation_strains.csv')
+    pd.DataFrame(modeling_strains, columns=['strain']).to_csv(modeling_strains_path, index=False)
+    pd.DataFrame(validation_strains, columns=['strain']).to_csv(validation_strains_path, index=False)
+
+    modeling_matrix_path = os.path.join(iteration_output_dir, 'modeling_interaction_matrix.csv')
+    _, n_rows, n_phages, dropped_phages = _write_modeling_matrix(
+        interaction_matrix, modeling_strains, modeling_matrix_path,
+    )
+    logger.info(
+        f"Iteration {iteration}: modeling matrix {n_rows} rows / {n_phages} phage(s)."
+    )
+    if dropped_phages:
+        logger.info(
+            f"Iteration {iteration}: {len(dropped_phages)} phage(s) excluded "
+            f"(no modeling interactions): {dropped_phages}"
+        )
+
+    return run_fold_from_shared(
+        shared_dir=shared_dir,
+        iteration_output_dir=iteration_output_dir,
+        modeling_strains_path=modeling_strains_path,
+        validation_strains_path=validation_strains_path,
+        modeling_matrix_path=modeling_matrix_path,
+        input_strain_dir=input_strain_dir,
+        **fold_kwargs,
+    )
+
+
 def _aggregate_results(output_dir, total_iterations):
     """Concatenate per-fold predictions and write summary statistics.
 
@@ -701,6 +999,7 @@ def run_nested_cv_workflow(
     feature_min_cluster_presence=2,
     duplicate_all=False,
     clear_tmp=False,
+    shared_clustering=False,
 ):
     """Run nested cross-validation (deterministic k-fold or leave-one-group-out).
 
@@ -740,6 +1039,8 @@ def run_nested_cv_workflow(
         sensitivity (float): MMseqs2 sensitivity (default: 7.5).
         threads (int): Threads per fold (default: 4).
         clear_tmp (bool): Delete per-fold tmp dirs on success (default: False).
+        shared_clustering (bool): Cluster once over all genomes and reuse across
+            folds; per-fold feature collapse stays training-only (default: False).
         (remaining args are passed through to run_protein_family_workflow /
         assign_predict_workflow; see those functions for details.)
 
@@ -799,6 +1100,23 @@ def run_nested_cv_workflow(
 
     total_iterations = len(split_plan)
 
+    # Shared clustering: run MMseqs2 once over all genomes; folds reuse it.
+    shared_dir = None
+    if shared_clustering:
+        shared_dir = os.path.join(output_dir, 'shared_clustering')
+        logger.info("Shared clustering enabled: clustering once over all genomes.")
+        run_shared_clustering(
+            input_strain_dir=input_strain_dir,
+            input_phage_dir=input_phage_dir,
+            output_dir=shared_dir,
+            min_seq_id=min_seq_id,
+            coverage=coverage,
+            sensitivity=sensitivity,
+            suffix=suffix,
+            threads=threads,
+            strain_column=strain_column,
+        )
+
     succeeded, failed = [], []
     for iteration, (fold_label, modeling_strains, validation_strains) in enumerate(split_plan, start=1):
         try:
@@ -808,6 +1126,44 @@ def run_nested_cv_workflow(
             os.makedirs(iteration_dir, exist_ok=True)
             with open(os.path.join(iteration_dir, 'fold_group.txt'), 'w') as fh:
                 fh.write(f"{fold_label}\n")
+
+            if shared_clustering:
+                _run_fold_shared_wrapper(
+                    iteration=iteration,
+                    modeling_strains=modeling_strains,
+                    validation_strains=validation_strains,
+                    shared_dir=shared_dir,
+                    input_strain_dir=input_strain_dir,
+                    interaction_matrix=interaction_matrix,
+                    output_dir=output_dir,
+                    min_seq_id=min_seq_id,
+                    coverage=coverage,
+                    sensitivity=sensitivity,
+                    threads=threads,
+                    num_runs_fs=num_runs_fs,
+                    num_runs_modeling=num_runs_modeling,
+                    use_dynamic_weights=use_dynamic_weights,
+                    weights_method=weights_method,
+                    use_clustering=use_clustering,
+                    cluster_method=cluster_method,
+                    n_clusters=n_clusters,
+                    min_cluster_size=min_cluster_size,
+                    min_samples=min_samples,
+                    cluster_selection_epsilon=cluster_selection_epsilon,
+                    check_feature_presence=check_feature_presence,
+                    filter_by_cluster_presence=filter_by_cluster_presence,
+                    min_cluster_presence=min_cluster_presence,
+                    max_ram=max_ram,
+                    use_feature_clustering=use_feature_clustering,
+                    feature_cluster_method=feature_cluster_method,
+                    feature_n_clusters=feature_n_clusters,
+                    feature_min_cluster_presence=feature_min_cluster_presence,
+                    duplicate_all=True,
+                )
+                succeeded.append(iteration)
+                if clear_tmp:
+                    _clear_fold_tmp(output_dir, iteration)
+                continue
 
             _run_single_fold(
                 iteration=iteration,

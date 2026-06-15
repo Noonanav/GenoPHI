@@ -222,6 +222,60 @@ def test_modeling_matrix_filtering(tmp_path):
 
 
 @pytest.mark.smoke
+def test_shared_clustering_feature_assignment_is_leakfree(tmp_path):
+    """Exercises the REAL per-fold function (run_feature_assignment) used by
+    run_fold_from_shared: given a shared P/A matrix over all genomes, filtering
+    to the modeling strains and collapsing must (a) drop held-out genomes from
+    the feature table and (b) compute the hash-collapse on training rows only,
+    so two clusters identical across modeling strains collapse together even
+    when they differ on a held-out strain. No MMseqs2 required."""
+    from genophi.mmseqs2_clustering import run_feature_assignment
+    import pandas as pd
+
+    # Shared P/A over ALL genomes (incl. held-out s4, s5). c1 and c2 are
+    # identical across the MODELING strains (s1,s2,s3) but DIFFER on held-out
+    # s4/s5 -- the leakage trap. If the collapse saw held-out rows, c1 and c2
+    # would stay separate; correct (training-only) behavior merges them.
+    shared = tmp_path / "shared_presence_absence.csv"
+    pd.DataFrame({
+        'Genome': ['s1', 's2', 's3', 's4', 's5'],
+        'c1': [1, 1, 0, 1, 0],
+        'c2': [1, 1, 0, 0, 1],   # == c1 on s1,s2,s3; differs on s4,s5
+        'c3': [0, 1, 1, 1, 1],   # distinct pattern on modeling rows
+    }).to_csv(shared, index=False)
+
+    modeling = tmp_path / "modeling.csv"
+    pd.DataFrame({'strain': ['s1', 's2', 's3']}).to_csv(modeling, index=False)
+
+    out_dir = tmp_path / "features"
+    # This is exactly the call run_fold_from_shared makes per fold.
+    run_feature_assignment(
+        str(shared), str(out_dir),
+        source='strain', select=str(modeling), select_column='strain',
+    )
+
+    # (a) The feature table contains ONLY modeling strains -- held-out s4/s5 gone.
+    feature_table = pd.read_csv(out_dir / 'feature_table.csv')
+    assert set(feature_table['strain']) == {'s1', 's2', 's3'}
+
+    # (b) The collapse merged c1 and c2 (identical on modeling rows) into one
+    # feature, despite their held-out difference -> no leakage.
+    selected = pd.read_csv(out_dir / 'selected_features.csv')  # cols: Feature, Cluster_Label
+    cluster_to_feature = dict(zip(selected['Cluster_Label'], selected['Feature']))
+    assert cluster_to_feature['c1'] == cluster_to_feature['c2']
+    # c3 has a different modeling-row pattern, so it is a distinct feature.
+    assert cluster_to_feature['c3'] != cluster_to_feature['c1']
+
+
+@pytest.mark.smoke
+def test_shared_clustering_functions_importable():
+    """The shared-clustering functions are exported and importable."""
+    from genophi.workflows import run_shared_clustering, run_fold_from_shared
+    assert callable(run_shared_clustering)
+    assert callable(run_fold_from_shared)
+
+
+@pytest.mark.smoke
 def test_global_metrics_and_curves(tmp_path):
     """Test pooled outer-test metrics + PR/ROC curve generation from synthetic data."""
     from genophi.workflows.nested_cv_workflow import _compute_global_metrics
