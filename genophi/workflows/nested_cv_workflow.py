@@ -175,8 +175,10 @@ def _load_group_map(group_metadata, full_strain_list, strain_column='strain', gr
     (NaN/empty), are logged and excluded from cross-validation (they cannot be
     held out as part of any group).
 
-    Returns ``{strain: group}`` for strains that have a valid group AND appear
-    in ``full_strain_list``.
+    Returns ``(group_map, ungrouped)`` where ``group_map`` is ``{strain: group}``
+    for strains that have a valid group AND appear in ``full_strain_list``, and
+    ``ungrouped`` is the sorted list of usable strains that have no valid group
+    (missing from the metadata or with an empty/NaN group value).
     """
     logger.info(f"Reading group metadata: {group_metadata}")
     meta = pd.read_csv(group_metadata)
@@ -204,40 +206,61 @@ def _load_group_map(group_metadata, full_strain_list, strain_column='strain', gr
     # Strains usable for CV but with no group entry at all.
     no_metadata = sorted(full_set - set(group_map) - set(missing_group))
 
-    excluded = sorted(set(missing_group) | set(no_metadata))
-    if excluded:
-        logger.warning(
-            f"{len(excluded)} strain(s) excluded from group CV (missing or empty "
-            f"group label): {excluded}"
+    ungrouped = sorted(set(missing_group) | set(no_metadata))
+    if ungrouped:
+        logger.info(
+            f"{len(ungrouped)} usable strain(s) have no group label: {ungrouped}"
         )
     logger.info(
         f"Group map covers {len(group_map)} strain(s) across "
         f"{len(set(group_map.values()))} group(s)."
     )
-    return group_map
+    return group_map, ungrouped
 
 
-def split_strains_by_group(full_strain_list, group_map):
+def split_strains_by_group(full_strain_list, group_map, ungrouped=None,
+                           ungrouped_mode='drop'):
     """Build leave-one-group-out splits: one fold per unique group.
 
     For each group (sorted by name for determinism), the validation set is every
     strain in that group and the modeling set is every other grouped strain.
-    Strains absent from ``group_map`` are excluded entirely.
+
+    ``ungrouped`` strains (no group label) are handled by ``ungrouped_mode``:
+      - 'drop' (default): excluded from every fold (not trained, not validated).
+        Clean leave-one-group-out: every strain in every fold has a known group.
+      - 'train': added to the modeling set of every fold (never held out, since
+        they belong to no group). Maximizes training data; the group defines
+        only what is left OUT. These strains never receive a held-out prediction.
 
     Returns an ordered list of ``(group_name, modeling_strains, validation_strains)``.
     """
     if not group_map:
         raise ValueError("Cannot build group splits from an empty group map.")
 
+    ungrouped = list(ungrouped or [])
+    if ungrouped_mode not in ('drop', 'train'):
+        raise ValueError(
+            f"ungrouped_mode must be 'drop' or 'train', got '{ungrouped_mode}'."
+        )
+
     grouped = sorted(set(full_strain_list) & set(group_map))
     groups = {}
     for strain in grouped:
         groups.setdefault(group_map[strain], []).append(strain)
 
+    # Ungrouped strains added to every fold's modeling set when mode == 'train'.
+    always_train = sorted(set(ungrouped) & set(full_strain_list)) if ungrouped_mode == 'train' else []
+    if always_train:
+        logger.info(
+            f"{len(always_train)} ungrouped strain(s) added to every fold's "
+            f"modeling set (ungrouped_mode='train'); they are never held out."
+        )
+
     splits = []
     for group_name in sorted(groups):
         validation_strains = sorted(groups[group_name])
-        modeling_strains = sorted(s for s in grouped if group_map[s] != group_name)
+        modeling_grouped = [s for s in grouped if group_map[s] != group_name]
+        modeling_strains = sorted(set(modeling_grouped) | set(always_train))
         if not modeling_strains:
             logger.warning(
                 f"Group '{group_name}': no modeling strains remain (all strains "
@@ -252,6 +275,89 @@ def split_strains_by_group(full_strain_list, group_map):
 
     if not splits:
         raise ValueError("No usable leave-one-group-out folds could be built.")
+    return splits
+
+
+def load_predefined_folds(folds_file, full_strain_list, strain_column='strain'):
+    """Build an explicit, possibly-overlapping split plan from a fold-definition CSV.
+
+    The caller supplies the exact fold membership (e.g. for leave-one-serotype-out
+    with symmetric hold-out of cross-reactive strains), so the package applies no
+    grouping/splitting logic of its own -- it runs precisely the folds given.
+
+    Expected long-format CSV with columns ``fold_label``, ``<strain_column>``,
+    ``role`` where role is 'validation' or 'modeling'. Folds may overlap (a strain
+    may be validation in one fold and modeling/validation in another). Within a
+    single fold a strain must not be both validation and modeling.
+
+    Strains not present in ``full_strain_list`` (no FASTA/phenotype) are dropped
+    from the fold with a warning. Folds are returned in first-seen order.
+
+    Returns an ordered list of ``(fold_label, modeling_strains, validation_strains)``.
+    """
+    logger.info(f"Reading predefined folds: {folds_file}")
+    df = pd.read_csv(folds_file)
+
+    required = {'fold_label', strain_column, 'role'}
+    if not required.issubset(df.columns):
+        raise ValueError(
+            f"Folds file must contain columns {sorted(required)}; "
+            f"found {list(df.columns)}."
+        )
+
+    df['role'] = df['role'].astype(str).str.strip().str.lower()
+    bad_roles = sorted(set(df['role']) - {'validation', 'modeling'})
+    if bad_roles:
+        raise ValueError(
+            f"Folds file 'role' must be 'validation' or 'modeling'; "
+            f"found unexpected value(s): {bad_roles}."
+        )
+
+    df['fold_label'] = df['fold_label'].astype(str)
+    df[strain_column] = df[strain_column].astype(str)
+    full_set = set(full_strain_list)
+
+    # Preserve first-seen fold order.
+    fold_order = list(dict.fromkeys(df['fold_label'].tolist()))
+
+    splits = []
+    for label in fold_order:
+        sub = df[df['fold_label'] == label]
+        validation = sub.loc[sub['role'] == 'validation', strain_column].tolist()
+        modeling = sub.loc[sub['role'] == 'modeling', strain_column].tolist()
+
+        # A strain must not be both validation and modeling within one fold.
+        overlap = set(validation) & set(modeling)
+        if overlap:
+            raise ValueError(
+                f"Fold '{label}': {len(overlap)} strain(s) listed as BOTH validation "
+                f"and modeling: {sorted(overlap)}. Each strain must have one role per fold."
+            )
+
+        # Drop strains we cannot actually use (no FASTA/phenotype).
+        val_usable = sorted(s for s in dict.fromkeys(validation) if s in full_set)
+        mod_usable = sorted(s for s in dict.fromkeys(modeling) if s in full_set)
+        dropped = sorted((set(validation) | set(modeling)) - full_set)
+        if dropped:
+            logger.warning(
+                f"Fold '{label}': {len(dropped)} strain(s) in the folds file are not "
+                f"usable (missing FASTA/phenotype) and were dropped: {dropped}"
+            )
+
+        if not val_usable or not mod_usable:
+            logger.warning(
+                f"Fold '{label}': {len(mod_usable)} modeling / {len(val_usable)} "
+                f"validation usable strain(s); skipping (a fold needs both)."
+            )
+            continue
+
+        splits.append((label, mod_usable, val_usable))
+        logger.info(
+            f"Fold '{label}': {len(mod_usable)} modeling, {len(val_usable)} validation strain(s)."
+        )
+
+    if not splits:
+        raise ValueError("No usable predefined folds could be built from the folds file.")
     return splits
 
 
@@ -973,6 +1079,8 @@ def run_nested_cv_workflow(
     cv_rounds=1,
     group_metadata=None,
     group_column=None,
+    group_ungrouped='drop',
+    folds_file=None,
     strain_column='strain',
     suffix='faa',
     min_seq_id=0.4,
@@ -1011,7 +1119,14 @@ def run_nested_cv_workflow(
     - cv_mode='group': leave-one-group-out. One fold per unique group value in
       ``group_metadata[group_column]``; the held-out group is the validation set
       and all other grouped strains are the modeling set. ``n_folds``/
-      ``cv_rounds`` are ignored. Strains missing a group label are excluded.
+      ``cv_rounds`` are ignored. Strains with no group label are handled by
+      ``group_ungrouped``: 'drop' (default) excludes them from every fold;
+      'train' adds them to every fold's modeling set (never held out).
+    - cv_mode='predefined': run the exact folds listed in ``folds_file`` (a
+      long-format CSV of fold_label/strain/role). Folds may overlap (a strain may
+      be held out in several folds) -- useful for leave-one-serotype-out with
+      multi-call/cross-reactive antigens. The package applies no grouping logic;
+      the caller controls all fold membership (including symmetric hold-out).
 
     A failing fold is logged and skipped; the run continues and aggregates
     whatever folds completed. Each iteration_N/ records its held-out fold/group
@@ -1027,11 +1142,17 @@ def run_nested_cv_workflow(
         input_phage_dir (str): Directory of phage FASTA files.
         interaction_matrix (str): Path to the interaction/phenotype matrix CSV.
         output_dir (str): Directory for all results (per-fold under iteration_N/).
-        cv_mode (str): 'kfold' (default) or 'group' (leave-one-group-out).
+        cv_mode (str): 'kfold' (default), 'group' (leave-one-group-out), or
+            'predefined' (explicit folds from folds_file; folds may overlap).
         n_folds (int): Number of folds per round, kfold mode (default: 10).
         cv_rounds (int): Number of repeated k-fold rounds, kfold mode (default: 1).
         group_metadata (str): Path to a strain->group CSV (required for cv_mode='group').
         group_column (str): Group/serotype column in group_metadata (required for cv_mode='group').
+        folds_file (str): Path to a long-format CSV (fold_label, <strain_column>, role)
+            of explicit folds (required for cv_mode='predefined').
+        group_ungrouped (str): How to handle strains with no group label in
+            cv_mode='group': 'drop' (default, exclude from CV) or 'train' (add to
+            every fold's modeling set; never held out).
         strain_column (str): Strain identifier column (in the matrix and group metadata; default: 'strain').
         suffix (str): FASTA file suffix for strain files (default: 'faa').
         min_seq_id (float): Minimum sequence identity for MMseqs2 (default: 0.4).
@@ -1047,8 +1168,10 @@ def run_nested_cv_workflow(
     Returns:
         int: Number of folds successfully aggregated.
     """
-    if cv_mode not in ('kfold', 'group'):
-        raise ValueError(f"cv_mode must be 'kfold' or 'group', got '{cv_mode}'.")
+    if cv_mode not in ('kfold', 'group', 'predefined'):
+        raise ValueError(
+            f"cv_mode must be 'kfold', 'group', or 'predefined', got '{cv_mode}'."
+        )
 
     logger.info("=== GenoPHI nested cross-validation ===")
     logger.info(f"Output directory: {output_dir}")
@@ -1071,16 +1194,35 @@ def run_nested_cv_workflow(
             raise ValueError(
                 "cv_mode='group' requires both group_metadata and group_column."
             )
-        group_map = _load_group_map(
+        group_map, ungrouped = _load_group_map(
             group_metadata, full_strain_list, strain_column, group_column
         )
-        raw_splits = split_strains_by_group(full_strain_list, group_map)
+        raw_splits = split_strains_by_group(
+            full_strain_list, group_map,
+            ungrouped=ungrouped, ungrouped_mode=group_ungrouped,
+        )
         split_plan = [
             (label, modeling, validation)
             for (label, modeling, validation) in raw_splits
         ]
+        if group_ungrouped == 'drop' and ungrouped:
+            logger.info(
+                f"{len(ungrouped)} ungrouped strain(s) dropped from CV "
+                f"(group_ungrouped='drop'). Use group_ungrouped='train' to keep "
+                f"them in every fold's training set."
+            )
         logger.info(
             f"Leave-one-group-out: {len(split_plan)} fold(s), one per group."
+        )
+    elif cv_mode == 'predefined':
+        if not folds_file:
+            raise ValueError("cv_mode='predefined' requires folds_file.")
+        split_plan = load_predefined_folds(
+            folds_file, full_strain_list, strain_column=strain_column
+        )
+        logger.info(
+            f"Predefined folds: {len(split_plan)} fold(s) from {folds_file} "
+            f"(folds may overlap)."
         )
     else:
         if len(full_strain_list) < n_folds:

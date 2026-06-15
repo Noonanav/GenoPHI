@@ -866,9 +866,10 @@ def create_parser():
     p.add_argument('--output_dir', '-o', required=True,
                    help='Output directory (per-fold results under iteration_N/)')
     # Cross-validation parameters
-    p.add_argument('--cv_mode', default='kfold', choices=['kfold', 'group'],
-                   help="Split mode: 'kfold' (default) or 'group' "
-                        "(leave-one-group-out, e.g. leave-one-serotype-out)")
+    p.add_argument('--cv_mode', default='kfold', choices=['kfold', 'group', 'predefined'],
+                   help="Split mode: 'kfold' (default), 'group' "
+                        "(leave-one-group-out, e.g. leave-one-serotype-out), or "
+                        "'predefined' (explicit folds from --folds_file; may overlap)")
     p.add_argument('--n_folds', type=int, default=10,
                    help='Number of folds per round, kfold mode (default: 10)')
     p.add_argument('--cv_rounds', type=int, default=1,
@@ -877,6 +878,13 @@ def create_parser():
                    help="Path to a strain->group CSV (required for --cv_mode group)")
     p.add_argument('--group_column',
                    help="Group/serotype column name in --group_metadata (required for --cv_mode group)")
+    p.add_argument('--group_ungrouped', default='drop', choices=['drop', 'train'],
+                   help="Strains with no group label in --cv_mode group: 'drop' (default, "
+                        "exclude from CV) or 'train' (add to every fold's training set, "
+                        "never held out)")
+    p.add_argument('--folds_file',
+                   help="Path to a long-format CSV (fold_label, <strain_column>, role) of "
+                        "explicit folds (required for --cv_mode predefined). Folds may overlap.")
     p.add_argument('--strain_column', default='strain',
                    help='Strain identifier column in the matrix and group metadata (default: strain)')
     p.add_argument('--suffix', default='faa',
@@ -1497,6 +1505,10 @@ def run_nested_cv(args):
                 "--cv_mode group requires both --group_metadata and --group_column."
             )
         validate_file(args.group_metadata, "Group metadata")
+    elif args.cv_mode == 'predefined':
+        if not args.folds_file:
+            raise ValueError("--cv_mode predefined requires --folds_file.")
+        validate_file(args.folds_file, "Folds file")
 
     run_nested_cv_workflow(
         input_strain_dir=args.input_strain_dir,
@@ -1508,6 +1520,8 @@ def run_nested_cv(args):
         cv_rounds=args.cv_rounds,
         group_metadata=args.group_metadata,
         group_column=args.group_column,
+        group_ungrouped=args.group_ungrouped,
+        folds_file=args.folds_file,
         strain_column=args.strain_column,
         suffix=args.suffix,
         min_seq_id=args.min_seq_id,

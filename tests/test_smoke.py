@@ -179,15 +179,97 @@ def test_group_splits_leave_one_out(tmp_path):
     all_val = [s for _, _, v in splits for s in v]
     assert sorted(all_val) == sorted(full)
 
-    # _load_group_map excludes strains with missing/NA group labels.
+    # _load_group_map returns (group_map, ungrouped); ungrouped = strains with
+    # missing/NA group labels (s2 NA); s7 is not in `full` so it's ignored.
     meta = tmp_path / "groups.csv"
     pd.DataFrame({
         'strain': ['s1', 's2', 's3', 's7'],   # s7 not in full -> ignored
-        'serotype': ['O157', None, 'O26', 'O55'],  # s2 has NA -> excluded
+        'serotype': ['O157', None, 'O26', 'O55'],  # s2 has NA -> ungrouped
     }).to_csv(meta, index=False)
 
-    loaded = _load_group_map(str(meta), full, strain_column='strain', group_column='serotype')
-    assert loaded == {'s1': 'O157', 's3': 'O26'}  # s2 (NA) and s7 (not usable) dropped
+    small_full = ['s1', 's2', 's3']
+    loaded, ungrouped = _load_group_map(
+        str(meta), small_full, strain_column='strain', group_column='serotype'
+    )
+    assert loaded == {'s1': 'O157', 's3': 'O26'}  # s2 (NA), s7 (not usable) dropped
+    assert ungrouped == ['s2']  # s2 has no valid group
+
+
+@pytest.mark.smoke
+def test_group_splits_ungrouped_modes():
+    """Test ungrouped_mode: 'drop' excludes ungrouped strains; 'train' adds them
+    to every fold's modeling set (never held out)."""
+    from genophi.workflows.nested_cv_workflow import split_strains_by_group
+
+    full = ['g1', 'g2', 'g3', 'g4', 'u1', 'u2']  # u1, u2 are ungrouped
+    group_map = {'g1': 'A', 'g2': 'A', 'g3': 'B', 'g4': 'B'}
+    ungrouped = ['u1', 'u2']
+
+    # drop (default): ungrouped never appear anywhere.
+    drop_splits = split_strains_by_group(full, group_map, ungrouped, 'drop')
+    for _, modeling, validation in drop_splits:
+        assert 'u1' not in modeling and 'u1' not in validation
+        assert 'u2' not in modeling and 'u2' not in validation
+    # Only grouped strains are ever validated.
+    drop_val = {s for _, _, v in drop_splits for s in v}
+    assert drop_val == {'g1', 'g2', 'g3', 'g4'}
+
+    # train: ungrouped in EVERY fold's modeling set, NEVER in validation.
+    train_splits = split_strains_by_group(full, group_map, ungrouped, 'train')
+    for _, modeling, validation in train_splits:
+        assert {'u1', 'u2'}.issubset(set(modeling))   # always training
+        assert 'u1' not in validation and 'u2' not in validation  # never held out
+    train_val = {s for _, _, v in train_splits for s in v}
+    assert train_val == {'g1', 'g2', 'g3', 'g4'}  # ungrouped never validated
+
+
+@pytest.mark.smoke
+def test_predefined_folds_overlap_and_roles(tmp_path):
+    """Test predefined folds: overlapping folds, explicit roles, unusable-strain
+    dropping, and the within-fold validation/modeling disjointness guard."""
+    from genophi.workflows.nested_cv_workflow import load_predefined_folds
+    import pandas as pd
+
+    full = ['s1', 's2', 's3', 's4', 's5']
+
+    # s2 is an O2/O50 strain: validation in BOTH the O2 and O50 folds (overlap),
+    # and correctly removed from each fold's modeling set (symmetric hold-out,
+    # done by the caller). s9 is not usable -> dropped.
+    folds = tmp_path / "folds.csv"
+    pd.DataFrame({
+        'fold_label': ['O2', 'O2', 'O2', 'O50', 'O50', 'O50', 'O50'],
+        'strain':     ['s1', 's2', 's3', 's2',  's4',  's5',  's9'],
+        'role':       ['validation', 'validation', 'modeling',
+                       'validation', 'modeling', 'modeling', 'modeling'],
+    }).to_csv(folds, index=False)
+
+    splits = load_predefined_folds(str(folds), full, strain_column='strain')
+
+    by_label = {label: (m, v) for label, m, v in splits}
+    assert set(by_label) == {'O2', 'O50'}
+
+    # Fold order preserved (first-seen).
+    assert [label for label, _, _ in splits] == ['O2', 'O50']
+
+    # O2: s1,s2 held out; s3 trains. s2 is NOT in O2's modeling set.
+    o2_mod, o2_val = by_label['O2']
+    assert set(o2_val) == {'s1', 's2'}
+    assert set(o2_mod) == {'s3'}
+
+    # O50: s2 held out again (overlap across folds is allowed); s9 dropped (unusable).
+    o50_mod, o50_val = by_label['O50']
+    assert set(o50_val) == {'s2'}
+    assert set(o50_mod) == {'s4', 's5'}  # s9 not in full -> dropped
+
+    # Guard: a strain listed as BOTH validation and modeling in ONE fold errors.
+    bad = tmp_path / "bad_folds.csv"
+    pd.DataFrame({
+        'fold_label': ['X', 'X'],
+        'strain':     ['s1', 's1'],
+        'role':       ['validation', 'modeling'],
+    }).to_csv(bad, index=False)
+    with pytest.raises(ValueError, match="BOTH validation and modeling"):
+        load_predefined_folds(str(bad), full, strain_column='strain')
 
 
 @pytest.mark.smoke
