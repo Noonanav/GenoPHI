@@ -420,33 +420,52 @@ def select_best_hits(assigned_tsv, best_hits_tsv, clusters_tsv):
     """
     logging.info("Selecting best hits...")
 
-    # Read the assigned clusters file and ensure the correct column names
-    dtype_dict = {
-        'Query': 'string', 'Target': 'string', 'Score': 'float32',
-        'SeqIdentity': 'float32', 'E-value': 'float32',
-        'qStartPos': 'int32', 'qEndPos': 'int32', 'qLen': 'int32',
-        'tStartPos': 'int32', 'tEndPos': 'int32', 'tLen': 'int32'
-    }
+    # The assigned-clusters TSV can be enormous (hundreds of millions to billions
+    # of rows for permissive thresholds / many divergent genomes), so it CANNOT be
+    # loaded into a DataFrame at once -- doing so OOM-kills the job. We only need
+    # the single best hit per Query (highest SeqIdentity, tie-broken by lowest
+    # E-value), so stream the file in chunks and keep a running best-per-query.
+    # Only the columns needed for ranking + the Target are read.
+    full_names = [
+        'Query', 'Target', 'Score', 'SeqIdentity', 'E-value',
+        'qStartPos', 'qEndPos', 'qLen', 'tStartPos', 'tEndPos', 'tLen',
+    ]
+    use_cols = ['Query', 'Target', 'SeqIdentity', 'E-value']
+    use_dtypes = {'Query': 'string', 'Target': 'string',
+                  'SeqIdentity': 'float32', 'E-value': 'float32'}
 
-    assigned_df = pd.read_csv(assigned_tsv, sep='\t', header=None, 
-                            names=list(dtype_dict.keys()), dtype=dtype_dict)
+    best_per_query = None  # accumulates one best row per Query
+    any_rows = False
+    chunksize = 5_000_000  # rows per chunk; ~ a few hundred MB each
+    for chunk in pd.read_csv(
+        assigned_tsv, sep='\t', header=None, names=full_names,
+        usecols=use_cols, dtype=use_dtypes, chunksize=chunksize,
+    ):
+        any_rows = True
+        # Reduce this chunk to its own best-per-query first (shrinks the merge).
+        chunk = chunk.sort_values(
+            by=['Query', 'SeqIdentity', 'E-value'], ascending=[True, False, True]
+        ).drop_duplicates(subset=['Query'], keep='first')
+        if best_per_query is None:
+            best_per_query = chunk
+        else:
+            # Combine the running best with this chunk's best, re-reduce.
+            best_per_query = pd.concat([best_per_query, chunk], ignore_index=True)
+            best_per_query = best_per_query.sort_values(
+                by=['Query', 'SeqIdentity', 'E-value'], ascending=[True, False, True]
+            ).drop_duplicates(subset=['Query'], keep='first')
 
-    # Confirm assigned_df is not empty. If NO sequence matched any cluster
-    # (e.g. a divergent genome under the coverage/identity thresholds), write an
-    # EMPTY best_hits file rather than bailing -- downstream map_features then
-    # produces an all-zero feature row per genome instead of crashing.
-    if assigned_df.empty:
+    # If NO sequence matched any cluster (empty assigned file), write an EMPTY
+    # best_hits file rather than bailing -- downstream map_features then produces
+    # an all-zero feature row per genome instead of crashing.
+    if not any_rows or best_per_query is None or best_per_query.empty:
         logging.warning(f"No data in assigned clusters file: {assigned_tsv} -- "
                         f"writing empty best_hits (genomes will get all-zero features).")
         pd.DataFrame(columns=['Query', 'Cluster']).to_csv(
             best_hits_tsv, sep='\t', index=False, header=False)
         return
 
-    # Sort by Query, then by SeqIdentity and E-value to find the best hits
-    assigned_df = assigned_df.sort_values(by=['Query', 'SeqIdentity', 'E-value'], ascending=[True, False, True])
-
-    # Drop duplicates to keep the best hit for each Query
-    best_hits_df = assigned_df.drop_duplicates(subset=['Query'], keep='first')
+    best_hits_df = best_per_query
 
     # Read the clusters TSV and ensure the columns are correctly named
     clusters_df = pd.read_csv(clusters_tsv, sep='\t', header=None, names=['Cluster', 'Contig'])
