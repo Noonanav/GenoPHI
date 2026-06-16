@@ -34,6 +34,7 @@ import pandas as pd
 
 from genophi.workflows.protein_family_workflow import run_protein_family_workflow
 from genophi.workflows.assign_predict_workflow import assign_predict_workflow
+from genophi.workflows.assign_features_workflow import run_assign_features_workflow
 from genophi.workflows.select_and_model_workflow import run_modeling_workflow_from_feature_table
 from genophi.mmseqs2_clustering import (
     run_clustering_workflow,
@@ -116,6 +117,30 @@ def _write_modeling_matrix(interaction_matrix, modeling_strains, output_path,
     filtered.to_csv(output_path, index=False)
     n_phages = filtered[phage_column].nunique() if phage_column in filtered.columns else 0
     return output_path, len(filtered), n_phages, dropped_phages
+
+
+def _write_quadrant_matrix(interaction_matrix, train_strains, train_phages, output_path,
+                           strain_column='strain', phage_column='phage'):
+    """Write an interaction matrix filtered to the training quadrant (both axes).
+
+    Keeps only rows where strain is in ``train_strains`` AND phage is in
+    ``train_phages``. Used for corner-prediction CV (leave-one-genus-out where
+    BOTH the held-out genus's strains and its phages are excluded from training).
+
+    Returns (output_path, n_rows, n_strains, n_phages).
+    """
+    df = pd.read_csv(interaction_matrix)
+    for col in (strain_column, phage_column):
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' not found in interaction matrix ({list(df.columns)}).")
+    ts = {str(s) for s in train_strains}
+    tp = {str(p) for p in train_phages}
+    df[strain_column] = df[strain_column].astype(str)
+    df[phage_column] = df[phage_column].astype(str)
+    filtered = df[df[strain_column].isin(ts) & df[phage_column].isin(tp)].copy()
+    filtered.to_csv(output_path, index=False)
+    return (output_path, len(filtered),
+            filtered[strain_column].nunique(), filtered[phage_column].nunique())
 
 
 def split_strains_kfold(full_strain_list, iteration, n_folds=10):
@@ -785,6 +810,242 @@ def run_fold_from_shared(
     median_predictions_file = os.path.join(
         validation_output_dir, 'predict_results', 'strain_median_predictions.csv',
     )
+    return median_predictions_file
+
+
+def run_corner_fold_from_shared(
+    fold_label,
+    training_strains_file,
+    training_phages_file,
+    validation_strains_file,
+    validation_phages_file,
+    shared_dir,
+    interaction_matrix,
+    input_strain_dir,
+    input_phage_dir,
+    output_dir,
+    threads=4,
+    num_runs_fs=25,
+    num_runs_modeling=50,
+    min_seq_id=0.4,
+    coverage=0.8,
+    sensitivity=7.5,
+    use_dynamic_weights=False,
+    weights_method='log10',
+    use_clustering=False,
+    cluster_method='hdbscan',
+    n_clusters=20,
+    min_cluster_size=2,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
+    max_ram=40,
+    use_feature_clustering=False,
+    feature_cluster_method='hierarchical',
+    feature_n_clusters=20,
+    feature_min_cluster_presence=2,
+    duplicate_all=True,
+    strain_column='strain',
+    phage_column='phage',
+):
+    """Run ONE leave-one-genus-out CORNER fold against shared clustering artifacts.
+
+    The four ``*_file`` arguments are CSVs each listing one genome ID per row (a
+    header is allowed; the first column is used). The caller controls the fold
+    membership; the package applies no grouping logic and is agnostic to any
+    fold-directory naming convention. BOTH the held-out genus's strains AND its
+    phages are excluded from training; the model is trained on the training
+    quadrant (training_strains x training_phages) and predicts the held-out
+    CORNER (validation_strains x validation_phages -- pairs where both are unseen).
+
+    Steps:
+      B. Build training-only features for BOTH axes from the shared P/A matrices
+         (filter to training strains / training phages, then hash-collapse). This
+         is the leak-prevention: held-out strains AND phages are absent from the
+         feature collapse.
+      C. Merge into the training-quadrant interaction matrix.
+      D. Feature selection + modeling on that quadrant.
+      E. Corner prediction (composed two-step):
+         E1. Assign validation PHAGES against the shared phage DB, mapped through
+             the fold's phage selected_features.csv -> a validation-phage feature
+             table in the model's phage feature vocabulary.
+         E2. Assign validation STRAINS against the shared strain DB and predict
+             them paired with that validation-phage feature table -> predictions
+             for exactly validation_strains x validation_phages.
+
+    Returns the path to the corner median-predictions CSV.
+    """
+    def _read_ids(path):
+        s = pd.read_csv(path)
+        return [str(x) for x in s.iloc[:, 0].tolist()]
+
+    train_strains = _read_ids(training_strains_file)
+    train_phages = _read_ids(training_phages_file)
+    val_strains = _read_ids(validation_strains_file)
+    val_phages = _read_ids(validation_phages_file)
+
+    median_predictions_file = os.path.join(
+        output_dir, 'model_validation', 'predict_results', 'strain_median_predictions.csv',
+    )
+    if os.path.exists(median_predictions_file):
+        logger.info(f"Corner fold '{fold_label}' already complete, skipping.")
+        return median_predictions_file
+
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, 'fold_group.txt'), 'w') as fh:
+        fh.write(f"{fold_label}\n")
+
+    logger.info(
+        f"Corner fold '{fold_label}': train {len(train_strains)} strains x "
+        f"{len(train_phages)} phages -> predict corner {len(val_strains)} x "
+        f"{len(val_phages)}."
+    )
+
+    shared = {
+        gt: {
+            'presence_absence': os.path.join(shared_dir, gt, 'presence_absence_matrix.csv'),
+            'clusters_tsv': os.path.join(shared_dir, gt, 'clusters.tsv'),
+            'mmseqs_db': os.path.join(shared_dir, 'tmp', gt, 'mmseqs_db'),
+        }
+        for gt in ('strain', 'phage')
+    }
+
+    # Write the per-axis training lists genophi's select-filtering expects.
+    train_strains_path = os.path.join(output_dir, 'training_strains.csv')
+    train_phages_path = os.path.join(output_dir, 'training_phages.csv')
+    val_strains_path = os.path.join(output_dir, 'validation_strains.csv')
+    val_phages_path = os.path.join(output_dir, 'validation_phages.csv')
+    pd.DataFrame({'strain': train_strains}).to_csv(train_strains_path, index=False)
+    pd.DataFrame({'phage': train_phages}).to_csv(train_phages_path, index=False)
+    pd.DataFrame({'strain': val_strains}).to_csv(val_strains_path, index=False)
+    pd.DataFrame({'phage': val_phages}).to_csv(val_phages_path, index=False)
+
+    # Training-quadrant interaction matrix (both axes filtered).
+    train_matrix_path = os.path.join(output_dir, 'training_quadrant_matrix.csv')
+    _, n_rows, n_s, n_p = _write_quadrant_matrix(
+        interaction_matrix, train_strains, train_phages, train_matrix_path,
+        strain_column=strain_column, phage_column=phage_column,
+    )
+    logger.info(
+        f"Corner fold '{fold_label}': training quadrant {n_rows} rows "
+        f"({n_s} strains x {n_p} phages)."
+    )
+
+    # --- B. Training-only features for both axes (leak-free collapse) ---
+    strain_features_dir = os.path.join(output_dir, 'strain', 'features')
+    run_feature_assignment(
+        shared['strain']['presence_absence'], strain_features_dir,
+        source='strain', select=train_strains_path, select_column='strain',
+        max_ram=max_ram,
+    )
+    phage_features_dir = os.path.join(output_dir, 'phage', 'features')
+    run_feature_assignment(
+        shared['phage']['presence_absence'], phage_features_dir,
+        source='phage', select=train_phages_path, select_column='phage',
+        max_ram=max_ram,
+    )
+
+    # --- C. Merge into the training-quadrant matrix ---
+    merged_dir = os.path.join(output_dir, 'merged')
+    os.makedirs(merged_dir, exist_ok=True)
+    merged_table = merge_feature_tables(
+        strain_features=os.path.join(strain_features_dir, 'feature_table.csv'),
+        phenotype_matrix=train_matrix_path,
+        output_dir=merged_dir,
+        sample_column='strain',
+        phage_features=os.path.join(phage_features_dir, 'feature_table.csv'),
+        remove_suffix=False,
+        use_feature_clustering=use_feature_clustering,
+        feature_cluster_method=feature_cluster_method,
+        feature_n_clusters=feature_n_clusters,
+        feature_min_cluster_presence=feature_min_cluster_presence,
+        phenotype_column='interaction',
+    )
+
+    # --- D. Feature selection + modeling ---
+    run_modeling_workflow_from_feature_table(
+        full_feature_table=merged_table,
+        output_dir=output_dir,
+        threads=threads,
+        filter_type='strain',
+        num_runs_fs=num_runs_fs,
+        num_runs_modeling=num_runs_modeling,
+        sample_column='strain',
+        phage_column='phage',
+        phenotype_column='interaction',
+        task_type='classification',
+        max_ram=max_ram,
+        use_dynamic_weights=use_dynamic_weights,
+        weights_method=weights_method,
+        use_clustering=use_clustering,
+        cluster_method=cluster_method,
+        n_clusters=n_clusters,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
+        check_feature_presence=check_feature_presence,
+        filter_by_cluster_presence=filter_by_cluster_presence,
+        min_cluster_presence=min_cluster_presence,
+    )
+
+    best_cutoff = _select_best_cutoff(output_dir)
+    model_dir = os.path.join(output_dir, 'modeling_results', f'{best_cutoff}')
+    select_feature_table = os.path.join(
+        output_dir, 'feature_selection', 'filtered_feature_tables',
+        f'select_feature_table_{best_cutoff}.csv',
+    )
+
+    # --- E1. Assign validation PHAGES -> validation-phage feature table ---
+    # Mapped through the fold's phage selected_features.csv so held-out phages
+    # are described in the MODEL's phage feature vocabulary.
+    valphage_dir = os.path.join(output_dir, 'validation_phage_features')
+    valphage_tmp = os.path.join(valphage_dir, 'tmp')
+    os.makedirs(valphage_dir, exist_ok=True)
+    logger.info(f"Corner fold '{fold_label}': assigning validation phages to model phage features...")
+    run_assign_features_workflow(
+        input_dir=input_phage_dir,
+        mmseqs_db=shared['phage']['mmseqs_db'],
+        tmp_dir=valphage_tmp,
+        output_dir=valphage_dir,
+        feature_map=os.path.join(phage_features_dir, 'selected_features.csv'),
+        clusters_tsv=shared['phage']['clusters_tsv'],
+        genome_type='phage',
+        genome_list=val_phages_path,
+        sensitivity=sensitivity,
+        coverage=coverage,
+        min_seq_id=min_seq_id,
+        threads=threads,
+        duplicate_all=duplicate_all,
+    )
+    val_phage_feature_table = os.path.join(valphage_dir, 'phage_combined_feature_table.csv')
+
+    # --- E2. Assign validation STRAINS, predict paired with validation phages ---
+    validation_output_dir = os.path.join(output_dir, 'model_validation')
+    os.makedirs(validation_output_dir, exist_ok=True)
+    validation_tmp_dir = os.path.join(validation_output_dir, 'tmp')
+    logger.info(f"Corner fold '{fold_label}': predicting held-out corner (val strains x val phages)...")
+    assign_predict_workflow(
+        input_dir=input_strain_dir,
+        genome_list=val_strains_path,
+        mmseqs_db=shared['strain']['mmseqs_db'],
+        clusters_tsv=shared['strain']['clusters_tsv'],
+        feature_map=os.path.join(strain_features_dir, 'selected_features.csv'),
+        tmp_dir=validation_tmp_dir,
+        suffix='faa',
+        model_dir=model_dir,
+        feature_table=select_feature_table,
+        phage_feature_table_path=val_phage_feature_table,
+        output_dir=validation_output_dir,
+        threads=threads,
+        genome_type='strain',
+        sensitivity=sensitivity,
+        coverage=coverage,
+        min_seq_id=min_seq_id,
+        duplicate_all=duplicate_all,
+    )
+
     return median_predictions_file
 
 

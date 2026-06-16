@@ -358,6 +358,31 @@ def test_shared_clustering_functions_importable():
 
 
 @pytest.mark.smoke
+def test_quadrant_matrix_filtering(tmp_path):
+    """Test corner-fold quadrant filter: keep only train_strains x train_phages."""
+    from genophi.workflows.nested_cv_workflow import _write_quadrant_matrix
+    import pandas as pd
+
+    matrix = tmp_path / "interactions.csv"
+    pd.DataFrame({
+        'strain': ['s1', 's2', 's3', 's1', 's3', 's2'],
+        'phage':  ['pA', 'pA', 'pA', 'pB', 'pZ', 'pZ'],
+        'interaction': [1, 0, 1, 1, 0, 1],
+    }).to_csv(matrix, index=False)
+
+    out = tmp_path / "quadrant.csv"
+    # train = {s1,s2} x {pA,pB}: s3 (not a train strain) and pZ (not a train
+    # phage) must both be excluded -- this is the leak-prevention for both axes.
+    path, n_rows, n_strains, n_phages = _write_quadrant_matrix(
+        str(matrix), ['s1', 's2'], ['pA', 'pB'], str(out),
+    )
+
+    r = pd.read_csv(path)
+    assert set(zip(r['strain'], r['phage'])) == {('s1', 'pA'), ('s2', 'pA'), ('s1', 'pB')}
+    assert n_rows == 3 and n_strains == 2 and n_phages == 2
+
+
+@pytest.mark.smoke
 def test_global_metrics_and_curves(tmp_path):
     """Test pooled outer-test metrics + PR/ROC curve generation from synthetic data."""
     from genophi.workflows.nested_cv_workflow import _compute_global_metrics
