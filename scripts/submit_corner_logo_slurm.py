@@ -59,6 +59,25 @@ time_limit = "24:00:00"
 cluster_time_limit = "24:00:00"
 # =========================================================================
 
+# Subset genome lists (written once from the interaction matrix). Restricting
+# clustering to exactly the experiment's genomes avoids contaminating the
+# cluster DB with (and wasting compute on) genomes outside the subset.
+subset_strains_file = os.path.join(base_output_dir, "subset_strains.csv")
+subset_phages_file = os.path.join(base_output_dir, "subset_phages.csv")
+
+
+def write_subset_lists():
+    """Write the strain/phage ID lists used in the experiment, from the matrix."""
+    import pandas as pd
+    m = pd.read_csv(interaction_matrix)
+    pd.DataFrame({strain_column: sorted(m[strain_column].astype(str).unique())}).to_csv(
+        subset_strains_file, index=False)
+    pd.DataFrame({phage_column: sorted(m[phage_column].astype(str).unique())}).to_csv(
+        subset_phages_file, index=False)
+    print(f"subset: {sum(1 for _ in open(subset_strains_file)) - 1} strains, "
+          f"{sum(1 for _ in open(subset_phages_file)) - 1} phages "
+          f"-> clustering restricted to these")
+
 
 def combo_tag(msi, cov):
     return f"msi{msi}_c{cov}".replace('.', '')
@@ -126,7 +145,8 @@ def write_cluster_job(msi, cov, dirs):
             f"input_phage_dir='{input_phage_dir}', "
             f"output_dir='{dirs['shared']}', "
             f"min_seq_id={msi}, coverage={cov}, "
-            f"threads={threads}, strain_column='{strain_column}')\"\n"
+            f"strain_list='{subset_strains_file}', phage_list='{subset_phages_file}', "
+            f"threads={threads}, strain_column='{strain_column}', phage_column='{phage_column}')\"\n"
         )
     return w
 
@@ -235,6 +255,7 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(base_output_dir, exist_ok=True)
+    write_subset_lists()  # restrict clustering to the representative subset's genomes
     fold_names = list_fold_dirs()
     if not fold_names:
         raise SystemExit(f"No fold_* dirs under {folds_root}")

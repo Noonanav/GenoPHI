@@ -599,18 +599,27 @@ def run_shared_clustering(
     threads=4,
     strain_column='strain',
     phage_column='phage',
+    strain_list='none',
+    phage_list='none',
     force_restart=False,
 ):
-    """Cluster ALL strains and phages once; produce shared artifacts for every fold.
+    """Cluster strains and phages once; produce shared artifacts for every fold.
 
     MMseqs2 clustering is sequence-only and label-independent, so it can be run
-    a single time over the full dataset and reused across folds. This writes the
-    raw presence/absence matrices, cluster TSVs, and MMseqs2 databases that each
-    fold then filters (per-fold) into training-only feature tables.
+    a single time and reused across folds. This writes the raw presence/absence
+    matrices, cluster TSVs, and MMseqs2 databases that each fold then filters
+    (per-fold) into training-only feature tables.
 
-    Runs with bootstrapping=True so duplicate protein IDs are resolved across ALL
-    genomes (so held-out strains carry the same 'strain::protein' namespace the
-    cluster DB uses, which validation feature-assignment depends on).
+    ``strain_list`` / ``phage_list`` are optional paths to CSVs of genome IDs
+    (column ``strain_column`` / ``phage_column``); when provided, clustering is
+    restricted to exactly those genomes instead of every FASTA in the input dir.
+    Pass the union of all genomes used across the experiment's folds (e.g. the
+    representative subset) so the cluster DB is not contaminated by, and does not
+    waste compute on, genomes outside the experiment.
+
+    Runs with bootstrapping=True so duplicate protein IDs are resolved across all
+    clustered genomes (so held-out genomes carry the same 'genome::protein'
+    namespace the cluster DB uses, which validation feature-assignment depends on).
 
     Returns a dict of shared artifact paths::
 
@@ -622,18 +631,19 @@ def run_shared_clustering(
     os.makedirs(output_dir, exist_ok=True)
     artifacts = {}
 
-    for genome_type, input_dir, column in (
-        ('strain', input_strain_dir, strain_column),
-        ('phage', input_phage_dir, phage_column),
+    for genome_type, input_dir, column, genome_list in (
+        ('strain', input_strain_dir, strain_column, strain_list),
+        ('phage', input_phage_dir, phage_column, phage_list),
     ):
-        logger.info(f"Shared clustering: {genome_type}s (once, over all genomes)...")
+        scope = "all genomes" if genome_list == 'none' else f"subset from {genome_list}"
+        logger.info(f"Shared clustering: {genome_type}s ({scope})...")
         type_output_dir = os.path.join(output_dir, genome_type)
         type_tmp_dir = os.path.join(output_dir, 'tmp', genome_type)
 
         run_clustering_workflow(
             input_dir, type_output_dir, type_tmp_dir,
             min_seq_id, coverage, sensitivity, suffix, threads,
-            'none', column, False, bootstrapping=True, clear_tmp=False,
+            genome_list, column, False, bootstrapping=True, clear_tmp=False,
             force_restart=force_restart,
         )
 
