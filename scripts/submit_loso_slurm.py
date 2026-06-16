@@ -34,6 +34,12 @@ base_output_dir = "/global/scratch/users/anoonan/BRaVE/LOSO/loso_O_results"
 num_runs_fs = 25
 num_runs_modeling = 50
 strain_column = "strain"
+# Class weights + feature filtering (explicit; not the function defaults)
+use_dynamic_weights = True
+weights_method = "inverse_frequency"
+use_clustering = True
+cluster_method = "hierarchical"
+max_ram = 100
 
 # SLURM (matches the lab template)
 account = "pc_crispriart"
@@ -108,6 +114,11 @@ def write_single_fold_job(label, dep):
             f"fold_output_dir='{folds_out_dir}/' + sys.argv[1], "
             f"strain_column='{strain_column}', "
             f"num_runs_fs={num_runs_fs}, num_runs_modeling={num_runs_modeling}, "
+            f"use_dynamic_weights={use_dynamic_weights}, "
+            f"weights_method='{weights_method}', "
+            f"use_clustering={use_clustering}, "
+            f"cluster_method='{cluster_method}', "
+            f"max_ram={max_ram}, "
             f"threads={threads})\" "
             f"\"{label}\"\n"
         )
@@ -133,6 +144,11 @@ def write_fold_array_job(labels_file, n_folds, dep):
             f"fold_output_dir='{folds_out_dir}/' + sys.argv[1], "
             f"strain_column='{strain_column}', "
             f"num_runs_fs={num_runs_fs}, num_runs_modeling={num_runs_modeling}, "
+            f"use_dynamic_weights={use_dynamic_weights}, "
+            f"weights_method='{weights_method}', "
+            f"use_clustering={use_clustering}, "
+            f"cluster_method='{cluster_method}', "
+            f"max_ram={max_ram}, "
             f"threads={threads})\" \"$LABEL\"\n"
         )
     return w
