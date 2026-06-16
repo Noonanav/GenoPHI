@@ -1059,6 +1059,296 @@ def run_corner_fold_from_shared(
     return median_predictions_file
 
 
+# ----------------------------------------------------------------------------
+# Pure k-mer corner fold (no MMseqs / no shared clustering).
+# K-mer features are generated directly from sequences; held-out genomes are
+# assigned by substring matching against the model's predictive k-mers. Mirrors
+# the lab's standalone k-mer bootstrap script, adapted to the corner (both-axis
+# holdout) design.
+# ----------------------------------------------------------------------------
+
+def _write_genome_fasta(genome_dir, genome_ids, output_path, suffix='faa'):
+    """Concatenate per-genome FASTA files for the given IDs into one FASTA."""
+    from Bio import SeqIO
+    n = 0
+    with open(output_path, 'w') as out:
+        for gid in genome_ids:
+            gpath = os.path.join(genome_dir, f"{gid}.{suffix}")
+            if os.path.exists(gpath):
+                for rec in SeqIO.parse(gpath, 'fasta'):
+                    SeqIO.write(rec, out, 'fasta')
+                    n += 1
+    return output_path, n
+
+
+def _write_protein_mapping(genome_dir, genome_ids, output_path, id_col, suffix='faa'):
+    """Write a protein_ID -> genome mapping CSV for the given genome IDs."""
+    from Bio import SeqIO
+    rows = []
+    for gid in genome_ids:
+        gpath = os.path.join(genome_dir, f"{gid}.{suffix}")
+        if os.path.exists(gpath):
+            for rec in SeqIO.parse(gpath, 'fasta'):
+                rows.append({'protein_ID': rec.id, id_col: gid})
+    pd.DataFrame(rows, columns=['protein_ID', id_col]).to_csv(output_path, index=False)
+    return output_path
+
+
+def _assign_kmer_features(genome_dir, genome_ids, feature_map_file,
+                          predictive_feature_table, id_col, source_prefix,
+                          suffix='faa'):
+    """Assign predictive k-mer features to genomes by substring matching.
+
+    For each genome and each predictive feature (the feature's k-mers from
+    feature_map), the feature is present (1) if ANY of its k-mers occurs as a
+    substring in ANY of the genome's sequences. Returns a feature table
+    DataFrame indexed by genome with one column per predictive feature.
+    """
+    from Bio import SeqIO
+
+    feature_map = pd.read_csv(feature_map_file)
+    pred = pd.read_csv(predictive_feature_table)
+    # Predictive features for this source axis (sc_ for strain, pc_ for phage).
+    pred_features = [c for c in pred.columns if c.startswith(f"{source_prefix}c_")]
+    fm = feature_map[feature_map['Feature'].isin(pred_features)]
+    feature_to_kmers = fm.groupby('Feature')['Cluster_Label'].apply(list).to_dict()
+
+    rows = {}
+    for gid in genome_ids:
+        gpath = os.path.join(genome_dir, f"{gid}.{suffix}")
+        seqs = []
+        if os.path.exists(gpath):
+            seqs = [str(rec.seq) for rec in SeqIO.parse(gpath, 'fasta')]
+        presence = {}
+        for feat, kmers in feature_to_kmers.items():
+            presence[feat] = 1 if any(any(km in s for s in seqs) for km in kmers) else 0
+        rows[gid] = presence
+
+    df = pd.DataFrame.from_dict(rows, orient='index')
+    df.index.name = id_col
+    for feat in pred_features:               # ensure all predictive features present
+        if feat not in df.columns:
+            df[feat] = 0
+    df = df.reset_index()[[id_col] + pred_features]
+    return df
+
+
+def run_corner_kmer_fold(
+    fold_label,
+    training_strains_file,
+    training_phages_file,
+    validation_strains_file,
+    validation_phages_file,
+    interaction_matrix,
+    input_strain_dir,
+    input_phage_dir,
+    output_dir,
+    k=4,
+    k_range=False,
+    one_gene=False,
+    threads=4,
+    num_runs_fs=25,
+    num_runs_modeling=50,
+    num_features=100,
+    max_ram=40,
+    use_dynamic_weights=False,
+    weights_method='log10',
+    use_clustering=False,
+    cluster_method='hdbscan',
+    n_clusters=20,
+    min_cluster_size=2,
+    min_samples=None,
+    cluster_selection_epsilon=0.0,
+    check_feature_presence=False,
+    filter_by_cluster_presence=False,
+    min_cluster_presence=2,
+    use_feature_clustering=False,
+    feature_cluster_method='hierarchical',
+    feature_n_clusters=20,
+    feature_min_cluster_presence=2,
+    strain_column='strain',
+    phage_column='phage',
+    suffix='faa',
+):
+    """Run ONE leave-one-genus-out CORNER fold using PURE k-mer features.
+
+    No MMseqs2 / no shared clustering: k-mer features are generated directly from
+    sequences (ignore_families=True). Trains on the training quadrant
+    (training_strains x training_phages) and predicts the held-out CORNER
+    (validation_strains x validation_phages).
+
+    Steps:
+      B/C/D. run_kmer_table_workflow on the training-quadrant FASTAs -> k-mer
+             feature tables (strain + phage) + merge + feature selection +
+             modeling. The quadrant is enforced by building FASTAs from only the
+             training strains/phages and filtering the phenotype matrix to them.
+      E. Corner prediction: assign the model's predictive k-mers to the
+         validation strains AND validation phages by substring matching, then
+         predict validation_strains x validation_phages.
+
+    The four ``*_file`` args are CSVs of one genome ID per row (header allowed).
+    Returns the corner median-predictions CSV path.
+    """
+    from genophi.workflows.kmer_table_workflow import run_kmer_table_workflow
+    from genophi.workflows.prediction_workflow import run_prediction_workflow
+    from genophi.workflows.kmer_full_workflow import (
+        detect_duplicate_ids, modify_duplicate_ids,
+    )
+
+    def _read_ids(path):
+        s = pd.read_csv(path)
+        return [str(x) for x in s.iloc[:, 0].tolist()]
+
+    train_strains = _read_ids(training_strains_file)
+    train_phages = _read_ids(training_phages_file)
+    val_strains = _read_ids(validation_strains_file)
+    val_phages = _read_ids(validation_phages_file)
+
+    median_predictions_file = os.path.join(
+        output_dir, 'model_validation', 'predict_results', 'strain_median_predictions.csv',
+    )
+    if os.path.exists(median_predictions_file):
+        logger.info(f"k-mer corner fold '{fold_label}' already complete, skipping.")
+        return median_predictions_file
+
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, 'fold_group.txt'), 'w') as fh:
+        fh.write(f"{fold_label}\n")
+    logger.info(
+        f"k-mer corner fold '{fold_label}' (k={k}): train {len(train_strains)}x"
+        f"{len(train_phages)} -> predict corner {len(val_strains)}x{len(val_phages)}."
+    )
+
+    # Training-quadrant interaction matrix (both axes filtered).
+    train_matrix_path = os.path.join(output_dir, 'training_quadrant_matrix.csv')
+    _write_quadrant_matrix(
+        interaction_matrix, train_strains, train_phages, train_matrix_path,
+        strain_column=strain_column, phage_column=phage_column,
+    )
+
+    # --- Resolve each axis's genome dir once: if any protein IDs collide across
+    # the fold's genomes, prefix them (genome::protein) so the protein_csv ->
+    # k-mer genome attribution is unambiguous. modify_duplicate_ids returns the
+    # modified_AAs/ dir; otherwise we keep the original. Run over BOTH train and
+    # validation genomes so every downstream step (training build + validation
+    # substring assignment) reads from one consistent resolved directory. ---
+    def _resolve_dir(input_dir, all_ids, column):
+        if detect_duplicate_ids(input_dir, suffix, all_ids, 'directory'):
+            logger.info(f"k-mer corner fold '{fold_label}': duplicate {column} protein IDs "
+                        f"-> prefixing genome::protein.")
+            return modify_duplicate_ids(input_dir, output_dir, suffix, all_ids, column)
+        return input_dir
+
+    strain_dir = _resolve_dir(input_strain_dir, train_strains + val_strains, 'strain')
+    phage_dir = _resolve_dir(input_phage_dir, train_phages + val_phages, 'phage')
+
+    # --- B/C/D. k-mer feature generation + FS + modeling on the quadrant ---
+    train_strain_fasta, _ = _write_genome_fasta(
+        strain_dir, train_strains, os.path.join(output_dir, 'train_strains.faa'), suffix)
+    train_phage_fasta, _ = _write_genome_fasta(
+        phage_dir, train_phages, os.path.join(output_dir, 'train_phages.faa'), suffix)
+    train_strain_csv = _write_protein_mapping(
+        strain_dir, train_strains, os.path.join(output_dir, 'train_strain_proteins.csv'),
+        'strain', suffix)
+    train_phage_csv = _write_protein_mapping(
+        phage_dir, train_phages, os.path.join(output_dir, 'train_phage_proteins.csv'),
+        'phage', suffix)
+
+    run_kmer_table_workflow(
+        strain_fasta=train_strain_fasta,
+        protein_csv=train_strain_csv,
+        k=k,
+        id_col='strain',
+        one_gene=one_gene,
+        output_dir=output_dir,
+        k_range=k_range,
+        phenotype_matrix=train_matrix_path,
+        phage_fasta=train_phage_fasta,
+        protein_csv_phage=train_phage_csv,
+        remove_suffix=False,
+        sample_column='strain',
+        phenotype_column='interaction',
+        modeling=True,
+        filter_type='none',
+        num_features=num_features,
+        num_runs_fs=num_runs_fs,
+        num_runs_modeling=num_runs_modeling,
+        method='rfe',
+        threads=threads,
+        task_type='classification',
+        ignore_families=True,
+        max_ram=max_ram,
+        use_clustering=use_clustering,
+        cluster_method=cluster_method,
+        n_clusters=n_clusters,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
+        use_dynamic_weights=use_dynamic_weights,
+        weights_method=weights_method,
+        check_feature_presence=check_feature_presence,
+        filter_by_cluster_presence=filter_by_cluster_presence,
+        min_cluster_presence=min_cluster_presence,
+        use_feature_clustering=use_feature_clustering,
+        feature_cluster_method=feature_cluster_method,
+        feature_n_clusters=feature_n_clusters,
+        feature_min_cluster_presence=feature_min_cluster_presence,
+    )
+
+    # --- E. Corner prediction (substring k-mer assignment, both axes) ---
+    best_cutoff = _select_best_cutoff_kmer(output_dir)
+    model_dir = os.path.join(output_dir, 'modeling', 'modeling_results', str(best_cutoff))
+    feature_map = os.path.join(output_dir, 'feature_tables', 'selected_features.csv')
+    select_feature_table = os.path.join(
+        output_dir, 'modeling', 'feature_selection', 'filtered_feature_tables',
+        f'select_feature_table_{best_cutoff}.csv',
+    )
+
+    # Validation-phage k-mer feature table (held-out phages in model vocabulary).
+    # Read from the resolved dir so val sequences match the training namespace.
+    val_phage_features = _assign_kmer_features(
+        phage_dir, val_phages, feature_map, select_feature_table,
+        id_col='phage', source_prefix='p', suffix=suffix)
+    val_phage_feature_path = os.path.join(output_dir, 'validation_phage_feature_table.csv')
+    val_phage_features.to_csv(val_phage_feature_path, index=False)
+
+    # Validation-strain k-mer feature table -> written into the predict input dir.
+    validation_output_dir = os.path.join(output_dir, 'model_validation')
+    predict_output_dir = os.path.join(validation_output_dir, 'predict_results')
+    os.makedirs(predict_output_dir, exist_ok=True)
+    val_strain_features = _assign_kmer_features(
+        strain_dir, val_strains, feature_map, select_feature_table,
+        id_col='strain', source_prefix='s', suffix=suffix)
+    val_strain_feature_path = os.path.join(validation_output_dir, 'strain_feature_table.csv')
+    val_strain_features.to_csv(val_strain_feature_path, index=False)
+
+    # Predict the corner: val strains x val phages.
+    logger.info(f"k-mer corner fold '{fold_label}': predicting corner...")
+    run_prediction_workflow(
+        input_dir=validation_output_dir,
+        phage_feature_table_path=val_phage_feature_path,
+        model_dir=model_dir,
+        output_dir=predict_output_dir,
+        feature_table=select_feature_table,
+        strain_source='strain',
+        phage_source='phage',
+        threads=threads,
+    )
+
+    return median_predictions_file
+
+
+def _select_best_cutoff_kmer(output_dir):
+    """Best-MCC cutoff for the k-mer workflow layout (modeling/ subdir)."""
+    metrics_file = os.path.join(
+        output_dir, 'modeling', 'modeling_results', 'model_performance',
+        'model_performance_metrics.csv',
+    )
+    metrics_df = pd.read_csv(metrics_file)
+    metrics_df = metrics_df.sort_values(['MCC', 'cut_off'], ascending=[False, False])
+    return metrics_df['cut_off'].values[0]
+
+
 def _run_fold_shared_wrapper(
     iteration, modeling_strains, validation_strains, shared_dir,
     input_strain_dir, interaction_matrix, output_dir, **fold_kwargs

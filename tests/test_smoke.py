@@ -383,6 +383,42 @@ def test_quadrant_matrix_filtering(tmp_path):
 
 
 @pytest.mark.smoke
+def test_kmer_substring_assignment(tmp_path):
+    """Test pure-k-mer feature assignment: a predictive feature is present iff one
+    of its k-mers occurs as a substring in the genome's sequences."""
+    from genophi.workflows.nested_cv_workflow import _assign_kmer_features
+    import pandas as pd
+
+    # Two genomes, one FASTA each.
+    gdir = tmp_path / "genomes"
+    gdir.mkdir()
+    (gdir / "g1.faa").write_text(">p1\nAAAMKLVWXY\n")   # contains 'MKL', not 'QPR'
+    (gdir / "g2.faa").write_text(">p2\nQPRSTAAAA\n")     # contains 'QPR', not 'MKL'
+
+    # feature_map: Feature -> Cluster_Label (the k-mer string), as the k-mer
+    # workflow writes it. sc_0 keyed on 'MKL', sc_1 on 'QPR'.
+    feature_map = tmp_path / "selected_features.csv"
+    pd.DataFrame({
+        'Feature': ['sc_0', 'sc_1'],
+        'Cluster_Label': ['MKL', 'QPR'],
+    }).to_csv(feature_map, index=False)
+
+    # predictive feature table: declares sc_0, sc_1 as the model's strain features.
+    pred = tmp_path / "select_feature_table.csv"
+    pd.DataFrame({'strain': ['x'], 'sc_0': [1], 'sc_1': [0]}).to_csv(pred, index=False)
+
+    df = _assign_kmer_features(
+        str(gdir), ['g1', 'g2'], str(feature_map), str(pred),
+        id_col='strain', source_prefix='s', suffix='faa',
+    )
+    df = df.set_index('strain')
+    # g1 has MKL (sc_0=1) not QPR (sc_1=0); g2 the reverse.
+    assert df.loc['g1', 'sc_0'] == 1 and df.loc['g1', 'sc_1'] == 0
+    assert df.loc['g2', 'sc_0'] == 0 and df.loc['g2', 'sc_1'] == 1
+    assert list(df.columns) == ['sc_0', 'sc_1']
+
+
+@pytest.mark.smoke
 def test_global_metrics_and_curves(tmp_path):
     """Test pooled outer-test metrics + PR/ROC curve generation from synthetic data."""
     from genophi.workflows.nested_cv_workflow import _compute_global_metrics
