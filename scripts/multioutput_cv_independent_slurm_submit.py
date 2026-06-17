@@ -59,6 +59,9 @@ def _conda_preamble(args):
 
 
 def _common_fold_kwargs(args, targets):
+    # Used by Stage A (build_fold_table) and Stage C (aggregate_independent_cv),
+    # both of which resolve splits -> they get the group args. Stage B
+    # (train_fold_target) builds its own call and is split-agnostic.
     return (
         f"input_strain_dir={args.input_strain_dir!r}, "
         f"phenotype_matrix={args.phenotype_matrix!r}, "
@@ -66,12 +69,26 @@ def _common_fold_kwargs(args, targets):
         f"phenotype_column={targets!r}, "
         f"task_type={args.task_type!r}, "
         f"n_folds={args.n_folds}, cv_rounds={args.cv_rounds}, "
-        f"sample_column={args.sample_column!r}, suffix={args.suffix!r}"
+        f"sample_column={args.sample_column!r}, suffix={args.suffix!r}, "
+        f"group_metadata={args.group_metadata!r}, "
+        f"group_strain_column={args.group_strain_column!r}, "
+        f"group_column={args.group_column!r}"
     )
 
 
+def _n_folds(args):
+    """Fold count: group count for phylo folds, else n_folds * cv_rounds."""
+    if args.group_metadata:
+        import pandas as pd
+        g = pd.read_csv(args.group_metadata)
+        groups = g[args.group_column].dropna()
+        groups = groups[groups.astype(str).str.strip() != '']
+        return int(groups.nunique())
+    return args.n_folds * args.cv_rounds
+
+
 def create_stage_a(args, run_dir, targets):
-    n = args.n_folds * args.cv_rounds
+    n = _n_folds(args)
     common = _common_fold_kwargs(args, targets)
     header = _slurm_header(args, 'mo_cv_table', [
         f"#SBATCH --mem={args.mem_table}G",
@@ -104,7 +121,7 @@ echo "$(date)"
 
 def create_stage_b(args, run_dir, targets, dependency):
     n_targets = len(targets)
-    n = args.n_folds * args.cv_rounds * n_targets
+    n = _n_folds(args) * n_targets
     header = _slurm_header(args, 'mo_cv_train', [
         f"#SBATCH --mem={args.mem_train}G",
         f"#SBATCH --time={args.time_train}",
@@ -205,6 +222,13 @@ def main():
     p.add_argument('--filter_by_cluster_presence', action='store_true',
                    help='Filter features by how many sample-clusters they appear in')
     p.add_argument('--min_cluster_presence', type=int, default=2)
+    # Phylogenetic / PEQ leave-one-group-out folds (overrides random k-fold).
+    p.add_argument('--group_metadata', default=None,
+                   help='strain->group CSV (e.g. PEQ clades). When set, folds are '
+                        'leave-one-group-out; --n_folds/--cv_rounds are ignored and the '
+                        'fold count = number of groups (Stage A/B arrays size from it).')
+    p.add_argument('--group_strain_column', default='strain')
+    p.add_argument('--group_column', default='group')
     # SLURM
     p.add_argument('--account', default='pc_crispriart')
     p.add_argument('--partition', default='lr7')
@@ -236,10 +260,12 @@ def main():
     run_dir = os.path.join(base, f"mo_cv_indep_run_{time.strftime('%Y%m%d_%H%M%S')}")
     os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
 
-    n_folds_total = args.n_folds * args.cv_rounds
+    n_folds_total = _n_folds(args)
     n_train = n_folds_total * len(targets)
     print("=== Independent multi-output CV (parallel) ===")
     print(f"targets ({len(targets)}): {targets}")
+    if args.group_metadata:
+        print(f"folds: leave-one-group-out from {args.group_metadata} ({n_folds_total} groups)")
     print(f"Stage A: {n_folds_total} fold-table jobs")
     print(f"Stage B: {n_train} (fold x target) train jobs")
     print(f"Stage C: 1 aggregate job")

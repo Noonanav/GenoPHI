@@ -52,12 +52,27 @@ def _common_kwargs_literal(args, targets):
         f"feature_n_clusters={args.feature_n_clusters}, "
         f"feature_min_cluster_presence={args.feature_min_cluster_presence}, "
         f"filter_by_cluster_presence={args.filter_by_cluster_presence}, "
-        f"min_cluster_presence={args.min_cluster_presence}"
+        f"min_cluster_presence={args.min_cluster_presence}, "
+        f"group_metadata={args.group_metadata!r}, "
+        f"group_strain_column={args.group_strain_column!r}, "
+        f"group_column={args.group_column!r}"
     )
 
 
+def _n_fold_jobs(args):
+    """Fold-array size: group count for phylo folds, else n_folds * cv_rounds."""
+    if args.group_metadata:
+        import pandas as pd
+        g = pd.read_csv(args.group_metadata)
+        col = args.group_column
+        groups = g[col].dropna()
+        groups = groups[groups.astype(str).str.strip() != '']
+        return int(groups.nunique())
+    return args.n_folds * args.cv_rounds
+
+
 def create_fold_stage(args, run_dir, targets):
-    n_jobs = args.n_folds * args.cv_rounds
+    n_jobs = _n_fold_jobs(args)
     common = _common_kwargs_literal(args, targets)
     script = f"""#!/bin/bash
 #SBATCH --job-name=mo_cv_fold
@@ -106,7 +121,12 @@ def create_aggregate_stage(args, run_dir, targets, dependency):
         f"output_dir={args.output_dir!r}, "
         f"phenotype_column={targets!r}, task_type={args.task_type!r}, "
         f"n_folds={args.n_folds}, cv_rounds={args.cv_rounds}, "
-        f"sample_column={args.sample_column!r}, strong_top_frac={args.strong_top_frac}"
+        f"sample_column={args.sample_column!r}, strong_top_frac={args.strong_top_frac}, "
+        f"group_metadata={args.group_metadata!r}, "
+        f"input_strain_dir={args.input_strain_dir!r}, "
+        f"phenotype_matrix={args.phenotype_matrix!r}, suffix={args.suffix!r}, "
+        f"group_strain_column={args.group_strain_column!r}, "
+        f"group_column={args.group_column!r}"
     )
     script = f"""#!/bin/bash
 #SBATCH --job-name=mo_cv_agg
@@ -190,6 +210,15 @@ def main():
     p.add_argument('--filter_by_cluster_presence', action='store_true',
                    help='Filter features by how many sample-clusters they appear in')
     p.add_argument('--min_cluster_presence', type=int, default=2)
+    # Phylogenetic / PEQ leave-one-group-out folds (overrides random k-fold).
+    p.add_argument('--group_metadata', default=None,
+                   help='strain->group CSV (e.g. PEQ clades). When set, folds are '
+                        'leave-one-group-out (one fold per group); --n_folds/--cv_rounds '
+                        'are ignored and the fold count = number of groups.')
+    p.add_argument('--group_strain_column', default='strain',
+                   help='Sample-name column in --group_metadata (default: strain)')
+    p.add_argument('--group_column', default='group',
+                   help='Group-label column in --group_metadata (default: group)')
     p.add_argument('--run_dir', default=None,
                    help='Where to write the run dir (scripts + logs). Default: '
                         'under --output_dir (on scratch), NOT the cwd/home.')
@@ -213,11 +242,15 @@ def main():
     run_dir = os.path.join(base, f"mo_cv_run_{timestamp}")
     os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
 
-    n_jobs = args.n_folds * args.cv_rounds
+    n_jobs = _n_fold_jobs(args)
     print(f"=== Multi-output CV SLURM submission ===")
     print(f"targets ({len(targets)}): {targets}")
     print(f"strategy={args.strategy} target_mode={args.target_mode} task={args.task_type}")
-    print(f"folds: {args.n_folds} x {args.cv_rounds} rounds = {n_jobs} fold jobs + 1 aggregate")
+    if args.group_metadata:
+        print(f"folds: leave-one-group-out from {args.group_metadata} "
+              f"= {n_jobs} fold jobs + 1 aggregate")
+    else:
+        print(f"folds: {args.n_folds} x {args.cv_rounds} rounds = {n_jobs} fold jobs + 1 aggregate")
     print(f"output: {args.output_dir}")
 
     fold_script = create_fold_stage(args, run_dir, targets)

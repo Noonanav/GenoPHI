@@ -45,17 +45,26 @@ logger = logging.getLogger(__name__)
 
 
 def _fold_split(input_strain_dir, phenotype_matrix, sample_column, suffix,
-                n_folds, cv_rounds, fold_idx, output_dir):
-    """Resolve (modeling, heldout) for a fold; write the manifest once."""
+                n_folds, cv_rounds, fold_idx, output_dir,
+                group_metadata=None, group_strain_column='strain',
+                group_column='group'):
+    """Resolve (modeling, heldout) for a fold; write the manifest once.
+
+    With ``group_metadata`` the folds are leave-one-group-out (phylo clades),
+    identical to the joint path, so joint and independent share the same splits.
+    """
     _, splits = _cv_genomes_and_splits(
-        input_strain_dir, phenotype_matrix, sample_column, suffix, n_folds, cv_rounds)
+        input_strain_dir, phenotype_matrix, sample_column, suffix, n_folds, cv_rounds,
+        group_metadata=group_metadata, group_strain_column=group_strain_column,
+        group_column=group_column)
     os.makedirs(output_dir, exist_ok=True)
     _write_splits_manifest(output_dir, splits)
     match = [s for s in splits if s[0] == fold_idx]
     if not match:
         raise ValueError(
             f"fold_idx {fold_idx} not in 1..{len(splits)} "
-            f"(n_folds={n_folds} x cv_rounds={cv_rounds}).")
+            f"(n_folds={n_folds} x cv_rounds={cv_rounds}, "
+            f"group_metadata={'set' if group_metadata else 'none'}).")
     return match[0]   # (it, modeling, heldout)
 
 
@@ -77,6 +86,9 @@ def build_fold_table(
     feature_cluster_method='hierarchical',
     feature_n_clusters=20,
     feature_min_cluster_presence=2,
+    group_metadata=None,
+    group_strain_column='strain',
+    group_column='group',
 ):
     """Stage A: build fold ``fold_idx``'s k-mer feature table (no modeling).
 
@@ -86,7 +98,9 @@ def build_fold_table(
     targets = _as_target_list(phenotype_column)
     it, modeling, _ = _fold_split(
         input_strain_dir, phenotype_matrix, sample_column, suffix,
-        n_folds, cv_rounds, fold_idx, output_dir)
+        n_folds, cv_rounds, fold_idx, output_dir,
+        group_metadata=group_metadata, group_strain_column=group_strain_column,
+        group_column=group_column)
 
     fold_dir = os.path.join(output_dir, f'fold_{it}')
     os.makedirs(fold_dir, exist_ok=True)
@@ -226,6 +240,9 @@ def predict_fold_heldout(
     sample_column='phage',
     suffix='faa',
     threads=4,
+    group_metadata=None,
+    group_strain_column='strain',
+    group_column='group',
 ):
     """Assign + ensemble-predict a fold's held-out genomes (independent models).
 
@@ -238,7 +255,9 @@ def predict_fold_heldout(
     pheno[sample_column] = pheno[sample_column].astype(str)
     it, _, heldout = _fold_split(
         input_strain_dir, phenotype_matrix, sample_column, suffix,
-        n_folds, cv_rounds, fold_idx, output_dir)
+        n_folds, cv_rounds, fold_idx, output_dir,
+        group_metadata=group_metadata, group_strain_column=group_strain_column,
+        group_column=group_column)
 
     fold_dir = os.path.join(output_dir, f'fold_{it}')
     feature_map = os.path.join(
@@ -273,6 +292,9 @@ def aggregate_independent_cv(
     suffix='faa',
     threads=4,
     strong_top_frac=0.2,
+    group_metadata=None,
+    group_strain_column='strain',
+    group_column='group',
 ):
     """Stage C: predict each fold's held-out genomes, pool, and score per target.
 
@@ -280,16 +302,23 @@ def aggregate_independent_cv(
     then aggregate_cv_results (all-or-nothing) to produce per-target CV metrics.
     """
     _, splits = _cv_genomes_and_splits(
-        input_strain_dir, phenotype_matrix, sample_column, suffix, n_folds, cv_rounds)
+        input_strain_dir, phenotype_matrix, sample_column, suffix, n_folds, cv_rounds,
+        group_metadata=group_metadata, group_strain_column=group_strain_column,
+        group_column=group_column)
     for it, _, _ in splits:
         predict_fold_heldout(
             fold_idx=it, input_strain_dir=input_strain_dir,
             phenotype_matrix=phenotype_matrix, output_dir=output_dir,
             phenotype_column=phenotype_column, task_type=task_type,
             n_folds=n_folds, cv_rounds=cv_rounds, sample_column=sample_column,
-            suffix=suffix, threads=threads)
+            suffix=suffix, threads=threads,
+            group_metadata=group_metadata, group_strain_column=group_strain_column,
+            group_column=group_column)
 
     return aggregate_cv_results(
         output_dir=output_dir, phenotype_column=phenotype_column,
         task_type=task_type, n_folds=n_folds, cv_rounds=cv_rounds,
-        sample_column=sample_column, strong_top_frac=strong_top_frac)
+        sample_column=sample_column, strong_top_frac=strong_top_frac,
+        group_metadata=group_metadata, input_strain_dir=input_strain_dir,
+        phenotype_matrix=phenotype_matrix, suffix=suffix,
+        group_strain_column=group_strain_column, group_column=group_column)

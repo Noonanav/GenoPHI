@@ -178,6 +178,9 @@ def run_multioutput_cv_workflow(
     feature_min_cluster_presence=2,
     filter_by_cluster_presence=False,
     min_cluster_presence=2,
+    group_metadata=None,
+    group_strain_column='strain',
+    group_column='group',
 ):
     """Run k-fold CV for a multi-output model (in-process loop over all folds).
 
@@ -191,8 +194,13 @@ def run_multioutput_cv_workflow(
     os.makedirs(output_dir, exist_ok=True)
     targets = _as_target_list(phenotype_column)
     genomes, splits = _cv_genomes_and_splits(
-        input_strain_dir, phenotype_matrix, sample_column, suffix, n_folds, cv_rounds)
-    logger.info(f"CV over {len(genomes)} genomes, {n_folds} folds x {cv_rounds} rounds")
+        input_strain_dir, phenotype_matrix, sample_column, suffix, n_folds, cv_rounds,
+        group_metadata=group_metadata, group_strain_column=group_strain_column,
+        group_column=group_column)
+    if group_metadata:
+        logger.info(f"CV over {len(genomes)} genomes, {len(splits)} leave-one-group-out folds")
+    else:
+        logger.info(f"CV over {len(genomes)} genomes, {n_folds} folds x {cv_rounds} rounds")
 
     for it, _, _ in splits:
         run_one_cv_fold(
@@ -211,12 +219,18 @@ def run_multioutput_cv_workflow(
             feature_min_cluster_presence=feature_min_cluster_presence,
             filter_by_cluster_presence=filter_by_cluster_presence,
             min_cluster_presence=min_cluster_presence,
+            group_metadata=group_metadata,
+            group_strain_column=group_strain_column,
+            group_column=group_column,
         )
 
     return aggregate_cv_results(
         output_dir=output_dir, phenotype_column=targets, task_type=task_type,
         n_folds=n_folds, cv_rounds=cv_rounds, sample_column=sample_column,
         strong_top_frac=strong_top_frac,
+        group_metadata=group_metadata, input_strain_dir=input_strain_dir,
+        phenotype_matrix=phenotype_matrix, suffix=suffix,
+        group_strain_column=group_strain_column, group_column=group_column,
     )
 
 
@@ -225,13 +239,72 @@ def _as_target_list(phenotype_column):
     return list(phenotype_column) if isinstance(phenotype_column, (list, tuple)) else [phenotype_column]
 
 
+def _group_splits(genomes, group_metadata, strain_column='strain',
+                  group_column='group'):
+    """Leave-one-group-out splits from a strain->group CSV (phylo folds).
+
+    Each unique group becomes one fold: its members are the held-out set, every
+    OTHER grouped genome is the modeling set. Genomes absent from the metadata
+    (or with an empty group) are dropped from CV entirely -- they are neither
+    held out nor used for modeling, so every fold contains only grouped genomes.
+
+    Deterministic: groups are processed in sorted-name order, so the iteration
+    index is stable and every SLURM job computes IDENTICAL splits. Returns the
+    same ``(iteration, modeling, heldout)`` shape as ``_kfold_splits`` so all
+    downstream code is unchanged.
+    """
+    meta = pd.read_csv(group_metadata)
+    for col in (strain_column, group_column):
+        if col not in meta.columns:
+            raise ValueError(
+                f"group_metadata missing '{col}'. Columns: {list(meta.columns)}")
+    usable = set(genomes)
+    group_map = {}
+    for _, row in meta.iterrows():
+        s = str(row[strain_column])
+        g = row[group_column]
+        if s in usable and not (pd.isna(g) or str(g).strip() == ''):
+            group_map[s] = str(g)
+
+    ungrouped = sorted(usable - set(group_map))
+    if ungrouped:
+        logger.warning(
+            f"{len(ungrouped)} usable genome(s) have no group label and are "
+            f"DROPPED from CV (not held out, not modeled): {ungrouped}")
+
+    groups = {}
+    for s in sorted(group_map):
+        groups.setdefault(group_map[s], []).append(s)
+    if not groups:
+        raise ValueError("No usable groups in group_metadata.")
+
+    splits = []
+    for it, group_name in enumerate(sorted(groups), start=1):
+        heldout = sorted(groups[group_name])
+        modeling = sorted(s for s in group_map if group_map[s] != group_name)
+        if not heldout or not modeling:
+            logger.warning(f"group '{group_name}': empty modeling/heldout; skipping.")
+            continue
+        splits.append((it, modeling, heldout))
+        logger.info(f"[group fold {it}] '{group_name}': "
+                    f"{len(modeling)} modeling, {len(heldout)} held-out")
+    if not splits:
+        raise ValueError("No usable leave-one-group-out folds could be built.")
+    return splits
+
+
 def _cv_genomes_and_splits(input_strain_dir, phenotype_matrix, sample_column,
-                           suffix, n_folds, cv_rounds):
+                           suffix, n_folds, cv_rounds, group_metadata=None,
+                           group_strain_column='strain', group_column='group'):
     """Deterministically derive the genome list and fold splits.
 
     Pure function of the inputs (no RNG, no shared state), so every SLURM job
     that calls it with the same args computes the IDENTICAL splits -- each job
     can then select its own fold by index with no coordination.
+
+    If ``group_metadata`` is given (a strain->group CSV), folds are leave-one-
+    group-out (phylogenetic/PEQ clades) instead of deterministic random k-fold;
+    ``n_folds``/``cv_rounds`` are then ignored (fold count = number of groups).
     """
     pheno = pd.read_csv(phenotype_matrix)
     pheno[sample_column] = pheno[sample_column].astype(str)
@@ -239,6 +312,10 @@ def _cv_genomes_and_splits(input_strain_dir, phenotype_matrix, sample_column,
     genomes_dir = {f[:-len(suffix) - 1] for f in os.listdir(input_strain_dir)
                    if f.endswith(f'.{suffix}')}
     genomes = sorted(genomes_matrix & genomes_dir)
+    if group_metadata:
+        splits = _group_splits(genomes, group_metadata,
+                               group_strain_column, group_column)
+        return genomes, splits
     if len(genomes) < n_folds:
         raise ValueError(f"Only {len(genomes)} usable genomes for {n_folds} folds.")
     splits = _kfold_splits(genomes, n_folds, cv_rounds)
@@ -297,6 +374,9 @@ def run_one_cv_fold(
     feature_min_cluster_presence=2,
     filter_by_cluster_presence=False,
     min_cluster_presence=2,
+    group_metadata=None,
+    group_strain_column='strain',
+    group_column='group',
 ):
     """Run ONE CV fold end-to-end and write its held-out predictions.
 
@@ -316,7 +396,9 @@ def run_one_cv_fold(
     pheno = pd.read_csv(phenotype_matrix)
     pheno[sample_column] = pheno[sample_column].astype(str)
     _, splits = _cv_genomes_and_splits(
-        input_strain_dir, phenotype_matrix, sample_column, suffix, n_folds, cv_rounds)
+        input_strain_dir, phenotype_matrix, sample_column, suffix, n_folds, cv_rounds,
+        group_metadata=group_metadata, group_strain_column=group_strain_column,
+        group_column=group_column)
     os.makedirs(output_dir, exist_ok=True)
     _write_splits_manifest(output_dir, splits)  # auditable, identical across runs
 
@@ -410,6 +492,12 @@ def aggregate_cv_results(
     cv_rounds=1,
     sample_column='phage',
     strong_top_frac=0.2,
+    group_metadata=None,
+    input_strain_dir=None,
+    phenotype_matrix=None,
+    suffix='faa',
+    group_strain_column='strain',
+    group_column='group',
 ):
     """Pool per-fold held-out predictions and score per target.
 
@@ -417,11 +505,27 @@ def aggregate_cv_results(
     present. If any are missing it raises, listing them, so the missing folds can
     be re-run before a (clean) CV estimate is produced.
 
+    With ``group_metadata`` (phylo folds), the expected fold count is the number
+    of leave-one-group-out folds (recomputed from the same inputs), not
+    ``n_folds * cv_rounds``. ``input_strain_dir`` + ``phenotype_matrix`` are
+    required in that case so the group fold count matches the fold jobs exactly.
+
     Returns:
         dict with paths to the pooled predictions CSV and the per-target metrics CSV.
     """
     targets = _as_target_list(phenotype_column)
-    total_folds = n_folds * cv_rounds
+    if group_metadata:
+        if not (input_strain_dir and phenotype_matrix):
+            raise ValueError(
+                "group_metadata aggregation needs input_strain_dir + phenotype_matrix "
+                "to recompute the leave-one-group-out fold count.")
+        _, splits = _cv_genomes_and_splits(
+            input_strain_dir, phenotype_matrix, sample_column, suffix,
+            n_folds, cv_rounds, group_metadata=group_metadata,
+            group_strain_column=group_strain_column, group_column=group_column)
+        total_folds = len(splits)
+    else:
+        total_folds = n_folds * cv_rounds
 
     frames, missing = [], []
     for it in range(1, total_folds + 1):
