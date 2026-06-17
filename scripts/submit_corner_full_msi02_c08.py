@@ -113,10 +113,16 @@ def submit(sh_path):
 
 
 def list_fold_dirs():
-    """Fold subdirs (fold_*) under folds_root, sorted by index."""
+    """Fold subdirs (fold_*) under folds_root. Sort numerically if the suffix is
+    an int (fold_0, fold_1, ...), else lexically (fold_<genus>)."""
     folds = [d for d in os.listdir(folds_root)
              if d.startswith("fold_") and os.path.isdir(os.path.join(folds_root, d))]
-    return sorted(folds, key=lambda d: int(d.split("_")[1]))
+
+    def _key(d):
+        suffix = d.split("_", 1)[1]
+        return (0, int(suffix)) if suffix.isdigit() else (1, suffix)
+
+    return sorted(folds, key=_key)
 
 
 def fold_label(fold_name):
