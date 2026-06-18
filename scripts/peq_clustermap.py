@@ -32,7 +32,21 @@ def ordered_boxes(sim, peq_threshold, min_size, method='average'):
     Z = linkage(squareform(dist, checks=False), method=method)
     raw = fcluster(Z, t=1.0 - peq_threshold, criterion='distance')
     merged = merge_small(raw, dist, min_size)
-    order = leaves_list(Z)                      # dendrogram leaf order
+    leaf_order = leaves_list(Z)                 # dendrogram leaf order
+
+    # Reorder so each fold is ONE contiguous block (else a fold whose members
+    # merged from non-adjacent clades draws as several boxes). Keep phylogenetic
+    # order: sort folds by their mean dendrogram-leaf position, and within a fold
+    # keep dendrogram order. -> exactly n_folds boxes, diagonal still ~clade-wise.
+    leaf_pos = {g: i for i, g in enumerate(leaf_order)}
+    fold_of = {g: merged[g] for g in range(len(merged))}
+    fold_meanpos = {}
+    for g in range(len(merged)):
+        fold_meanpos.setdefault(fold_of[g], []).append(leaf_pos[g])
+    fold_meanpos = {f: np.mean(v) for f, v in fold_meanpos.items()}
+    order = sorted(range(len(merged)),
+                   key=lambda g: (fold_meanpos[fold_of[g]], leaf_pos[g]))
+    order = np.array(order)
     return order, merged[order], len(np.unique(raw)), len(np.unique(merged))
 
 
