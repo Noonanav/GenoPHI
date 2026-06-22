@@ -152,6 +152,7 @@ train_fold_target(
     sample_column={args.sample_column!r},
     num_runs_fs={args.num_runs_fs}, num_runs_modeling={args.num_runs_modeling},
     method={args.method!r}, max_features={args.max_features!r},
+    min_features={args.min_features!r},
     threads={args.threads}, max_ram={args.max_ram},
     use_clustering={args.use_clustering},
     filter_by_cluster_presence={args.filter_by_cluster_presence},
@@ -211,6 +212,11 @@ def main():
     p.add_argument('--num_runs_modeling', type=int, default=50)
     p.add_argument('--method', default='rfe')
     p.add_argument('--max_features', default='none')
+    p.add_argument('--min_features', default='none',
+                   help="Min features a cutoff's table must have to be modeled. "
+                        "Default 'none' -> GenoPHI default (5 for <500 samples), which "
+                        "rejects small-n folds yielding 1-4 stable features. Set to 1 or 2 "
+                        "to model sparse folds (e.g. n<50 datasets).")
     p.add_argument('--strong_top_frac', type=float, default=0.2)
     # Anti-overfitting: cluster-aware split + phylogenetic feature filtering
     p.add_argument('--use_clustering', action='store_true',
