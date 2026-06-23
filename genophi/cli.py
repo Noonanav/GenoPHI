@@ -729,6 +729,10 @@ def create_parser():
                    help='Task type (default: classification)')
     p.add_argument('--max_features', default='none',
                    help='Max features (default: none)')
+    p.add_argument('--min_features', default='none',
+                   help="Min features a cutoff's table must have to be modeled "
+                        "(default 'none' -> GenoPHI default 5 for <500 samples). "
+                        "Lower (e.g. 3) for small-n datasets where FS yields <5 features.")
     p.add_argument('--max_ram', type=float, default=16,
                    help='Max RAM in GB (default: 16)')
     p.add_argument('--use_shap', action='store_true',
@@ -1378,6 +1382,7 @@ def run_kmer_workflow(args):
         method=args.method,
         task_type=args.task_type,
         max_features=args.max_features,
+        min_features=args.min_features,
         max_ram=args.max_ram,
         threads=args.threads,
         use_shap=args.use_shap,
