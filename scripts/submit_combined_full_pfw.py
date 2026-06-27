@@ -41,7 +41,7 @@ account = "pc_crispriart"
 partition = "lr7"
 qos = "lr_normal"
 environment = "genophi"
-mem_per_job = "240G"
+mem_per_job = "490G"      # forces scheduling onto the ~503 GB lr7 nodes (240G OOM'd in RFE/CatBoost)
 time_limit = "48:00:00"   # clustering + FS + modeling on the full combined set is heavy
 # =========================================================================
 
