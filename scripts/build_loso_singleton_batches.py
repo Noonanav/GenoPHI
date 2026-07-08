@@ -47,23 +47,22 @@ import argparse
 from collections import defaultdict
 
 # ============================ CONFIG (edit me) ============================
-ECTYPER_TSV = os.path.expanduser(
-    "~/BRaVE/resources/genome_data/e_coli/ecoli_genomes/Gaborieau_genomes/ectyper_out/output.tsv")
+# Paths AS ON LAWRENCIUM (build there so the interaction-matrix universe resolves).
+# ectyper output.tsv is NOT natively on Lawrencium -- scp it from the workstation:
+#   scp <workstation>/.../ectyper_out/output.tsv \
+#       anoonan@lrc-login.lbl.gov:/global/scratch/users/anoonan/BRaVE/LOSO/tables/ectyper_output.tsv
+ECTYPER_TSV = "/global/scratch/users/anoonan/BRaVE/LOSO/tables/ectyper_output.tsv"
 # final_predictions.csv from the completed LOSO-O run = the scored-19 ground truth.
-LOSO_PRED = os.path.expanduser(
-    "~/BRaVE/resources/genome_data/e_coli/ecoli_genomes/Gaborieau_genomes/LOSO/final_predictions.csv")
-# AA FASTA dir -- a tail strain is only runnable if its .faa exists here.
-AA_DIR = os.path.expanduser(
-    "~/BRaVE/resources/genome_data/e_coli/ecoli_genomes/Gaborieau_genomes/genome_AAs")
+LOSO_PRED = "/global/scratch/users/anoonan/BRaVE/LOSO/loso_O_results/final_predictions.csv"
+# Strain AA FASTA dir -- a tail strain is only runnable if its .faa exists here.
+AA_DIR = "/global/scratch/users/anoonan/BRaVE/manuscript/ecoli/strain_AAs_update"
 # The LOSO interaction matrix -- its strain set = the usable-strain universe
 # (every strain with a phenotype). Each batch's modeling set = this universe
-# minus that batch's validation strains. Path AS ON LAWRENCIUM; if this builder
-# runs where that path is absent, set INTERACTION_MATRIX to a local copy or pass
-# a strain list. Falls back to AA_DIR listing with a warning if unreadable.
+# minus that batch's validation strains. Falls back to AA_DIR listing (with a
+# warning) if unreadable.
 INTERACTION_MATRIX = "/global/scratch/users/anoonan/BRaVE/manuscript/ecoli/Gaborieau_interaction_matrix_long_mod.csv"
 
-OUT_CSV = os.path.expanduser(
-    "~/BRaVE/resources/genome_data/e_coli/ecoli_genomes/LOSO_tail/folds_loso_tail.csv")
+OUT_CSV = "/global/scratch/users/anoonan/BRaVE/LOSO/tables/folds_loso_tail.csv"
 
 N_BATCHES = 6
 MAX_N = 5           # "small" = serogroup with fewer than MAX_N strains
