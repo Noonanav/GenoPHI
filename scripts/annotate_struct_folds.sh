@@ -31,8 +31,12 @@ eval "$(conda shell.bash hook)"
 conda activate genophi
 
 STRUCT=/global/scratch/users/anoonan/BRaVE/struct_cv/K20_results
-CLUSTERS=/global/scratch/users/anoonan/BRaVE/phylo_cv/K20_results/shared_clustering/strain/clusters.tsv
-FASTA_DIR=/global/scratch/users/anoonan/BRaVE/manuscript/ecoli/strain_AAs_update
+SHARED=/global/scratch/users/anoonan/BRaVE/phylo_cv/K20_results/shared_clustering/strain
+CLUSTERS=$SHARED/clusters.tsv
+# MUST use the MODIFIED AAs (genome::protein namespace) -- the raw strain_AAs_update
+# proteomes have un-namespaced headers that do NOT match the cluster/overview
+# protein_IDs, so parse_and_filter_aa_sequences extracts 0 sequences from them.
+FASTA_DIR=$SHARED/modified_AAs/strain
 OUTROOT=/global/scratch/users/anoonan/BRaVE/struct_cv/annotate
 
 mkdir -p "$OUTROOT"
