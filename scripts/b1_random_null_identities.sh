@@ -55,13 +55,20 @@ set -euo pipefail
 
 STRUCT=/global/scratch/users/anoonan/BRaVE/struct_cv/K20_results
 PHYLO=/global/scratch/users/anoonan/BRaVE/phylo_cv/K20_results
+ANNOT=/global/scratch/users/anoonan/BRaVE/struct_cv/annotate
 OUT=/global/scratch/users/anoonan/BRaVE/struct_cv/b1_random_null
 mkdir -p "$OUT"
 
 # full protein -> cluster-representative map for the entire pool (label-independent
-# shared clustering). Format: assigned_clusters.tsv col1=protein, col2=cluster rep.
+# shared clustering). Format: clusters.tsv <rep>\t<member> (rep-first, MMseqs createtsv).
 # (This is the SAME shared clustering used in filter_pred_identities.sh.)
 POOL_MAP="$PHYLO/shared_clustering/strain/clusters.tsv"
+
+# TRUE predictive-cluster set = distinct 'cluster' values in the annotate overview
+# (strain_predictive_feature_overview.csv: strain,Feature,cluster,protein_ID,...).
+# This is the SAME source as the observed feature-identity metric -- the RFE-selected
+# predictive features, NOT selected_features.csv (which is the full collapsed feature
+# space that GOES INTO selection, ~26k clusters -> a meaningless null size).
 
 M=1000                 # random draws per fold
 SEED=20260721
@@ -74,7 +81,7 @@ PROT_COL=${PROT_COL:-2}
 for i in $(seq -w 1 16); do
   f=struct_${i}
   val="$STRUCT/folds/$f/model_validation/tmp/assigned_clusters.tsv"
-  self="$STRUCT/folds/$f/strain/features/selected_features.csv"
+  self="$ANNOT/$f/strain_predictive_feature_overview.csv"   # predictive-cluster source
   dst="$OUT/${f}_null_summary.csv"
   if [ -s "$dst" ]; then echo "[$f] done, skip"; continue; fi
   if [ ! -s "$val" ] || [ ! -s "$self" ] || [ ! -s "$POOL_MAP" ]; then
@@ -92,47 +99,56 @@ M = int(M); seed = int(seed)
 REP = int(rep_col) - 1        # 0-based index of the cluster-rep column in POOL_MAP
 PROT = int(prot_col) - 1      # 0-based index of the protein column in POOL_MAP
 
-# 1. selected cluster reps for this fold
-selected = set()
-with open(self_csv) as fh:
-    r = csv.reader(fh)
-    header = next(r)
-    # Feature, Cluster_Label  (Cluster_Label = cluster representative / protein id)
-    for row in r:
-        if len(row) >= 2 and row[1]:
-            selected.add(row[1])
-k = len(selected)
-
-# 2. universe of clusters from the full pool map (REP column = cluster rep)
+# 1. FULL protein -> cluster-rep map for the pool (needed both to resolve selected
+#    proteins to their clusters AND to map streamed training-protein hits). The pool
+#    map is long-format <rep>\t<member>; universe = distinct reps (the draw pool).
+prot2clu = {}
 universe = set()
 with open(pool_map) as fh:
     for line in fh:
         parts = line.rstrip("\n").split("\t")
         if len(parts) > max(REP, PROT):
-            universe.add(parts[REP])
+            rep = parts[REP]
+            prot2clu[parts[PROT]] = rep
+            universe.add(rep)
 universe = list(universe)
-print(f"[{fold}] selected k={k}  pool clusters={len(universe)}", file=sys.stderr)
+print(f"[{fold}] protein->cluster entries={len(prot2clu)}  "
+      f"pool clusters={len(universe)}", file=sys.stderr)
+
+# 2. TRUE predictive-cluster set for this fold, from the annotate overview
+#    (strain_predictive_feature_overview.csv: strain,Feature,cluster,protein_ID,...).
+#    The 'cluster' column is a cluster REP (same namespace as clusters.tsv col1, verified),
+#    so match directly. k = number of distinct predictive clusters = the null-draw size,
+#    the SAME set the observed feature-identity metric is built on.
+selected = set()
+n_unmapped = 0
+with open(self_csv) as fh:
+    r = csv.DictReader(fh)
+    if "cluster" not in r.fieldnames:
+        sys.exit(f"[{fold}] ERROR: no 'cluster' column in {self_csv}; "
+                 f"cols={r.fieldnames}")
+    for row in r:
+        c = row["cluster"]
+        if c:
+            selected.add(c)
+# sanity: how many selected clusters are actually reps in the pool universe
+uni_set = set(universe)
+in_pool = sum(1 for c in selected if c in uni_set)
+n_unmapped = len(selected) - in_pool
+k = len(selected)
+print(f"[{fold}] predictive clusters k={k}  in_pool={in_pool} unmapped={n_unmapped}",
+      file=sys.stderr)
+if k == 0:
+    sys.exit(f"[{fold}] ERROR: k=0 -- no predictive clusters read from {self_csv}")
 
 # 3. draws: for each cluster rep, which draws include it. Observed set = draw id -1.
-rng = random.Random(seed + hash(fold) % 100000)
-# map cluster rep -> list of draw ids that sampled it (plus -1 if selected)
+rng = random.Random(seed + int(fold.split('_')[-1]))   # stable per-fold seed
 draw_members = {}   # cluster -> list[int]
 for c in selected:
     draw_members.setdefault(c, []).append(-1)
 for d in range(M):
     for c in rng.sample(universe, k):
         draw_members.setdefault(c, []).append(d)
-
-# protein -> cluster rep (needed to map a training protein hit to its cluster).
-# We only need clusters that appear in some draw; but a protein->cluster lookup must
-# cover all training proteins, so read the full map keyed by protein.
-prot2clu = {}
-with open(pool_map) as fh:
-    for line in fh:
-        parts = line.rstrip("\n").split("\t")
-        if len(parts) > max(REP, PROT):
-            prot2clu[parts[PROT]] = parts[REP]
-print(f"[{fold}] protein->cluster entries={len(prot2clu)}", file=sys.stderr)
 
 # 4. stream the val search once; accumulate per (draw, strain)
 # acc[draw][strain] = [sum_ident, n]
