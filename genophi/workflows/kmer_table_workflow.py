@@ -658,11 +658,17 @@ def run_kmer_table_workflow(
                 logging.info(f"Reusing existing merged feature table: {merged_table_path}")
 
             logging.info(f"Merged feature table: {merged_table_path}")
-            final_df = pd.read_csv(merged_table_path)
-            features = len(final_df.columns) - 1
-            num_rows = len(final_df)
-            
+            # Only the shape is needed here, so read the header for the column
+            # count and stream the file for the row count. Materializing the
+            # frame costs tens of GB on wide k-mer tables for no other use.
+            merged_header = pd.read_csv(merged_table_path, nrows=0)
+            features = len(merged_header.columns) - 1
+            with open(merged_table_path) as merged_fh:
+                num_rows = sum(1 for _ in merged_fh) - 1
+            del merged_header
+
             # Adjust num_features based on dataset size
+            requested_num_features = num_features
             if num_rows < 500:
                 num_features = 50
             elif num_rows < 2000:
@@ -670,6 +676,11 @@ def run_kmer_table_workflow(
             else:
                 num_features = int(num_rows * 0.05)
             max_features = num_features
+            if num_features != requested_num_features:
+                logging.info(
+                    f"num_features auto-scaled from requested {requested_num_features} to "
+                    f"{num_features} based on {num_rows} rows ({features} features available)."
+                )
             
         elif not strain_empty:
             merged_table_path = strain_final_feature_table_path

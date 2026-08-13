@@ -16,6 +16,26 @@ from tqdm import tqdm
 from hdbscan import HDBSCAN
 import time
 
+def feature_column_dtypes(input_path):
+    """
+    Build a dtype map that reads feature columns as uint8 instead of int64.
+
+    Feature columns ('sc_'/'pc_' prefixes) hold 0/1 presence values, but a CSV
+    round-trip loses the uint8 dtype that merge_feature_tables applies, so
+    pandas re-infers int64 and uses 8x the memory it needs. On a k=4 k-mer
+    corner table (~35k rows x ~195k columns) that is the difference between a
+    ~53 GB frame and a ~7 GB one.
+
+    Args:
+        input_path (str): Path to the feature table CSV.
+
+    Returns:
+        dict: Column-name -> 'uint8' for every feature column in the header.
+    """
+    header = pd.read_csv(input_path, nrows=0)
+    return {col: 'uint8' for col in header.columns if col.startswith(('sc_', 'pc_'))}
+
+
 # Function to load and prepare data
 def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None, filter_type='none', task_type='classification'):
     """
@@ -38,7 +58,7 @@ def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None,
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"The input file {input_path} does not exist.")
 
-    full_feature_table = pd.read_csv(input_path)
+    full_feature_table = pd.read_csv(input_path, dtype=feature_column_dtypes(input_path))
     if full_feature_table.empty:
         raise ValueError("Input data is empty.")
 
@@ -1593,7 +1613,7 @@ def generate_feature_tables(
     if phenotype_column is None:
         phenotype_column = 'interaction'
 
-    full_feature_table = pd.read_csv(full_feature_table_file)
+    full_feature_table = pd.read_csv(full_feature_table_file, dtype=feature_column_dtypes(full_feature_table_file))
     interaction_count = full_feature_table.shape[0]
     print('Interaction count:', interaction_count)
 
