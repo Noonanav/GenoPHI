@@ -44,7 +44,7 @@ use_dynamic_weights = True
 weights_method = "inverse_frequency"
 use_clustering = True
 cluster_method = "hierarchical"
-max_ram = 100
+max_ram = 40
 
 # SLURM
 account = "pc_crispriart"
@@ -52,7 +52,7 @@ partition = "lr7"
 qos = "lr_normal"
 environment = "genophi"
 threads = 32
-mem_per_job = "240G"
+mem_per_job = "320G"
 time_limit = "14:00:00"
 # =========================================================================
 
