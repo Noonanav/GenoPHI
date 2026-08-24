@@ -368,9 +368,13 @@ def validate_kmer_checkpoint_file(filepath, min_size=1, file_type='general'):
     # CSV-specific validation
     if file_type == 'csv':
         try:
-            # Just read header to check structure
-            df = pd.read_csv(filepath, nrows=0)
-            if len(df.columns) == 0:
+            # Just read header to check structure. Read the line directly rather
+            # than via pd.read_csv(nrows=0), which costs ~193 s on a 196k-column
+            # k-mer header; this validator runs on the wide strain, phage and
+            # merged tables on every resume.
+            with open(filepath) as fh:
+                header = fh.readline().rstrip('\n')
+            if not header:
                 logging.warning(f"CSV file {filepath} has no columns")
                 return False
             return True
@@ -661,11 +665,9 @@ def run_kmer_table_workflow(
             # Only the shape is needed here, so read the header for the column
             # count and stream the file for the row count. Materializing the
             # frame costs tens of GB on wide k-mer tables for no other use.
-            merged_header = pd.read_csv(merged_table_path, nrows=0)
-            features = len(merged_header.columns) - 1
             with open(merged_table_path) as merged_fh:
-                num_rows = sum(1 for _ in merged_fh) - 1
-            del merged_header
+                features = merged_fh.readline().count(',')
+                num_rows = sum(1 for _ in merged_fh)
 
             # Adjust num_features based on dataset size
             requested_num_features = num_features

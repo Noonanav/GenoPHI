@@ -32,8 +32,12 @@ def feature_column_dtypes(input_path):
     Returns:
         dict: Column-name -> 'uint8' for every feature column in the header.
     """
-    header = pd.read_csv(input_path, nrows=0)
-    return {col: 'uint8' for col in header.columns if col.startswith(('sc_', 'pc_'))}
+    # Read the header line directly. pd.read_csv(nrows=0) is pathologically slow
+    # at k-mer column counts (~193 s for a 196k-column header) and this function
+    # is called once per feature-selection iteration.
+    with open(input_path) as fh:
+        columns = fh.readline().rstrip('\n').split(',')
+    return {col: 'uint8' for col in columns if col.startswith(('sc_', 'pc_'))}
 
 
 # Function to load and prepare data
