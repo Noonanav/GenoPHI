@@ -40,6 +40,14 @@ def feature_column_dtypes(input_path):
     return {col: 'uint8' for col in columns if col.startswith(('sc_', 'pc_'))}
 
 
+# Bumped whenever write_feature_table_parquet changes how it converts, so a
+# copy written by an older converter is rejected rather than silently trusted.
+# v2 added the pandas passthrough for non-feature columns; v1 wrote whatever
+# Arrow inferred, which differs from pd.read_csv in the last ULP on floats.
+FEATURE_TABLE_PARQUET_VERSION = b'2'
+_PARQUET_VERSION_KEY = b'genophi_converter_version'
+
+
 def read_feature_table(input_path):
     """
     Read a feature table, preferring a pre-built Parquet copy of it.
@@ -63,10 +71,25 @@ def read_feature_table(input_path):
     if os.path.exists(parquet_path):
         try:
             if os.path.getmtime(parquet_path) >= os.path.getmtime(input_path):
-                return pd.read_parquet(parquet_path)
-            logging.warning(
-                f"Parquet copy of {input_path} is older than the CSV; reading the CSV."
-            )
+                import pyarrow.parquet as pq
+
+                metadata = pq.ParquetFile(parquet_path).schema_arrow.metadata or {}
+                version = metadata.get(_PARQUET_VERSION_KEY)
+                if version == FEATURE_TABLE_PARQUET_VERSION:
+                    return pd.read_parquet(parquet_path)
+                # An mtime check cannot tell a copy written by an older
+                # converter from a current one, and older copies differ from
+                # pd.read_csv. Reject rather than silently trust.
+                logging.warning(
+                    f"Parquet copy of {input_path} was written by converter "
+                    f"version {version!r}, not "
+                    f"{FEATURE_TABLE_PARQUET_VERSION!r}; reading the CSV. "
+                    "Delete it to have it rebuilt."
+                )
+            else:
+                logging.warning(
+                    f"Parquet copy of {input_path} is older than the CSV; reading the CSV."
+                )
         except (OSError, ValueError, ImportError) as exc:
             # Deliberately narrow: a MemoryError must not be swallowed into a
             # retry that costs even more memory.
@@ -78,9 +101,17 @@ def write_feature_table_parquet(input_path, row_group_size=None):
     """
     Convert a wide feature-table CSV to a Parquet copy beside it.
 
-    Called explicitly and once, at the site that produces a wide table. The
-    conversion itself is expensive (~85 GB, ~13 min on a 196k-column table);
-    it is worth paying once because the table is then re-read once per
+    Called explicitly and once, at the site that produces a wide table.
+
+    Conversion is expensive and makes two full passes over the CSV: an Arrow
+    read (~13 min and ~85 GB peak on a 196k-column table) plus a pandas
+    re-read of the non-feature columns. usecols limits what pandas retains,
+    not what it tokenizes, so that second pass still scans the whole file and
+    can add 30-45 min. Peak memory is unaffected - the reference frame is a
+    handful of columns. Budget the job accordingly and measure on the first
+    fold rather than trusting these figures.
+
+    It is worth paying once because the table is then re-read once per
     feature-selection iteration.
 
     Args:
@@ -91,6 +122,7 @@ def write_feature_table_parquet(input_path, row_group_size=None):
         str: Path to the Parquet copy.
     """
     import pyarrow as pa
+    import pyarrow.parquet as pq
     from pyarrow import csv as pa_csv
 
     dtypes = feature_column_dtypes(input_path)
@@ -138,7 +170,14 @@ def write_feature_table_parquet(input_path, row_group_size=None):
     parquet_path = f"{input_path}.parquet"
     tmp_path = f"{parquet_path}.{os.getpid()}.tmp"
     try:
-        frame.to_parquet(tmp_path, index=False, row_group_size=row_group_size)
+        out = pa.Table.from_pandas(frame, preserve_index=False)
+        # Stamp the converter version so read_feature_table can reject a copy
+        # written by an older converter, which an mtime check cannot detect.
+        existing = out.schema.metadata or {}
+        out = out.replace_schema_metadata(
+            {**existing, _PARQUET_VERSION_KEY: FEATURE_TABLE_PARQUET_VERSION}
+        )
+        pq.write_table(out, tmp_path, row_group_size=row_group_size)
         os.replace(tmp_path, parquet_path)
     except BaseException:
         if os.path.exists(tmp_path):
