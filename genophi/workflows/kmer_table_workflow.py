@@ -651,6 +651,7 @@ def run_kmer_table_workflow(
                     phenotype_matrix=phenotype_matrix,
                     output_dir=output_dir,
                     sample_column=sample_column,
+                    phenotype_column=phenotype_column,
                     phage_features=phage_final_feature_table_output,
                     remove_suffix=remove_suffix,
                     use_feature_clustering=use_feature_clustering,
