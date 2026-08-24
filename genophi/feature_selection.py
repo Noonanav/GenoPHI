@@ -36,8 +36,115 @@ def feature_column_dtypes(input_path):
     # at k-mer column counts (~193 s for a 196k-column header) and this function
     # is called once per feature-selection iteration.
     with open(input_path) as fh:
-        columns = fh.readline().rstrip('\n').split(',')
+        columns = fh.readline().rstrip('\r\n').split(',')
     return {col: 'uint8' for col in columns if col.startswith(('sc_', 'pc_'))}
+
+
+def read_feature_table(input_path):
+    """
+    Read a feature table, preferring a pre-built Parquet copy of it.
+
+    Reading a wide k-mer table with pandas costs >180 GB and tens of minutes,
+    because the C parser stages numeric columns as int64 before applying the
+    requested dtype. Reading the same table from Parquet costs ~18 GB and
+    ~13 s. This function never writes; the Parquet copy is produced explicitly
+    by write_feature_table_parquet at the site that builds a wide table.
+
+    The returned frame is required to be identical to what pd.read_csv would
+    have produced. Every failure path falls through to exactly that call.
+
+    Args:
+        input_path (str): Path to the feature table CSV.
+
+    Returns:
+        DataFrame: The feature table.
+    """
+    parquet_path = f"{input_path}.parquet"
+    if os.path.exists(parquet_path):
+        try:
+            if os.path.getmtime(parquet_path) >= os.path.getmtime(input_path):
+                return pd.read_parquet(parquet_path)
+            logging.warning(
+                f"Parquet copy of {input_path} is older than the CSV; reading the CSV."
+            )
+        except (OSError, ValueError, ImportError) as exc:
+            # Deliberately narrow: a MemoryError must not be swallowed into a
+            # retry that costs even more memory.
+            logging.warning(f"Parquet read failed ({exc}); reading the CSV.")
+    return pd.read_csv(input_path, dtype=feature_column_dtypes(input_path))
+
+
+def write_feature_table_parquet(input_path, row_group_size=None):
+    """
+    Convert a wide feature-table CSV to a Parquet copy beside it.
+
+    Called explicitly and once, at the site that produces a wide table. The
+    conversion itself is expensive (~85 GB, ~13 min on a 196k-column table);
+    it is worth paying once because the table is then re-read once per
+    feature-selection iteration.
+
+    Args:
+        input_path (str): Path to the feature table CSV.
+        row_group_size (int, optional): Parquet row-group size.
+
+    Returns:
+        str: Path to the Parquet copy.
+    """
+    import pyarrow as pa
+    from pyarrow import csv as pa_csv
+
+    dtypes = feature_column_dtypes(input_path)
+    if not dtypes:
+        raise ValueError(
+            f"{input_path} has no 'sc_'/'pc_' feature columns; refusing to "
+            "convert. Only wide feature tables are safe to convert: pyarrow's "
+            "float parser is not round-trip identical to pandas', so a table "
+            "whose numeric content is float would come back differing in the "
+            "last ULP."
+        )
+
+    # pyarrow requires the header to fit inside a single block, and the default
+    # 1 MB is smaller than a 196k-column header (~1.85 MB).
+    with open(input_path, 'rb') as fh:
+        header_bytes = len(fh.readline())
+    block_size = max(64 << 20, 4 * header_bytes)
+
+    column_types = {col: pa.uint8() for col in dtypes}
+
+    table = pa_csv.read_csv(
+        input_path,
+        read_options=pa_csv.ReadOptions(block_size=block_size),
+        convert_options=pa_csv.ConvertOptions(
+            column_types=column_types,
+            # Match pandas' NA tokens exactly; pyarrow's defaults omit some
+            # that pandas treats as missing (e.g. 'None', '<NA>').
+            null_values=list(pd._libs.parsers.STR_NA_VALUES),
+            strings_can_be_null=True,
+        ),
+    )
+
+    frame = table.to_pandas()
+
+    # Feature columns are integer-valued and exact under Arrow. Every other
+    # column is read back as text here and converted by pandas itself, so that
+    # floats and NA handling match pd.read_csv bit for bit.
+    passthrough = [c for c in frame.columns if c not in dtypes]
+    if passthrough:
+        reference = pd.read_csv(input_path, usecols=passthrough,
+                                dtype=feature_column_dtypes(input_path))
+        for col in passthrough:
+            frame[col] = reference[col].values
+
+    parquet_path = f"{input_path}.parquet"
+    tmp_path = f"{parquet_path}.{os.getpid()}.tmp"
+    try:
+        frame.to_parquet(tmp_path, index=False, row_group_size=row_group_size)
+        os.replace(tmp_path, parquet_path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+    return parquet_path
 
 
 # Function to load and prepare data
@@ -62,7 +169,7 @@ def load_and_prepare_data(input_path, sample_column=None, phenotype_column=None,
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"The input file {input_path} does not exist.")
 
-    full_feature_table = pd.read_csv(input_path, dtype=feature_column_dtypes(input_path))
+    full_feature_table = read_feature_table(input_path)
     if full_feature_table.empty:
         raise ValueError("Input data is empty.")
 
@@ -1617,7 +1724,7 @@ def generate_feature_tables(
     if phenotype_column is None:
         phenotype_column = 'interaction'
 
-    full_feature_table = pd.read_csv(full_feature_table_file, dtype=feature_column_dtypes(full_feature_table_file))
+    full_feature_table = read_feature_table(full_feature_table_file)
     interaction_count = full_feature_table.shape[0]
     print('Interaction count:', interaction_count)
 
