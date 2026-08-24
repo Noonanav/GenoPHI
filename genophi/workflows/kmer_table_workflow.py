@@ -345,6 +345,12 @@ def is_fasta_empty(fasta_file):
     logging.warning(f"No valid sequences found in FASTA file: {fasta_file}")
     return True
 
+# Above this width, reading the table from CSV is not a viable fallback:
+# pandas stages numeric columns as int64, so the read exhausts memory or the
+# wall clock. Conversion failure is fatal at or above it.
+PARQUET_REQUIRED_WIDTH = 20000
+
+
 def validate_kmer_checkpoint_file(filepath, min_size=1, file_type='general'):
     """
     Validates if a k-mer workflow checkpoint file exists and meets basic criteria.
@@ -663,6 +669,38 @@ def run_kmer_table_workflow(
                 logging.info(f"Reusing existing merged feature table: {merged_table_path}")
 
             logging.info(f"Merged feature table: {merged_table_path}")
+
+            # Convert the merged table to Parquet once. A wide k-mer table
+            # costs >180 GB and tens of minutes to read with pandas, and it is
+            # re-read once per feature-selection iteration; from Parquet the
+            # same read is ~18 GB and ~13 s. read_feature_table picks the
+            # Parquet copy up automatically and falls back to the CSV if it is
+            # missing, stale or unreadable.
+            from genophi.feature_selection import write_feature_table_parquet
+
+            with open(merged_table_path) as header_fh:
+                merged_width = header_fh.readline().count(',') + 1
+            if not os.path.exists(f"{merged_table_path}.parquet"):
+                try:
+                    write_feature_table_parquet(merged_table_path)
+                    logging.info(f"Wrote Parquet copy of {merged_table_path}")
+                except Exception as exc:
+                    # A narrow table reads fine from CSV, so degrade quietly.
+                    # A wide one does not: falling back would mean ~45 min per
+                    # read for 26 reads, and the fold would die at the wall
+                    # clock hours later with nothing pointing back to here.
+                    if merged_width >= PARQUET_REQUIRED_WIDTH:
+                        raise RuntimeError(
+                            f"Failed to convert {merged_table_path} "
+                            f"({merged_width} columns) to Parquet: {exc}. "
+                            "Reading a table this wide from CSV will exhaust "
+                            "memory or the wall clock, so this is fatal rather "
+                            "than a fallback."
+                        ) from exc
+                    logging.warning(
+                        f"Parquet conversion failed ({exc}); reads will use the CSV."
+                    )
+
             # Only the shape is needed here, so read the header for the column
             # count and stream the file for the row count. Materializing the
             # frame costs tens of GB on wide k-mer tables for no other use.
