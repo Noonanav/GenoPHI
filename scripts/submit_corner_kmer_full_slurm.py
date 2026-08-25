@@ -24,7 +24,9 @@ held_out_group.txt).
 NOTE: unlike the subset run, these folds have no merged feature table on disk,
 so every fold runs k-mer feature generation and the merge from scratch before
 the Parquet conversion and feature selection. At 2.5x the subset's interaction
-count the merge alone is expected to take most of a day, hence the 48 h limit.
+count the merge alone is expected to take most of a day, hence the 72 h limit.
+Folds resume: feature selection skips any run_N that already has
+feature_importances.csv, so a timed-out fold only needs resubmitting.
 
   python submit_corner_kmer_full_slurm.py                        # all genera
   python submit_corner_kmer_full_slurm.py --test-fold fold_Vibrio  # one genus
@@ -64,7 +66,7 @@ qos = "lr_normal"
 environment = "genophi"
 threads = 32
 mem_per_job = "490G"
-time_limit = "48:00:00"
+time_limit = "72:00:00"
 # =========================================================================
 
 folds_out_dir = os.path.join(base_output_dir, "folds")

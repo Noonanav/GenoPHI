@@ -62,7 +62,7 @@ qos = "lr_normal"
 environment = "genophi"
 threads = 32
 mem_per_job = "490G"
-time_limit = "48:00:00"
+time_limit = "72:00:00"
 # =========================================================================
 
 folds_out_dir = os.path.join(base_output_dir, "folds")
