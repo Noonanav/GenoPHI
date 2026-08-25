@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
 """
-GenoPHI in-distribution STRAIN_AND_PHAGE (CORNER) baseline, PURE k-mer features.
+GenoPHI in-distribution STRAIN_ONLY baseline, PURE k-mer features.
 
-The k-mer counterpart of submit_indist_corner_slurm.py: same predefined outer
-folds, same interaction matrix, so k-mer and protein-family results are directly
-comparable on the low-novelty end of the axis.
+New strains, shared phages -- the lower-novelty point on the crossover axis, and
+the one the pLM in-distribution comparison leads with. The k-mer counterpart of
+submit_indist_strain_only_slurm.py, on the same outer folds.
 
-This is the CONTROL for the cross-genus k-mer run. A cross-genus collapse is
-uninterpretable without it: "k-mers fail cross-genus" and "k-mers are weak at
-this task" look identical unless the in-distribution point is measured.
+run_corner_kmer_fold needs no modification for this. It takes two genome lists
+per axis and nothing requires the phage lists to be disjoint, so setting both to
+the full phage set turns the "corner" into a full row block:
 
-Each fold trains on training_strains x training_phages and predicts the held-out
-CORNER (validation_strains x validation_phages -- pairs where BOTH are unseen).
-The pLM splits are already in genophi's native corner-fold format, so
-run_corner_kmer_fold consumes them directly (no builder needed).
+    training quadrant = training_strains x all_phages
+    predicted block   = validation_strains x all_phages
 
-Pure k-mer means no MMseqs2 and no shared clustering, so unlike the
-protein-family version there is no clustering job and no (min_seq_id, coverage)
-grid: each fold is fully independent. Fold array + aggregate only.
+Sharing phages across the split is the design of this arm, not a leak -- the pLM
+strain_only models see every phage too.
 
-NOTE: the strain_only variant lives in submit_indist_strain_only_kmer_slurm.py
-(new strains, shared phages), which reuses run_corner_kmer_fold by passing the
-full phage set as both phage lists.
+Run build_strain_only_kmer_folds.py FIRST. It reads the pLM's strain_only splits
+(which ship only the two strain lists) and writes a parallel tree with the phage
+lists added, leaving the source splits untouched.
 
-  python submit_indist_corner_kmer_slurm.py                   # full 5-fold run
-  python submit_indist_corner_kmer_slurm.py --test-fold fold_0  # validate one
+Predictions cover validation_strains x ALL phages, a superset of the pairs
+actually assayed; the aggregator merges against the interaction matrix on
+(strain, phage), so unassayed cells drop out.
+
+  python submit_indist_strain_only_kmer_slurm.py                   # full 5-fold run
+  python submit_indist_strain_only_kmer_slurm.py --test-fold fold_0  # validate one
 """
 import os
 import argparse
@@ -36,8 +37,8 @@ input_phage_dir = "/global/home/groups/pc_phiml/data/combined/phage_AAs"
 interaction_matrix = "/global/home/groups/pc_phiml/embeddings/combined/combined_interactions_full_4genera.csv"
 
 # Per-fold split dirs (genophi native corner format -- used directly).
-folds_root = "/global/scratch/users/anoonan/set_transformer/manuscript/indist_crossover/strain_and_phage/splits/outer_all4_held"
-base_output_dir = "/global/scratch/users/anoonan/set_transformer/manuscript/indist_crossover/strain_and_phage/genophi_kmer_results"
+folds_root = "/global/scratch/users/anoonan/set_transformer/manuscript/indist_crossover/strain_only/splits_kmer_corner"
+base_output_dir = "/global/scratch/users/anoonan/set_transformer/manuscript/indist_crossover/strain_only/genophi_kmer_results"
 
 # k-mer length (k=4, matching the cross-genus k-mer run).
 K = 4
@@ -147,9 +148,9 @@ def _kmer_corner_py(label_expr, fold_dir_expr):
 def write_single_fold_job(fold_name):
     label = fold_label(fold_name)
     fdir = os.path.join(folds_root, fold_name)
-    w = os.path.join(logs_dir, f"KMERIND_fold_{fold_name}.sh")
+    w = os.path.join(logs_dir, f"KMERSO_fold_{fold_name}.sh")
     with open(w, 'w') as f:
-        header(f, f"KMERIND_fold_{fold_name}")
+        header(f, f"KMERSO_fold_{fold_name}")
         f.write(_kmer_corner_py(f'"{label}"', f'"{fdir}"'))
     return w
 
@@ -162,20 +163,20 @@ def write_fold_array_job(fold_names):
     with open(dirs_file, 'w') as fh:
         fh.write("\n".join(os.path.join(folds_root, fn) for fn in fold_names) + "\n")
 
-    w = os.path.join(logs_dir, "KMERIND_fold.sh")
+    w = os.path.join(logs_dir, "KMERSO_fold.sh")
     with open(w, 'w') as f:
-        header(f, "KMERIND_fold", array=f"1-{len(fold_names)}")
+        header(f, "KMERSO_fold", array=f"1-{len(fold_names)}")
         f.write(f'LABEL=$(sed -n "${{SLURM_ARRAY_TASK_ID}}p" {labels_file})\n')
         f.write(f'FOLDDIR=$(sed -n "${{SLURM_ARRAY_TASK_ID}}p" {dirs_file})\n')
-        f.write('echo "k-mer in-dist corner fold: $LABEL ($FOLDDIR)"\n\n')
+        f.write('echo "k-mer strain-only fold: $LABEL ($FOLDDIR)"\n\n')
         f.write(_kmer_corner_py('"$LABEL"', '"$FOLDDIR"'))
     return w
 
 
 def write_aggregate_job(dep):
-    w = os.path.join(logs_dir, "KMERIND_aggregate.sh")
+    w = os.path.join(logs_dir, "KMERSO_aggregate.sh")
     with open(w, 'w') as f:
-        header(f, "KMERIND_aggregate", dep=dep, time_lim="2:00:00")
+        header(f, "KMERSO_aggregate", dep=dep, time_lim="2:00:00")
         f.write(
             "python -c \""
             "from genophi.workflows import aggregate_predefined_folds; "
