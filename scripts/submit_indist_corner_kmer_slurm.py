@@ -1,33 +1,30 @@
 #!/usr/bin/env python3
 """
-FULL-DATASET leave-one-genus-out CORNER nested-CV using PURE k-mer features.
+GenoPHI in-distribution STRAIN_AND_PHAGE (CORNER) baseline, PURE k-mer features.
 
-The k-mer counterpart of submit_corner_full_msi02_c08.py: same folds, same
-interaction matrix, so the two are directly comparable and the numbers are
-headline-grade rather than subset-scale. The subset-scale equivalent is
-submit_corner_kmer_logo_slurm.py, which matches genophi_corner_logo/ instead.
+The k-mer counterpart of submit_indist_corner_slurm.py: same predefined outer
+folds, same interaction matrix, so k-mer and protein-family results are directly
+comparable on the low-novelty end of the axis.
 
-Corner = hold out BOTH a genus's strains AND its phages; train on the training
-quadrant; predict the held-out corner (validation_strains x validation_phages).
-Uses genophi.workflows.run_corner_kmer_fold (k-mers from sequences; held-out
-genomes assigned by substring matching -- NO MMseqs2, NO shared clustering).
+This is the CONTROL for the cross-genus k-mer run. A cross-genus collapse is
+uninterpretable without it: "k-mers fail cross-genus" and "k-mers are weak at
+this task" look identical unless the in-distribution point is measured.
 
-Because there is no clustering step, each fold is fully independent: this submits
-just a fold array + an aggregate job (no cluster dependency). Unlike the
-protein-family corner submitter, there is no (min_seq_id, coverage) grid -- the
-k-mer sweep axis is k (set K below).
+Each fold trains on training_strains x training_phages and predicts the held-out
+CORNER (validation_strains x validation_phages -- pairs where BOTH are unseen).
+The pLM splits are already in genophi's native corner-fold format, so
+run_corner_kmer_fold consumes them directly (no builder needed).
 
-Fold inputs are the FULL corner folds built by build_corner_folds.py -- one
-fold_<genus>/ per genus with training/validation x strains/phages CSVs (+
-held_out_group.txt).
+Pure k-mer means no MMseqs2 and no shared clustering, so unlike the
+protein-family version there is no clustering job and no (min_seq_id, coverage)
+grid: each fold is fully independent. Fold array + aggregate only.
 
-NOTE: unlike the subset run, these folds have no merged feature table on disk,
-so every fold runs k-mer feature generation and the merge from scratch before
-the Parquet conversion and feature selection. At 2.5x the subset's interaction
-count the merge alone is expected to take most of a day, hence the 48 h limit.
+NOTE: the strain_only variant of this comparison is NOT buildable from this
+script. Those folds hold out strains while keeping phages shared, and there is
+no k-mer equivalent of run_fold_from_shared -- it would need new package code.
 
-  python submit_corner_kmer_full_slurm.py                        # all genera
-  python submit_corner_kmer_full_slurm.py --test-fold fold_Vibrio  # one genus
+  python submit_indist_corner_kmer_slurm.py                   # full 5-fold run
+  python submit_indist_corner_kmer_slurm.py --test-fold fold_0  # validate one
 """
 import os
 import argparse
@@ -37,15 +34,16 @@ import subprocess
 input_strain_dir = "/global/home/groups/pc_phiml/data/combined/strain_AAs"
 input_phage_dir = "/global/home/groups/pc_phiml/data/combined/phage_AAs"
 interaction_matrix = "/global/home/groups/pc_phiml/embeddings/combined/combined_interactions_full_4genera.csv"
-folds_root = "/global/home/groups/pc_phiml/set_transformer/manuscript/genophi_corner_folds_FULL"
 
-base_output_dir = "/global/scratch/users/anoonan/set_transformer/manuscript/genophi_corner_kmer_FULL"
+# Per-fold split dirs (genophi native corner format -- used directly).
+folds_root = "/global/scratch/users/anoonan/set_transformer/manuscript/indist_crossover/strain_and_phage/splits/outer_all4_held"
+base_output_dir = "/global/scratch/users/anoonan/set_transformer/manuscript/indist_crossover/strain_and_phage/genophi_kmer_results"
 
-# k-mer length (k=4 per the experiment plan).
+# k-mer length (k=4, matching the cross-genus k-mer run).
 K = 4
 K_RANGE = False
 
-# Modeling params (match the lab's intended settings).
+# Modeling params (match the protein-family in-dist run).
 num_runs_fs = 25
 num_runs_modeling = 50
 num_features = 100
@@ -95,10 +93,7 @@ def submit(sh_path):
 
 def list_fold_dirs():
     """Fold subdirs (fold_*) under folds_root. Sort numerically if the suffix is
-    an int (fold_0, fold_1, ...), else lexically (fold_<genus>).
-
-    The FULL folds are named fold_<genus>, so a plain int() key raises here.
-    """
+    an int (fold_0, fold_1, ...), else lexically (fold_<genus>)."""
     folds = [d for d in os.listdir(folds_root)
              if d.startswith("fold_") and os.path.isdir(os.path.join(folds_root, d))]
 
@@ -110,7 +105,11 @@ def list_fold_dirs():
 
 
 def fold_label(fold_name):
-    """Human label = held_out_group.txt contents, else the fold dir name."""
+    """Human label = held_out_group.txt contents, else the fold dir name.
+
+    The in-dist splits carry no held_out_group.txt (the folds are random, not
+    keyed to a genus), so this falls back to fold_0 .. fold_4.
+    """
     f = os.path.join(folds_root, fold_name, "held_out_group.txt")
     if os.path.exists(f):
         with open(f) as fh:
@@ -148,9 +147,9 @@ def _kmer_corner_py(label_expr, fold_dir_expr):
 def write_single_fold_job(fold_name):
     label = fold_label(fold_name)
     fdir = os.path.join(folds_root, fold_name)
-    w = os.path.join(logs_dir, f"KMERFULL_fold_{fold_name}.sh")
+    w = os.path.join(logs_dir, f"KMERIND_fold_{fold_name}.sh")
     with open(w, 'w') as f:
-        header(f, f"KMERFULL_fold_{fold_name}")
+        header(f, f"KMERIND_fold_{fold_name}")
         f.write(_kmer_corner_py(f'"{label}"', f'"{fdir}"'))
     return w
 
@@ -163,20 +162,20 @@ def write_fold_array_job(fold_names):
     with open(dirs_file, 'w') as fh:
         fh.write("\n".join(os.path.join(folds_root, fn) for fn in fold_names) + "\n")
 
-    w = os.path.join(logs_dir, "KMERFULL_fold.sh")
+    w = os.path.join(logs_dir, "KMERIND_fold.sh")
     with open(w, 'w') as f:
-        header(f, "KMERFULL_fold", array=f"1-{len(fold_names)}")
+        header(f, "KMERIND_fold", array=f"1-{len(fold_names)}")
         f.write(f'LABEL=$(sed -n "${{SLURM_ARRAY_TASK_ID}}p" {labels_file})\n')
         f.write(f'FOLDDIR=$(sed -n "${{SLURM_ARRAY_TASK_ID}}p" {dirs_file})\n')
-        f.write('echo "k-mer FULL corner fold: $LABEL ($FOLDDIR)"\n\n')
+        f.write('echo "k-mer in-dist corner fold: $LABEL ($FOLDDIR)"\n\n')
         f.write(_kmer_corner_py('"$LABEL"', '"$FOLDDIR"'))
     return w
 
 
 def write_aggregate_job(dep):
-    w = os.path.join(logs_dir, "KMERFULL_aggregate.sh")
+    w = os.path.join(logs_dir, "KMERIND_aggregate.sh")
     with open(w, 'w') as f:
-        header(f, "KMERFULL_aggregate", dep=dep, time_lim="2:00:00")
+        header(f, "KMERIND_aggregate", dep=dep, time_lim="2:00:00")
         f.write(
             "python -c \""
             "from genophi.workflows import aggregate_predefined_folds; "
@@ -190,8 +189,9 @@ def write_aggregate_job(dep):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Submit FULL-dataset pure-k-mer corner LOGO nested-CV.")
-    ap.add_argument('--test-fold', metavar='FOLD', help="Submit only one fold (e.g. fold_Vibrio).")
+    ap = argparse.ArgumentParser(
+        description="Submit in-distribution corner nested-CV with pure k-mer features.")
+    ap.add_argument('--test-fold', metavar='FOLD', help="Submit only one fold (e.g. fold_0).")
     args = ap.parse_args()
 
     os.makedirs(logs_dir, exist_ok=True)
@@ -206,12 +206,12 @@ def main():
         if args.test_fold not in fold_names:
             raise SystemExit(f"--test-fold '{args.test_fold}' not found. Available: {fold_names}")
         fid = submit(write_single_fold_job(args.test_fold))
-        print(f"test k-mer FULL corner fold '{args.test_fold}': {fid}")
+        print(f"test k-mer in-dist fold '{args.test_fold}': {fid}")
         print(f"result: {folds_out_dir}/<label>/model_validation/predict_results/")
         return
 
     arr_id = submit(write_fold_array_job(fold_names))
-    print(f"k-mer FULL corner array: {arr_id} (1-{len(fold_names)})")
+    print(f"k-mer in-dist array: {arr_id} (1-{len(fold_names)})")
     agg_id = submit(write_aggregate_job(dep=arr_id))
     print(f"aggregate: {agg_id}")
     print(f"\n=== Submitted. results -> {base_output_dir}/performance/ ===")
