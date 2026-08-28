@@ -23,9 +23,13 @@ Scripts live in `<repo>/workflows/multioutput/`:
    Performance comes only from `--mode cv`.
 3. **Never run step 2 or 3 if step 1 did not report `READY`.** `submit_run.py`
    enforces this; do not reach for `--skip_prepare_check` to get past it.
-4. **Always `--dry_run` first** and show the user the generated SLURM script
-   before a real submission. These runs cost hundreds of core-hours.
+4. **Always `--dry_run` first** for cluster submissions, and show the user the
+   generated SLURM script before submitting. These runs cost hundreds of
+   core-hours. (`--dry_run` applies to `--executor slurm`; a local run just
+   starts, so state the expected fold/fit count first instead.)
 5. **Output to cluster scratch, never `$HOME`.**
+6. **Never invent a SLURM `--account`.** Allocations are per-project. Ask the
+   user for theirs, or use `--executor local`.
 
 ## Step 0 — verify the environment
 
@@ -83,10 +87,35 @@ Guidance for the flags:
 
 ## Step 2 — cross-validation
 
+Pick an executor first. **Ask the user which they want if it is not obvious** —
+do not default to a cluster they may not have access to.
+
 ```bash
+# locally: no allocation needed, serial, safe to interrupt and resume
 python submit_run.py --prepared_dir <prepared dir> --mode cv \
-    --strategy independent --output_dir <scratch>/<name>_cv --dry_run
+    --strategy independent --executor local --output_dir <dir>_cv
+
+# on a cluster: needs an allocation
+python submit_run.py --prepared_dir <prepared dir> --mode cv \
+    --strategy independent --output_dir <scratch>/<name>_cv \
+    --account <user's allocation> --dry_run
 ```
+
+CV is `n_folds × n_targets` model fits. Estimate before recommending: a 10-fold,
+5-target run on 69 genomes took ~17 hours serially. Under ~50 samples and ~3
+targets, local is reasonable; above that, recommend a cluster.
+
+**`--account` has no default and you must not invent one.** Allocations are
+per-project and an account from an example will be rejected. If the user has not
+given you theirs, ask, and tell them how to find it:
+`sacctmgr show associations user=$USER format=Account,Partition,QOS`
+(on Lawrencium, `lrc-associations -u $USER`). Never copy an account out of the
+README, this file, or a previous run.
+
+If the run is on a cluster, the prepared directory must be **transferred there
+first**, and `--prepared_dir` must point at the remote copy — the path is baked
+into the generated SLURM scripts. The prepared directory is self-contained, so
+`rsync -avP <prepared_dir> <host>:<dest>/` is sufficient.
 
 `independent` is the default; use `joint` only when the user asks for it or
 wants a benchmark. Job count is `n_folds × n_targets` (+1) for independent and
@@ -131,7 +160,13 @@ against deploying; proceed only if the user still wants the model.
 
 ```bash
 python submit_run.py --prepared_dir <prepared dir> --mode final \
-    --strategy independent --output_dir <scratch>/<name>_final
+    --strategy independent --output_dir <scratch>/<name>_final \
+    --account <user's allocation>
+
+# or locally -- one fit per target, much cheaper than CV, often practical
+# even when CV was not
+python submit_run.py --prepared_dir <prepared dir> --mode final \
+    --strategy independent --executor local --output_dir <dir>_final
 ```
 
 Models land in `<output_dir>/<target>/modeling_results/cutoff_<n>/run_*/`.
@@ -161,6 +196,8 @@ enable it in both.
 | `Missing required features` at predict | model predates the sibling-strip fix | retrain; do not patch the feature table |
 | Stage C never starts | a Stage B task failed, `afterok` unsatisfied | read `logs/train_*.err`, resubmit to the **same** `--output_dir` |
 | Job hit walltime | under-resourced | resubmit to the same `--output_dir`; completed cells skip |
+| `Invalid account` / `Invalid qos` from sbatch | wrong or unowned allocation | ask the user for their account; do not guess |
+| Local run: `No such file or directory` on the prepared dir | path is local but the run is remote (or vice versa) | transfer the prepared dir and point at the copy that exists where the job runs |
 
 Runs are resumable: the same `--output_dir` skips completed fold/target cells.
 Resubmitting is almost always right; starting a fresh directory throws away work.

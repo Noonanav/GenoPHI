@@ -86,12 +86,23 @@ pip install -e ~/software/GenoPHI-multioutput
 > `python -c "import genophi; print(genophi.__file__)"` — it must print a path
 > inside your worktree. If it does not, nothing below will behave as documented.
 
-**3. Cluster access**, if your dataset is more than ~50 samples. CV is
-`n_folds × n_targets` independent training jobs; a 10-fold, 5-target run is 50.
-On LRC the group scratch is the right output location — **never write run output
-to `$HOME`**, it will fill your quota.
+**3. Somewhere to run it.** You have two options, and the workflow supports
+both through `--executor`:
 
----
+| | `--executor local` | `--executor slurm` |
+|---|---|---|
+| Runs | here, in your shell, one fold at a time | as cluster jobs, folds in parallel |
+| Needs | nothing extra | a SLURM allocation |
+| Good for | small datasets, smoke tests, a first look | anything real |
+
+Cross-validation is `n_folds × n_targets` independent model fits. A 10-fold,
+2-target run is 20 fits; a 10-fold, 5-target run on 69 genomes previously took
+about **17 hours** serially. Rough guidance: under ~50 samples and ~3 targets,
+local is fine; above that, use a cluster.
+
+Both executors call the **same functions** — local is not a reduced pipeline, it
+is the same computation without the parallelism, so results are directly
+comparable.
 
 ## Step 1 — prepare and validate inputs
 
@@ -187,6 +198,18 @@ python submit_run.py \
 Add `--dry_run` to write the SLURM scripts without submitting — always do this
 once and read the generated script before committing a few hundred core-hours.
 
+To run it here instead, with no cluster and no allocation:
+
+```bash
+python submit_run.py \
+    --prepared_dir prepared/msp_binary \
+    --mode cv --executor local \
+    --output_dir runs/msp_cv
+```
+
+Local runs print per-fold progress and elapsed time. **Interrupting is safe** —
+completed folds are skipped when you re-run into the same `--output_dir`.
+
 Per fold, the pipeline rebuilds the k-mer feature table **from the training
 genomes only**, runs feature selection and ensemble modelling, then assigns and
 predicts the held-out genomes. Held-out samples never touch feature selection,
@@ -232,6 +255,53 @@ with a CSV of `strain,group`. Folds become leave-one-group-out and the fold coun
 is the number of groups. Joint and independent use identical splits, so
 `diff` the two runs' `cv_splits.csv` to prove it.
 
+### Running on a cluster
+
+**`--account` is required and has no default.** SLURM allocations are
+per-project, and you can only charge one you belong to — the account in someone
+else's example will be rejected. To find yours:
+
+```bash
+sacctmgr show associations user=$USER format=Account,Partition,QOS
+# on Lawrencium:
+lrc-associations -u $USER
+```
+
+Then pass it, along with a partition and QOS your allocation permits:
+
+```bash
+--account <your_project> --partition lr7 --qos lr_normal
+```
+
+Running without `--account` prints these instructions rather than guessing.
+
+**Your inputs must be where the compute is.** The prepared directory is
+self-contained (a phenotype CSV, a `genomes/` directory, `targets.txt`), so
+copying it across is all that is needed:
+
+```bash
+PREP=<local>/prepared/<dataset>
+REMOTE=<user>@<transfer-host>:/global/scratch/users/<user>/<project>/prepared/
+
+ssh <user>@<transfer-host> "mkdir -p /global/scratch/users/<user>/<project>/prepared"
+rsync -avP "$PREP" "$REMOTE"          # no trailing slash: creates prepared/<dataset>/
+```
+
+On Lawrencium the transfer host is `lrc-xfer.lbl.gov`; submit from the login
+node. Then point `--prepared_dir` at the **remote** copy — the paths are baked
+into the generated SLURM scripts, so a local path will not resolve on a compute
+node.
+
+Bring the results back the same way; the summaries are small:
+
+```bash
+rsync -avP <user>@<transfer-host>:<output_dir>/cv_performance/ ./cv_performance/
+rsync -avP <user>@<transfer-host>:<output_dir>/cv_predictions.csv ./
+```
+
+The per-fold directories are large and rarely needed off-cluster — pull them
+only if you intend to re-analyse folds individually.
+
 ### Reading the results
 
 ```
@@ -273,6 +343,10 @@ python submit_run.py \
     --strategy independent \
     --output_dir /global/scratch/users/$USER/msp_final
 ```
+
+Add `--executor local` to run it here instead. Final training is a single fit
+per target, so it is far cheaper than CV — often practical locally even when CV
+was not.
 
 This trains on **all** samples and writes one model directory per target:
 `<output_dir>/<target>/modeling_results/cutoff_<n>/run_*/`, plus
@@ -355,7 +429,7 @@ detection metrics.
 
 | Flag | Default here | Notes |
 |---|---|---|
-| `--min_features` | `3` | GenoPHI's own default is 5, which **silently** drops folds on small datasets: feature selection yields 1–4 stable features, every cutoff table is rejected, no model is trained, and no error is raised. 3 is safe under ~150 samples. |
+| `--min_features` | `3` | **Independent strategy only** — the joint fold runner has no such knob. GenoPHI's own default is 5, which **silently** drops folds on small datasets: feature selection yields 1–4 stable features, every cutoff table is rejected, no model is trained, and no error is raised. 3 is safe under ~150 samples. |
 | `--k` | `5` | Protein k-mer size. 5 is what every validated run used. |
 | `--num_runs_fs` | `25` | Feature-selection repeats. Lower only for smoke tests. |
 | `--num_runs_modeling` | `50` | Ensemble size. Lower only for smoke tests. |
@@ -396,7 +470,17 @@ Every one of these has cost someone a run.
     joint-vs-independent comparison measures something other than what you
     think. Step 1 warns; the interpretation is yours.
 11. **Output to scratch, never `$HOME`.**
-12. **A rare target can be all-one-value inside a fold**, which crashes
+12. **`--account` is not portable.** Allocations are per-project; an account
+    copied from someone else's command will be rejected. There is deliberately
+    no default.
+13. **`--prepared_dir` must be a path that exists on the compute node.** It is
+    written into the SLURM scripts verbatim. Transfer the prepared directory
+    first and point at the remote copy.
+14. **`genophi multioutput-cv` cannot express every run.** The CLI subcommand
+    accepts neither `--min_features` nor `--group_metadata`, so it cannot do a
+    small-n or a phylogenetic-fold run. `submit_run.py --executor local` calls
+    the underlying functions directly and does not have that limitation.
+15. **A rare target can be all-one-value inside a fold**, which crashes
     `MultiLogloss`. Handled by `drop_single_class_columns`, but it is why a
     target can vanish from some folds and why `n_samples_<target>` shrinks.
 
