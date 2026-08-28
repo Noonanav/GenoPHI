@@ -27,6 +27,7 @@ Example
 import argparse
 import json
 import os
+import shutil
 import sys
 from collections import defaultdict
 
@@ -176,6 +177,34 @@ def check_target_independence(df, targets, rep):
     return findings
 
 
+def resolve_from_dir(ids, faa_dir, suffix, rep, already):
+    """Fall back to a curated directory of per-sample FASTAs.
+
+    Not every genome is in the manifest -- curated or unreleased genomes often
+    live in a project directory. Anything found here is used only for samples the
+    manifest could not resolve, so the manifest stays authoritative.
+    """
+    rep.head(f'Local genome directory: {faa_dir}')
+    if not os.path.isdir(faa_dir):
+        rep.error(f'not a directory: {faa_dir}')
+        return {}
+    found = {}
+    for sid in ids:
+        if sid in already:
+            continue
+        for ext in (suffix, 'faa', 'fasta', 'fa', 'gbk'):
+            cand = os.path.join(faa_dir, f'{sid}.{ext}')
+            if os.path.exists(cand):
+                found[sid] = cand
+                break
+    if found:
+        rep.ok(f'{len(found)} sample(s) resolved here that the manifest lacked: '
+               f'{sorted(found)}')
+    else:
+        rep.say('  nothing additional found here')
+    return found
+
+
 def resolve_genomes(ids, manifest_path, host_pattern, rep):
     """Map each sample id to one genome file using the manifest.
 
@@ -184,6 +213,9 @@ def resolve_genomes(ids, manifest_path, host_pattern, rep):
     ``Latest == 'latest'`` up front silently discards usable genomes.
     """
     rep.head(f'Manifest: {manifest_path}')
+    if str(manifest_path).lower() == 'none':
+        rep.say('  skipped (--manifest none)')
+        return {}, {'unresolved': list(ids), 'missing_on_disk': []}
     if not os.path.exists(manifest_path):
         rep.error(f'manifest not found: {manifest_path}')
         return {}, {}
@@ -263,9 +295,14 @@ def extract_faa(resolved, out_dir, rep, force=False):
         if os.path.exists(dest) and not force:
             skipped.append(sid)
             continue
+        if gpath.endswith(('.faa', '.fasta', '.fa')):
+            # Already protein FASTA -- copy it under the sample's name.
+            shutil.copyfile(gpath, dest)
+            written.append(sid)
+            continue
         if not gpath.endswith(('.gbk', '.gb', '.genbank', '.gbff')):
-            rep.warn(f"'{sid}' genome is not GenBank ({os.path.basename(gpath)}); "
-                     'cannot extract translations')
+            rep.warn(f"'{sid}' genome is not GenBank or protein FASTA "
+                     f'({os.path.basename(gpath)}); cannot use')
             empty.append(sid)
             continue
         records = []
@@ -330,7 +367,13 @@ def main():
     ap.add_argument('--output_dir', required=True,
                     help='Where prepared inputs and the report are written')
     ap.add_argument('--manifest', default=DEFAULT_MANIFEST,
-                    help='phage_genomes manifest.tsv')
+                    help="phage_genomes manifest.tsv, or 'none' to use only "
+                         '--faa_source_dir')
+    ap.add_argument('--faa_source_dir', default=None,
+                    help='Directory of curated per-sample genome files '
+                         '(<sample>.faa / .fasta / .gbk), used for samples the '
+                         'manifest cannot resolve. Many projects keep genomes '
+                         'that are not in the manifest.')
     ap.add_argument('--host_pattern', default='',
                     help="Case-insensitive substring to filter manifest Host "
                          "(e.g. 'yco' for Mycobacterium + Mycolicibacterium). "
@@ -367,6 +410,12 @@ def main():
 
     ids = list(df[args.sample_column])
     resolved, gaps = resolve_genomes(ids, args.manifest, args.host_pattern, rep)
+    n_from_manifest = len(resolved)
+    if args.faa_source_dir:
+        resolved.update(resolve_from_dir(ids, args.faa_source_dir, args.suffix,
+                                         rep, resolved))
+        rep.say(f'  sources: {n_from_manifest} from manifest, '
+                f'{len(resolved) - n_from_manifest} from {args.faa_source_dir}')
 
     dropped = sorted(set(ids) - set(resolved))
     if dropped:
