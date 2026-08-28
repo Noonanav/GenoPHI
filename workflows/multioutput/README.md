@@ -402,39 +402,117 @@ Every one of these has cost someone a run.
 
 ---
 
-## Worked example: Mycobacterium Msp dominance
+## Worked example: E. coli receptor prediction (published)
 
-93 phages, 2 binary targets, `Binary_table_only_Msp.csv`.
+The reference run: **255 phages, 14 receptor targets**, 10-fold CV, both
+strategies. This is the analysis behind the manuscript, and the numbers below are
+what a run that worked looks like.
+
+Inputs (paths as used on LRC, where the run executed):
+
+| | |
+|---|---|
+| Phage proteomes | `LRC/TnSeq_phage_AAs/` — 255 per-phage `.faa` |
+| Label matrix | `LRC/tables/255_phages/phage_target_summary_pivot_updated.csv` — 255 × 14 binary |
+| Clade folds (optional) | `cv_plots/phylo/groups/peq_groups_thr075_min10.csv`, `…thr09_min10.csv` |
+
+with `LRC/` = `/global/scratch/users/anoonan/EDGE/target_modeling/`.
+
+```bash
+# 1. prepare
+python prepare_inputs.py \
+    --phenotype_table  $LRC/tables/255_phages/phage_target_summary_pivot_updated.csv \
+    --sample_column    phage \
+    --host_pattern     oli \
+    --output_dir       prepared/ecoli_receptors
+
+# 2. cross-validate, both strategies into separate directories
+python submit_run.py --prepared_dir prepared/ecoli_receptors \
+    --mode cv --strategy independent --output_dir $LRC/cv_independent
+python submit_run.py --prepared_dir prepared/ecoli_receptors \
+    --mode cv --strategy joint       --output_dir $LRC/cv_joint_multilabel
+
+# 3. compare them on equal coverage
+genophi benchmark --joint_out $LRC/cv_joint_multilabel \
+                  --independent_out $LRC/cv_independent \
+                  --output benchmark_receptors.csv
+
+# 4. final deployable models
+python submit_run.py --prepared_dir prepared/ecoli_receptors \
+    --mode final --strategy independent --output_dir $LRC/final_models
+```
+
+### What the results looked like
+
+Per-receptor, pooled over the 10 held-out folds (`joint` strategy), alongside the
+independent run's MCC:
+
+| Receptor | AUC | AUPR | MCC (joint) | MCC (indep) | Δ (J−I) |
+|---|---|---|---|---|---|
+| tsx | 1.000 | 1.000 | 1.000 | 0.967 | +0.033 |
+| NGR | 1.000 | 1.000 | 1.000 | 1.000 | 0.000 |
+| ompC | 1.000 | 1.000 | 1.000 | 0.970 | +0.030 |
+| Kdo | 0.996 | 0.967 | 0.942 | 0.942 | 0.000 |
+| HepI | 0.978 | 0.949 | 0.923 | 0.941 | −0.018 |
+| btuB | 0.980 | 0.949 | 0.911 | 0.927 | −0.015 |
+| fhuA | 0.985 | 0.932 | 0.870 | 0.870 | 0.000 |
+| ompF | 0.998 | 0.938 | 0.853 | 0.853 | 0.000 |
+| GluI | 0.914 | 0.876 | 0.812 | 0.735 | +0.077 |
+| ompA | 0.993 | 0.866 | 0.708 | 0.768 | −0.060 |
+| yncD | 0.995 | 0.750 | 0.704 | 0.704 | 0.000 |
+| lptD | 0.861 | 0.689 | 0.728 | 0.659 | +0.069 |
+| **HepII** | 0.807 | 0.444 | 0.444 | 0.247 | **+0.197** |
+| **lamB** | 0.783 | 0.229 | 0.279 | 0.538 | **−0.258** |
+
+Aggregate: joint micro-F1 0.903 / macro-F1 0.791 / subset-accuracy 0.839 /
+Hamming 0.015; independent 0.892 / 0.798 / 0.824 / 0.017. Every receptor has
+`n_samples = 255` in both runs and `n_complete_samples = 255`, so these two
+aggregates *are* comparable — which is not usually the case.
+
+Three things to take from this table:
+
+1. **Most receptors are highly predictable** from k-mer features alone — nine of
+   fourteen above MCC 0.85.
+2. **Joint and independent are a wash**: mean MCC difference **+0.004** across
+   the fourteen. Neither strategy dominates.
+3. **The two largest differences are both on sparse receptors and point in
+   opposite directions** — HepII (5 positives) is rescued by joint modelling,
+   lamB (6 positives) is diluted by it. So the joint/independent choice is
+   *receptor-specific* and depends on whether a target's signal correlates with
+   its co-targets, not simply on how rare it is. Do not assume joint rescues
+   sparse targets.
+
+Compare against a run that did **not** work — the same pipeline on 69
+Mycobacterium phages returned AUC 0.46–0.65 with mostly negative MCC, while
+fitting its training data at macro-F1 1.0. Same code, same parameters; the
+difference is n = 255 versus n = 69.
+
+### Second example: Mycobacterium Msp dominance
+
+A smaller, live dataset — 93 phages, 2 binary targets:
 
 ```bash
 DATA=/usr2/people/anoonan/BRaVE/resources/genome_data/mycobacterium/CRISPRi/data
 
-# 1. prepare  (L5 has no genome anywhere -> dropped, 92 remain)
 python prepare_inputs.py \
     --phenotype_table $DATA/Binary_table_only_Msp.csv \
     --sample_column Phages --host_pattern yco \
     --output_dir $DATA/prepared/msp_binary \
     --allow_missing_genomes
 
-# 2. cross-validate on LRC
 python submit_run.py --prepared_dir $DATA/prepared/msp_binary \
     --mode cv --strategy independent \
     --output_dir /global/scratch/users/$USER/msp_cv
-
-# 3. final models, only if step 2 looked real
-python submit_run.py --prepared_dir $DATA/prepared/msp_binary \
-    --mode final --strategy independent \
-    --output_dir /global/scratch/users/$USER/msp_final
 ```
 
-Step 1 reports what you would want to know: 93 ids, 92 resolved, `L5` absent
-from the manifest, `FM` present in the manifest but unphenotyped, and a warning
-that `Msp_FALSE_dom`'s 25 positives are a strict subset of `Msp_TRUE_dom`'s 38 —
-so these two targets are not independent evidence of anything.
+Step 1 reports what you want to know before spending anything: 93 ids, 92
+resolved, `L5` absent from the manifest entirely, `FM` in the manifest but
+unphenotyped, and a warning that `Msp_FALSE_dom`'s 25 positives are a strict
+subset of `Msp_TRUE_dom`'s 38 — so those two targets are not independent
+evidence of anything.
 
-At n = 92 this dataset sits in the range where the E. coli/Mycobacterium
-comparison says to expect weak generalisation. Treat the CV result as the
-finding, whichever way it comes out.
+At n = 92 this sits in the range where the E. coli/Mycobacterium contrast says
+to expect weak generalisation. Treat whatever CV returns as the finding.
 
 ---
 
