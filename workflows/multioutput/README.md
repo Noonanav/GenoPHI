@@ -18,6 +18,7 @@ estimate of how well those labels can be predicted from genome sequence, and
 
 | File | Purpose |
 |---|---|
+| `reshape_matrix.py` | Step 0 — turn a raw assay matrix into the samples-as-rows layout (skip if already in that shape) |
 | `prepare_inputs.py` | Step 1 — validate the phenotype table, resolve genomes via the manifest, extract protein FASTAs |
 | `submit_run.py` | Steps 2 and 3 — submit cross-validation (`--mode cv`) or final model training (`--mode final`) |
 | `SKILL.md` | The same workflow written for an AI agent |
@@ -25,9 +26,13 @@ estimate of how well those labels can be predicted from genome sequence, and
 
 ---
 
-## The three steps
+## The four steps
 
 ```
+    raw assay matrix (genes x samples, controls, gaps)
+              │
+        [0]   reshape_matrix.py     (skip if already samples-as-rows)
+              │
     phenotype table (.csv)                genome manifest
               \                                 /
                \                               /
@@ -103,6 +108,38 @@ local is fine; above that, use a cluster.
 Both executors call the **same functions** — local is not a reduced pipeline, it
 is the same computation without the parallelism, so results are directly
 comparable.
+
+## Step 0 — reshape a raw assay matrix
+
+Skip this if your table already has **one row per genome and one column per
+target**. Assay exports usually do not.
+
+RB-TnSeq and CRISPRi tables typically arrive as **genes in rows, samples in
+columns** — the transpose of what the modeling code wants — plus non-sample
+columns (media controls, blanks), free-text target names, and gaps.
+
+```bash
+python reshape_matrix.py \
+    --input        20260710_PA14_s_pos.csv \
+    --samples_in   columns \
+    --drop_samples LB \
+    --output       pa14_fitness.csv
+```
+
+`--samples_in` is required and has no default. It is the one thing the script
+cannot safely infer, and getting it wrong silently produces a matrix of genomes
+that do not exist.
+
+| Flag | What it handles |
+|---|---|
+| `--samples_in {rows,columns}` | orientation; `columns` transposes |
+| `--drop_samples LB,control` | non-genome columns. The script also warns about likely controls it recognises (`LB`, `blank`, `mock`, …) |
+| `--fillna 0` | missing cells. Regression needs a dense matrix; `0` means "no confident effect", the right reading for low-coverage cells. `--fillna error` refuses instead |
+| `--top_n_targets N --top_by max` | keep the N most responsive targets. Use `max`, not `absmax` — `absmax` surfaces single extreme *negative* outliers rather than the responders you care about |
+| target name sanitisation | on by default. Independent modeling creates **one directory per target**, so `MSMEG5483 \| \| MspA family porin` would become a path. Originals are preserved in `<output>_target_names.csv` |
+
+The script reports the reshaped dimensions, the value range, and how
+zero-inflated the matrix is — and if it is, it tells you which metrics to use.
 
 ## Step 1 — prepare and validate inputs
 
@@ -422,6 +459,62 @@ zero, a few strong responders — and that breaks the obvious metrics:
 
 `--strong_top_frac` (default 0.2) sets what fraction counts as "strong" for the
 detection metrics.
+
+**Use `joint` for regression, not `independent`.** Fitness targets are usually
+many and highly correlated, and both facts point the same way: joint shares
+strength across correlated targets, and it is one model instead of
+`n_folds × n_targets`. With 73 targets, independent 10-fold CV is **730** jobs;
+joint is 10.
+
+`--target_mode` is set to `multitarget` automatically when `--task_type
+regression` is passed, so `MultiRMSE` is used rather than a classification loss.
+
+### Worked example: Pseudomonas RB-TnSeq fitness
+
+37 phages profiled against 73 PA14 genes — pilus, flagellar and LPS
+biosynthesis loci. The raw export is genes-as-rows with an `LB` media control
+column.
+
+```bash
+python reshape_matrix.py --input 20260710_PA14_s_pos.csv \
+    --samples_in columns --drop_samples LB --output pa14_fitness.csv
+
+python prepare_inputs.py --phenotype_table pa14_fitness.csv \
+    --sample_column phage --task_type regression \
+    --host_pattern seudomon --output_dir prepared/pa14_fitness \
+    --allow_missing_genomes
+
+python submit_run.py --prepared_dir prepared/pa14_fitness \
+    --mode cv --strategy joint --task_type regression \
+    --output_dir <scratch>/pa14_cv --account <your_project>
+```
+
+What the preparation steps report, and why each matters:
+
+- **37 → 36 samples.** `JBD30` is not in the manifest under any spelling; there
+  is no near-match. It is dropped and named.
+- **7 phages had multiple manifest rows**, resolved by `Latest`. This is the case
+  the `Latest` column exists for — unlike the Mycobacterium set, where every
+  phage has exactly one row and blank `Latest` values must be ignored.
+- **73 target names sanitised**, e.g. `IKLFDK_00745_pilus assembly protein PilE`
+  → `IKLFDK_00745_pilus_assembly_protein_PilE`, with the originals kept in the
+  name map.
+- **59% of cells within ±1 of zero, 25% above |4|** — textbook zero-inflated.
+  Report detection metrics, not R².
+
+**Before running it, know what the data can support.** Two principal components
+explain **92%** of the variance across all 73 targets (one explains 63%), and
+31% of target pairs correlate above |r| = 0.8. So this is not 73 independent
+phenotypes — it is roughly **two or three**, almost certainly
+pilus-dependent versus flagellum/LPS-dependent entry. That is an argument for
+joint modeling, and a caution against reading 73 per-target metrics as 73
+independent results.
+
+At n = 36 this is well below the n = 69 that produced chance-level performance
+on the Mycobacterium set. The favourable factors are the low effective
+dimensionality and a median of 8 strong responders per target (only 4 targets
+have just one, and are therefore unmeasurable). Run it, but treat a weak result
+as the expected outcome of the sample size rather than something to tune away.
 
 ---
 

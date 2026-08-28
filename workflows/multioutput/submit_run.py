@@ -422,6 +422,13 @@ def main():
     if args.executor == 'slurm' and not args.account:
         sys.exit(ACCOUNT_HELP)
 
+    # --target_mode defaults to multilabel, which is a classification mode. For
+    # regression the joint path needs multitarget (MultiRMSE); silently running
+    # a regression as multilabel would be a confusing failure.
+    if args.task_type == 'regression' and args.target_mode == 'multilabel':
+        args.target_mode = 'multitarget'
+        print("note: --task_type regression -> --target_mode multitarget\n")
+
     args.prepared_dir = os.path.abspath(args.prepared_dir)
     args.output_dir = os.path.abspath(args.output_dir)
     if args.group_metadata:

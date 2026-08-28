@@ -50,6 +50,29 @@ installed against the right directory, or `pip install -e <worktree>` into a new
 environment. Do not suggest `PYTHONPATH` as a workaround; it silently loads the
 wrong branch.
 
+## Step 0 — reshape a raw matrix (only if needed)
+
+Check the table's orientation before anything else. GenoPHI needs **one row per
+genome, one column per target**. Assay exports (RB-TnSeq, CRISPRi) are usually
+the transpose — genes as rows, samples as columns — and carry media-control
+columns such as `LB`.
+
+```bash
+python reshape_matrix.py --input <raw.csv> --samples_in {rows|columns} \
+    --drop_samples <controls> --output <clean.csv>
+```
+
+`--samples_in` has no default and cannot be inferred safely. **Determine it by
+looking at the file** — read the header and the first column and decide which
+holds genome names — and say which you concluded and why before running. Getting
+it wrong produces a matrix of genomes that do not exist.
+
+Also handle here: `--fillna 0` for gaps (regression needs a dense matrix; 0 means
+"no confident effect"), `--top_n_targets N --top_by max` to reduce target count
+(use `max`, not `absmax` — absmax surfaces extreme negatives), and target-name
+sanitisation, which is on by default because independent modeling turns each
+target name into a directory name.
+
 ## Step 1 — prepare inputs
 
 ```bash
@@ -143,6 +166,22 @@ Sample size dominates: the same pipeline reached AUC > 0.97 at n=255 and chance
 at n=69, while fitting the n=69 training data perfectly. If a result is at
 chance and n is small, the finding is the sample size — report it as a result,
 not a failure to be tuned away.
+
+### Regression strategy
+
+**Use `joint` for regression**, not independent. Fitness targets are typically
+many and highly correlated; joint shares strength across them and is one model
+per fold instead of `n_folds x n_targets`. With 73 targets, independent 10-fold
+CV is 730 jobs and joint is 10 — check the target count and state the job
+arithmetic before recommending independent for a regression.
+
+`--target_mode` becomes `multitarget` automatically under `--task_type
+regression`; do not pass a classification mode.
+
+Before running, check how many *independent* phenotypes the targets represent —
+a quick PCA or correlation summary. Highly correlated targets (e.g. two PCs
+explaining >90% of variance) mean per-target metrics are not independent
+results, and you must say so when reporting.
 
 ### Regression results
 
