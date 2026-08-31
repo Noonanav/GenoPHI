@@ -63,12 +63,15 @@ def main():
     # Model artefacts, in the k-mer workflow's layout (modeling/ subdir).
     best_cutoff = _select_best_cutoff_kmer(args.model)
     model_dir = os.path.join(args.model, 'modeling', 'modeling_results', str(best_cutoff))
-    feature_map = os.path.join(args.model, 'feature_tables', 'selected_features.csv')
+    # Per-axis feature maps. kmer_table_workflow writes these as sibling FILES; passing the
+    # strain map to the phage axis matches no pc_ features and yields an empty table.
+    strain_feature_map = os.path.join(args.model, 'feature_tables', 'selected_features.csv')
+    phage_feature_map = os.path.join(args.model, 'feature_tables', 'phage_selected_features.csv')
     select_feature_table = os.path.join(
         args.model, 'modeling', 'feature_selection', 'filtered_feature_tables',
         f'select_feature_table_{best_cutoff}.csv',
     )
-    for path in (model_dir, feature_map, select_feature_table):
+    for path in (model_dir, strain_feature_map, phage_feature_map, select_feature_table):
         if not os.path.exists(path):
             raise SystemExit(f"Model artefact missing: {path}")
     logging.info(f"Using cutoff {best_cutoff} ({model_dir}).")
@@ -80,14 +83,14 @@ def main():
     # Describe the OOD genomes in the model's k-mer feature vocabulary.
     logging.info("Assigning predictive k-mers to OOD phages...")
     phage_features = _assign_kmer_features(
-        args.phage_dir, phages, feature_map, select_feature_table,
+        args.phage_dir, phages, phage_feature_map, select_feature_table,
         id_col='phage', source_prefix='p', suffix=args.suffix)
     phage_feature_path = os.path.join(args.output, 'phage_feature_table.csv')
     phage_features.to_csv(phage_feature_path, index=False)
 
     logging.info("Assigning predictive k-mers to OOD hosts...")
     strain_features = _assign_kmer_features(
-        args.host_dir, hosts, feature_map, select_feature_table,
+        args.host_dir, hosts, strain_feature_map, select_feature_table,
         id_col='strain', source_prefix='s', suffix=args.suffix)
     # run_prediction_workflow reads strain feature tables from input_dir.
     strain_features.to_csv(
