@@ -92,13 +92,20 @@ def main():
     strain_features = _assign_kmer_features(
         args.host_dir, hosts, strain_feature_map, select_feature_table,
         id_col='strain', source_prefix='s', suffix=args.suffix)
-    # run_prediction_workflow reads strain feature tables from input_dir.
+    # run_prediction_workflow picks its strain table with input_files[0] from an UNORDERED
+    # os.listdir over everything matching *_feature_table.csv. Writing the phage table into
+    # the same directory therefore makes the choice a coin flip: when listdir returned the
+    # phage table first it was used as the strain input and raised
+    # KeyError: "['strain'] not in index". Give the strain table its own directory, as the
+    # mmseqs path does with prediction_input/.
+    strain_input_dir = os.path.join(args.output, 'prediction_input')
+    os.makedirs(strain_input_dir, exist_ok=True)
     strain_features.to_csv(
-        os.path.join(args.output, 'strain_feature_table.csv'), index=False)
+        os.path.join(strain_input_dir, 'strain_feature_table.csv'), index=False)
 
     logging.info("Predicting host x phage grid...")
     run_prediction_workflow(
-        input_dir=args.output,
+        input_dir=strain_input_dir,
         phage_feature_table_path=phage_feature_path,
         model_dir=model_dir,
         output_dir=predict_output_dir,
