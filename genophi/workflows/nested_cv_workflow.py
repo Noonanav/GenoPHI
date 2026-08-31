@@ -1113,6 +1113,16 @@ def _assign_kmer_features(genome_dir, genome_ids, feature_map_file,
     fm = feature_map[feature_map['Feature'].isin(pred_features)]
     feature_to_kmers = fm.groupby('Feature')['Cluster_Label'].apply(list).to_dict()
 
+    # Fail loudly. With an empty map every genome gets an empty presence dict, and
+    # pd.DataFrame.from_dict(..., orient='index') then drops the index entirely -- yielding a
+    # header-only table, a "successful" workflow, and a completion marker that makes every
+    # resubmission a no-op.
+    if not feature_to_kmers:
+        raise ValueError(
+            f"no '{source_prefix}c_' features found in {feature_map_file}; "
+            f"{len(pred_features)} were expected from {predictive_feature_table}. "
+            "The wrong per-axis feature map was almost certainly passed.")
+
     rows = {}
     for gid in genome_ids:
         gpath = os.path.join(genome_dir, f"{gid}.{suffix}")
@@ -1298,7 +1308,11 @@ def run_corner_kmer_fold(
     # --- E. Corner prediction (substring k-mer assignment, both axes) ---
     best_cutoff = _select_best_cutoff_kmer(output_dir)
     model_dir = os.path.join(output_dir, 'modeling', 'modeling_results', str(best_cutoff))
-    feature_map = os.path.join(output_dir, 'feature_tables', 'selected_features.csv')
+    # Per-axis feature maps. kmer_table_workflow writes these as sibling FILES rather
+    # than in per-side directories (unlike the mmseqs path), so they must be selected
+    # explicitly -- passing one map for both axes silently yields an empty table.
+    strain_feature_map = os.path.join(output_dir, 'feature_tables', 'selected_features.csv')
+    phage_feature_map = os.path.join(output_dir, 'feature_tables', 'phage_selected_features.csv')
     select_feature_table = os.path.join(
         output_dir, 'modeling', 'feature_selection', 'filtered_feature_tables',
         f'select_feature_table_{best_cutoff}.csv',
@@ -1307,7 +1321,7 @@ def run_corner_kmer_fold(
     # Validation-phage k-mer feature table (held-out phages in model vocabulary).
     # Read from the resolved dir so val sequences match the training namespace.
     val_phage_features = _assign_kmer_features(
-        phage_dir, val_phages, feature_map, select_feature_table,
+        phage_dir, val_phages, phage_feature_map, select_feature_table,
         id_col='phage', source_prefix='p', suffix=suffix)
     val_phage_feature_path = os.path.join(output_dir, 'validation_phage_feature_table.csv')
     val_phage_features.to_csv(val_phage_feature_path, index=False)
@@ -1317,7 +1331,7 @@ def run_corner_kmer_fold(
     predict_output_dir = os.path.join(validation_output_dir, 'predict_results')
     os.makedirs(predict_output_dir, exist_ok=True)
     val_strain_features = _assign_kmer_features(
-        strain_dir, val_strains, feature_map, select_feature_table,
+        strain_dir, val_strains, strain_feature_map, select_feature_table,
         id_col='strain', source_prefix='s', suffix=suffix)
     val_strain_feature_path = os.path.join(validation_output_dir, 'strain_feature_table.csv')
     val_strain_features.to_csv(val_strain_feature_path, index=False)
